@@ -182,3 +182,52 @@ body {
 .versions {
   font-variant-numeric: tabular-nums;
 }
+
+.panel {
+  margin-bottom: 1.5rem;
+}
+
+.panel:last-child {
+  margin-bottom: 0;
+}
+
+.control {
+  margin-top: 0.85rem;
+}
+
+.control-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+}
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem;
+}
+
+.seg-btn {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.34rem 0.4rem;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.seg-btn:hover {
+  background: #262b38;
+}
+
+.seg-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}

@@ -1,13 +1,21 @@
 import { useEffect, useRef } from 'react'
 import { createScene, type SceneHandle } from './scene'
 import type { Structure } from '../core/types'
+import type { RenderOptions } from './renderOptions'
 
 /**
  * React wrapper that owns the lifetime of the Three.js scene. React manages the
- * DOM container and feeds in the current structure; everything inside the WebGL
- * canvas is plain Three.js so we keep full, framework-independent control.
+ * DOM container and feeds in the current structure and render options;
+ * everything inside the WebGL canvas is plain Three.js so we keep full,
+ * framework-independent control.
  */
-export function Viewer({ structure }: { structure: Structure | null }) {
+export function Viewer({
+  structure,
+  options
+}: {
+  structure: Structure | null
+  options: RenderOptions
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<SceneHandle | null>(null)
 
@@ -21,6 +29,10 @@ export function Viewer({ structure }: { structure: Structure | null }) {
       handleRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    handleRef.current?.setOptions(options)
+  }, [options])
 
   useEffect(() => {
     handleRef.current?.setStructure(structure)

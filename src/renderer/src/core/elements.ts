@@ -1,6 +1,6 @@
 /**
- * Element table (CPK-ish colors + covalent radii) and a heuristic that maps a
- * Tinker atom *name* to an element symbol.
+ * Element table (CPK-ish colors + covalent/van-der-Waals radii) and a heuristic
+ * that maps a Tinker atom *name* to an element symbol.
  *
  * Note: a Tinker .xyz file does not store the element directly — only an atom
  * name and a force-field type. The authoritative element comes from the force
@@ -13,39 +13,43 @@
 export interface ElementInfo {
   symbol: string
   color: number
-  /** Covalent radius in Angstrom. */
+  /** Covalent radius in Angstrom (used for ball-and-stick sizing). */
   covalentRadius: number
+  /** Van der Waals radius in Angstrom (used for spacefill). */
+  vdwRadius: number
 }
 
-const TABLE: Record<string, { color: number; covalentRadius: number }> = {
-  H: { color: 0xffffff, covalentRadius: 0.31 },
-  He: { color: 0xd9ffff, covalentRadius: 0.28 },
-  Li: { color: 0xcc80ff, covalentRadius: 1.28 },
-  B: { color: 0xffb5b5, covalentRadius: 0.84 },
-  C: { color: 0x909090, covalentRadius: 0.76 },
-  N: { color: 0x3050f8, covalentRadius: 0.71 },
-  O: { color: 0xff0d0d, covalentRadius: 0.66 },
-  F: { color: 0x90e050, covalentRadius: 0.57 },
-  Ne: { color: 0xb3e3f5, covalentRadius: 0.58 },
-  Na: { color: 0xab5cf2, covalentRadius: 1.66 },
-  Mg: { color: 0x8aff00, covalentRadius: 1.41 },
-  Al: { color: 0xbfa6a6, covalentRadius: 1.21 },
-  Si: { color: 0xf0c8a0, covalentRadius: 1.11 },
-  P: { color: 0xff8000, covalentRadius: 1.07 },
-  S: { color: 0xffff30, covalentRadius: 1.05 },
-  Cl: { color: 0x1ff01f, covalentRadius: 1.02 },
-  Ar: { color: 0x80d1e3, covalentRadius: 1.06 },
-  K: { color: 0x8f40d4, covalentRadius: 2.03 },
-  Ca: { color: 0x3dff00, covalentRadius: 1.76 },
-  Fe: { color: 0xe06633, covalentRadius: 1.32 },
-  Cu: { color: 0xc88033, covalentRadius: 1.32 },
-  Zn: { color: 0x7d80b0, covalentRadius: 1.22 },
-  Se: { color: 0xffa100, covalentRadius: 1.2 },
-  Br: { color: 0xa62929, covalentRadius: 1.2 },
-  I: { color: 0x940094, covalentRadius: 1.39 }
+type Entry = Omit<ElementInfo, 'symbol'>
+
+const TABLE: Record<string, Entry> = {
+  H: { color: 0xffffff, covalentRadius: 0.31, vdwRadius: 1.2 },
+  He: { color: 0xd9ffff, covalentRadius: 0.28, vdwRadius: 1.4 },
+  Li: { color: 0xcc80ff, covalentRadius: 1.28, vdwRadius: 1.82 },
+  B: { color: 0xffb5b5, covalentRadius: 0.84, vdwRadius: 1.85 },
+  C: { color: 0x909090, covalentRadius: 0.76, vdwRadius: 1.7 },
+  N: { color: 0x3050f8, covalentRadius: 0.71, vdwRadius: 1.55 },
+  O: { color: 0xff0d0d, covalentRadius: 0.66, vdwRadius: 1.52 },
+  F: { color: 0x90e050, covalentRadius: 0.57, vdwRadius: 1.47 },
+  Ne: { color: 0xb3e3f5, covalentRadius: 0.58, vdwRadius: 1.54 },
+  Na: { color: 0xab5cf2, covalentRadius: 1.66, vdwRadius: 2.27 },
+  Mg: { color: 0x8aff00, covalentRadius: 1.41, vdwRadius: 1.73 },
+  Al: { color: 0xbfa6a6, covalentRadius: 1.21, vdwRadius: 1.84 },
+  Si: { color: 0xf0c8a0, covalentRadius: 1.11, vdwRadius: 2.1 },
+  P: { color: 0xff8000, covalentRadius: 1.07, vdwRadius: 1.8 },
+  S: { color: 0xffff30, covalentRadius: 1.05, vdwRadius: 1.8 },
+  Cl: { color: 0x1ff01f, covalentRadius: 1.02, vdwRadius: 1.75 },
+  Ar: { color: 0x80d1e3, covalentRadius: 1.06, vdwRadius: 1.88 },
+  K: { color: 0x8f40d4, covalentRadius: 2.03, vdwRadius: 2.75 },
+  Ca: { color: 0x3dff00, covalentRadius: 1.76, vdwRadius: 2.31 },
+  Fe: { color: 0xe06633, covalentRadius: 1.32, vdwRadius: 2.0 },
+  Cu: { color: 0xc88033, covalentRadius: 1.32, vdwRadius: 1.4 },
+  Zn: { color: 0x7d80b0, covalentRadius: 1.22, vdwRadius: 1.39 },
+  Se: { color: 0xffa100, covalentRadius: 1.2, vdwRadius: 1.9 },
+  Br: { color: 0xa62929, covalentRadius: 1.2, vdwRadius: 1.85 },
+  I: { color: 0x940094, covalentRadius: 1.39, vdwRadius: 1.98 }
 }
 
-const DEFAULT = { color: 0xff1493, covalentRadius: 0.75 }
+const DEFAULT: Entry = { color: 0xff1493, covalentRadius: 0.75, vdwRadius: 1.7 }
 
 export function elementInfo(symbol: string): ElementInfo {
   return { symbol, ...(TABLE[symbol] ?? DEFAULT) }
