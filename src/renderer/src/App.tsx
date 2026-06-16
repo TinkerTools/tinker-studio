@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Viewer } from './viewer/Viewer'
 import { parseTinkerXyz } from './core/parseXyz'
 import type { Structure } from './core/types'
@@ -22,6 +22,12 @@ export default function App() {
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [options, setOptions] = useState<RenderOptions>(DEFAULT_RENDER_OPTIONS)
+
+  // Under the headless screenshot harness, load the example automatically.
+  useEffect(() => {
+    if (window.ffe?.captureMode) handleExample()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleOpen(): Promise<void> {
     setError(null)

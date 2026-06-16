@@ -1,18 +1,22 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import type { Structure } from '../core/types'
 import { elementInfo } from '../core/elements'
 import { DEFAULT_RENDER_OPTIONS, type RenderOptions, type Representation } from './renderOptions'
+import { createImpostorSpheres } from './impostorSpheres'
 
 /**
  * The Three.js viewport core. Intentionally "ours": no molecular viewer library,
- * just our own scene on top of Three.js / WebGL so every aspect of the rendering
- * is customizable.
+ * just our own scene on top of Three.js / WebGL.
  *
- * Atoms and bonds are drawn with InstancedMesh (one draw call each), which scales
- * to large systems. Representation and color come from RenderOptions. GPU impostor
- * spheres/cylinders and post-processing (SSAO, outlines) are the next rendering
- * upgrade and will slot in behind this same interface.
+ * Atoms are drawn as GPU impostor spheres (see impostorSpheres.ts); bonds as
+ * instanced cylinders or lines. A small post-processing pipeline (SMAA + sRGB
+ * output) keeps edges crisp. SSAO/outlines and impostor cylinders are the next
+ * additions and slot in behind this same interface.
  */
 
 export interface SceneHandle {
@@ -22,40 +26,37 @@ export interface SceneHandle {
 }
 
 interface RepSpec {
-  /** Sphere radius for an atom given its van der Waals radius. */
   atomRadius: (vdw: number) => number
   bond: 'cylinder' | 'line' | 'none'
   bondRadius: number
-  sphereDetail: number
 }
 
 function repSpec(rep: Representation): RepSpec {
   switch (rep) {
     case 'spacefill':
-      return { atomRadius: (vdw) => vdw, bond: 'none', bondRadius: 0, sphereDetail: 32 }
+      return { atomRadius: (vdw) => vdw, bond: 'none', bondRadius: 0 }
     case 'sticks':
-      return { atomRadius: () => 0.2, bond: 'cylinder', bondRadius: 0.2, sphereDetail: 16 }
+      return { atomRadius: () => 0.2, bond: 'cylinder', bondRadius: 0.2 }
     case 'wireframe':
-      return { atomRadius: () => 0.12, bond: 'line', bondRadius: 0, sphereDetail: 12 }
+      return { atomRadius: () => 0.12, bond: 'line', bondRadius: 0 }
     case 'ball-and-stick':
     default:
-      return {
-        atomRadius: (vdw) => Math.max(vdw * 0.3, 0.25),
-        bond: 'cylinder',
-        bondRadius: 0.1,
-        sphereDetail: 20
-      }
+      return { atomRadius: (vdw) => Math.max(vdw * 0.3, 0.25), bond: 'cylinder', bondRadius: 0.1 }
   }
 }
 
 export function createScene(container: HTMLElement): SceneHandle {
-  const renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  const pixelRatio = Math.min(window.devicePixelRatio, 2)
+  const renderer = new THREE.WebGLRenderer({ antialias: false })
+  renderer.setPixelRatio(pixelRatio)
   renderer.setSize(container.clientWidth, container.clientHeight)
   renderer.setClearColor(0x12141a, 1)
   container.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
+  // Use a managed scene background so it round-trips correctly through the
+  // post-processing sRGB OutputPass (a raw clear color gets brightened).
+  scene.background = new THREE.Color(0x12141a)
   const camera = new THREE.PerspectiveCamera(50, aspectOf(container), 0.1, 5000)
   camera.position.set(0, 0, 30)
 
@@ -63,6 +64,8 @@ export function createScene(container: HTMLElement): SceneHandle {
   controls.enableDamping = true
   controls.dampingFactor = 0.08
 
+  // Lights drive the (standard-material) bonds; impostor spheres use their own
+  // matched view-space shading.
   scene.add(new THREE.AmbientLight(0xffffff, 0.55))
   const key = new THREE.DirectionalLight(0xffffff, 1.3)
   key.position.set(5, 10, 7)
@@ -70,6 +73,14 @@ export function createScene(container: HTMLElement): SceneHandle {
   const fill = new THREE.DirectionalLight(0x9bb0ff, 0.35)
   fill.position.set(-6, -3, -4)
   scene.add(fill)
+
+  // Post-processing: render -> SMAA antialiasing -> sRGB output.
+  const composer = new EffectComposer(renderer)
+  composer.addPass(new RenderPass(scene, camera))
+  composer.addPass(new SMAAPass())
+  composer.addPass(new OutputPass())
+  composer.setPixelRatio(pixelRatio)
+  composer.setSize(container.clientWidth, container.clientHeight)
 
   let structure: Structure | null = null
   let options: RenderOptions = DEFAULT_RENDER_OPTIONS
@@ -91,6 +102,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     const h = container.clientHeight
     if (w === 0 || h === 0) return
     renderer.setSize(w, h)
+    composer.setSize(w, h)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
   }
@@ -100,7 +112,7 @@ export function createScene(container: HTMLElement): SceneHandle {
   let raf = 0
   const tick = (): void => {
     controls.update()
-    renderer.render(scene, camera)
+    composer.render()
     raf = requestAnimationFrame(tick)
   }
   tick()
@@ -120,6 +132,7 @@ export function createScene(container: HTMLElement): SceneHandle {
       resizeObserver.disconnect()
       controls.dispose()
       if (molecule) disposeGroup(molecule)
+      composer.dispose()
       renderer.dispose()
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement)
@@ -136,7 +149,6 @@ function buildMolecule(structure: Structure, options: RenderOptions): THREE.Grou
   const group = new THREE.Group()
   const spec = repSpec(options.representation)
 
-  // Resolve a color (as a 0xRRGGBB number) for each atom.
   const atomColors = structure.atoms.map((atom) =>
     options.colorMode === 'uniform' ? options.uniformColor : elementInfo(atom.element).color
   )
@@ -154,29 +166,28 @@ function buildMolecule(structure: Structure, options: RenderOptions): THREE.Grou
   return group
 }
 
-function buildAtoms(structure: Structure, atomColors: number[], spec: RepSpec): THREE.InstancedMesh {
-  const geometry = new THREE.SphereGeometry(1, spec.sphereDetail, spec.sphereDetail)
-  const material = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.0 })
-  const mesh = new THREE.InstancedMesh(geometry, material, structure.atoms.length)
-  const dummy = new THREE.Object3D()
+function buildAtoms(structure: Structure, atomColors: number[], spec: RepSpec): THREE.Mesh {
+  const n = structure.atoms.length
+  const centers = new Float32Array(n * 3)
+  const radii = new Float32Array(n)
+  const colors = new Float32Array(n * 3)
   const color = new THREE.Color()
 
   structure.atoms.forEach((atom, i) => {
-    const radius = spec.atomRadius(elementInfo(atom.element).vdwRadius)
-    dummy.position.set(atom.x, atom.y, atom.z)
-    dummy.quaternion.identity()
-    dummy.scale.setScalar(radius)
-    dummy.updateMatrix()
-    mesh.setMatrixAt(i, dummy.matrix)
-    mesh.setColorAt(i, color.set(atomColors[i]))
+    centers[i * 3] = atom.x
+    centers[i * 3 + 1] = atom.y
+    centers[i * 3 + 2] = atom.z
+    radii[i] = spec.atomRadius(elementInfo(atom.element).vdwRadius)
+    color.set(atomColors[i]) // linear rgb
+    colors[i * 3] = color.r
+    colors[i * 3 + 1] = color.g
+    colors[i * 3 + 2] = color.b
   })
-  mesh.instanceMatrix.needsUpdate = true
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-  return mesh
+
+  return createImpostorSpheres({ centers, radii, colors, count: n })
 }
 
-// Each bond is drawn as two half-cylinders so it takes the color of the nearer
-// atom (the classic CPK split bond).
+// Each bond is two half-cylinders so it takes the color of the nearer atom.
 function buildCylinderBonds(
   structure: Structure,
   atomColors: number[],

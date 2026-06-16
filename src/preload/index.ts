@@ -18,6 +18,8 @@ const api = {
     chrome: process.versions.chrome,
     node: process.versions.node
   },
+  /** True only under the headless screenshot harness (FFE_CAPTURE set). */
+  captureMode: Boolean(process.env['FFE_CAPTURE']),
   /** Prompt the user for a Tinker file; resolves to its contents, or null if cancelled. */
   openStructure: (): Promise<OpenedFile | null> => ipcRenderer.invoke('structure:open')
 }

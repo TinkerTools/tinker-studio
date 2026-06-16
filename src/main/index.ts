@@ -1,7 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
-import { join } from 'path'
-import { readFile } from 'fs/promises'
-import { basename } from 'path'
+import { join, basename } from 'path'
+import { readFile, writeFile } from 'fs/promises'
 
 /**
  * Electron main process.
@@ -44,6 +43,25 @@ function createWindow(): void {
     mainWindow.loadURL(devUrl)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+
+  // Headless screenshot harness (dev/verification only): when FFE_CAPTURE points
+  // at a path, the renderer auto-loads the example, we wait for it to render, grab
+  // the window to a PNG, and quit. Lets us verify rendering without a person at
+  // the screen. No effect during normal use.
+  const capturePath = process.env['FFE_CAPTURE']
+  if (capturePath) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(async () => {
+        try {
+          const image = await mainWindow.webContents.capturePage()
+          await writeFile(capturePath, image.toPNG())
+        } catch (e) {
+          console.error('capture failed:', e)
+        }
+        app.quit()
+      }, 4000)
+    })
   }
 }
 
