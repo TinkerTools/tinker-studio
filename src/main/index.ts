@@ -19,6 +19,7 @@ function buildApplicationMenu(): void {
       label: 'File',
       submenu: [
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
+        { label: 'Save Structure As…', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save') },
         { label: 'Load Example', click: () => sendMenu('loadExample') },
         {
           label: 'Download',
@@ -41,6 +42,7 @@ function buildApplicationMenu(): void {
       submenu: [
         { label: 'Modeling Commands…', click: () => sendMenu('commands') },
         { label: 'Keyword Reference…', click: () => sendMenu('keywords') },
+        { label: 'Open Key File…', click: () => sendMenu('openKey') },
         { type: 'separator' },
         { label: 'Set Tinker Directory…', click: () => sendMenu('setTinkerDir') }
       ]
@@ -258,6 +260,15 @@ function registerIpcHandlers(): void {
     if (r.canceled || !r.filePath) return null
     await writeFile(r.filePath, req.contents, 'utf8')
     return r.filePath
+  })
+
+  // Open any text file (e.g. a .key file) and return its path + contents.
+  ipcMain.handle('file:openText', async () => {
+    const r = await dialog.showOpenDialog({ title: 'Open File', properties: ['openFile'] })
+    if (r.canceled || r.filePaths.length === 0) return null
+    const path = r.filePaths[0]
+    const text = await readFile(path, 'utf8')
+    return { path, name: basename(path), text }
   })
 }
 

@@ -11,6 +11,7 @@ import {
 } from './core/system'
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
+import { writeTinkerXyz } from './core/writeXyz'
 import { AtomBrowser } from './AtomBrowser'
 import { CommandsModal } from './CommandsModal'
 import { KeywordsModal } from './KeywordsModal'
@@ -49,6 +50,7 @@ export default function App() {
   const [picks, setPicks] = useState<PickResult[]>([])
   const [modal, setModal] = useState<'commands' | 'keywords' | null>(null)
   const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
+  const [keyText, setKeyText] = useState('')
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
@@ -143,6 +145,24 @@ export default function App() {
     setSystems((prev) => [...prev, merged])
     setActiveId(merged.id)
     setVisibleIds(new Set([merged.id]))
+  }
+
+  function handleSave(): void {
+    if (!active) return
+    const base = active.name.replace(/\s*\(.*\)$/, '').replace(/\.[^./\\]*$/, '') || 'structure'
+    void window.ffe.saveTextFile(`${base}.xyz`, writeTinkerXyz(active.structure))
+  }
+
+  async function handleOpenKey(): Promise<void> {
+    setError(null)
+    try {
+      const file = await window.ffe.openTextFile()
+      if (!file) return
+      setKeyText(file.text)
+      setModal('keywords')
+    } catch (e) {
+      setError(messageOf(e))
+    }
   }
 
   // The displayed position of a picked atom — tracks the current trajectory frame
@@ -261,7 +281,11 @@ export default function App() {
     else if (action === 'download:nci') setDownloadSource('nci')
     else if (action === 'download:pdb') setDownloadSource('pdb')
     else if (action === 'commands') setModal('commands')
-    else if (action === 'keywords') setModal('keywords')
+    else if (action === 'keywords') {
+      setKeyText('')
+      setModal('keywords')
+    } else if (action === 'save') handleSave()
+    else if (action === 'openKey') void handleOpenKey()
     else if (action === 'setTinkerDir') {
       void window.ffe.settings.chooseTinkerDir().then((s) => setTinkerDir(s.tinkerDir))
     }
@@ -586,7 +610,9 @@ export default function App() {
       {modal === 'commands' && (
         <CommandsModal system={active} tinkerDir={tinkerDir} onClose={() => setModal(null)} />
       )}
-      {modal === 'keywords' && <KeywordsModal onClose={() => setModal(null)} />}
+      {modal === 'keywords' && (
+        <KeywordsModal initialText={keyText} onClose={() => setModal(null)} />
+      )}
     </div>
   )
 }

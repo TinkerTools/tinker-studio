@@ -84,7 +84,9 @@ const api = {
   },
   /** Save text (e.g. a .key file) to a user-chosen path; resolves to the path or null. */
   saveTextFile: (suggestedName: string, contents: string): Promise<string | null> =>
-    ipcRenderer.invoke('file:saveText', { suggestedName, contents })
+    ipcRenderer.invoke('file:saveText', { suggestedName, contents }),
+  /** Open any text file (e.g. a .key); resolves to its path/name/contents, or null. */
+  openTextFile: (): Promise<OpenedFile | null> => ipcRenderer.invoke('file:openText')
 }
 
 export type FFEApi = typeof api

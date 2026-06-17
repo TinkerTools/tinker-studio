@@ -6,9 +6,15 @@ import { keywordSections } from './data/tinkerCatalog'
  * original keywords.xml (30 sections, 338 keywords). Clicking a keyword appends
  * a line to the draft key file. Saving to a system's .key is a later step.
  */
-export function KeywordsModal({ onClose }: { onClose: () => void }) {
+export function KeywordsModal({
+  initialText,
+  onClose
+}: {
+  initialText?: string
+  onClose: () => void
+}) {
   const [query, setQuery] = useState('')
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(initialText ?? '')
   const q = query.trim().toLowerCase()
 
   const sections = useMemo(() => {
