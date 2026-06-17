@@ -77,6 +77,13 @@ export function KeywordsModal({ onClose }: { onClose: () => void }) {
               placeholder="# Tinker keyword file"
               spellCheck={false}
             />
+            <button
+              className="modal-btn primary kw-save"
+              disabled={!draft.trim()}
+              onClick={() => void window.ffe.saveTextFile('tinker.key', draft)}
+            >
+              Save Key File…
+            </button>
           </div>
         </div>
       </div>

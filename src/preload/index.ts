@@ -12,6 +12,36 @@ export interface OpenedFile {
   text: string
 }
 
+export interface AppSettings {
+  tinkerDir?: string
+}
+
+export interface JobRunRequest {
+  jobId: string
+  program: string
+  structurePath: string
+  extraArgs?: string[]
+  stdin?: string
+}
+
+export interface JobRunResult {
+  ok: boolean
+  commandLine?: string
+  error?: string
+}
+
+export interface JobOutput {
+  jobId: string
+  stream: 'stdout' | 'stderr'
+  chunk: string
+}
+
+export interface JobExit {
+  jobId: string
+  code: number | null
+  error?: string
+}
+
 const api = {
   versions: {
     electron: process.versions.electron,
@@ -33,7 +63,28 @@ const api = {
     const listener = (_event: IpcRendererEvent, action: string): void => callback(action)
     ipcRenderer.on('menu', listener)
     return () => ipcRenderer.removeListener('menu', listener)
-  }
+  },
+  settings: {
+    get: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
+    chooseTinkerDir: (): Promise<AppSettings> => ipcRenderer.invoke('settings:chooseTinkerDir')
+  },
+  job: {
+    run: (req: JobRunRequest): Promise<JobRunResult> => ipcRenderer.invoke('job:run', req),
+    cancel: (jobId: string): Promise<boolean> => ipcRenderer.invoke('job:cancel', jobId),
+    onOutput: (cb: (o: JobOutput) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, o: JobOutput): void => cb(o)
+      ipcRenderer.on('job:output', listener)
+      return () => ipcRenderer.removeListener('job:output', listener)
+    },
+    onExit: (cb: (e: JobExit) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, x: JobExit): void => cb(x)
+      ipcRenderer.on('job:exit', listener)
+      return () => ipcRenderer.removeListener('job:exit', listener)
+    }
+  },
+  /** Save text (e.g. a .key file) to a user-chosen path; resolves to the path or null. */
+  saveTextFile: (suggestedName: string, contents: string): Promise<string | null> =>
+    ipcRenderer.invoke('file:saveText', { suggestedName, contents })
 }
 
 export type FFEApi = typeof api

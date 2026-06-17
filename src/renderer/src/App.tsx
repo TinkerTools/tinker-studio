@@ -44,6 +44,7 @@ export default function App() {
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
   const [picks, setPicks] = useState<PickResult[]>([])
   const [modal, setModal] = useState<'commands' | 'keywords' | null>(null)
+  const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
@@ -71,13 +72,14 @@ export default function App() {
 
   type Parsed = ReturnType<typeof parseStructureFile>
 
-  function addSystem(parsed: Parsed, name: string): void {
+  function addSystem(parsed: Parsed, name: string, path?: string): void {
     const system: MolecularSystem = {
       id: nextSystemId(),
       name,
       fileType: parsed.fileType,
       structure: parsed.structure,
-      trajectory: parsed.trajectory
+      trajectory: parsed.trajectory,
+      path
     }
     setSystems((prev) => [...prev, system])
     setActiveId(system.id)
@@ -89,7 +91,7 @@ export default function App() {
     try {
       const file = await window.ffe.openStructure()
       if (!file) return
-      addSystem(parseStructureFile(file.text, file.name), file.name)
+      addSystem(parseStructureFile(file.text, file.name), file.name, file.path)
     } catch (e) {
       setError(messageOf(e))
     }
@@ -227,9 +229,17 @@ export default function App() {
     else if (action === 'download:pdb') setDownloadSource('pdb')
     else if (action === 'commands') setModal('commands')
     else if (action === 'keywords') setModal('keywords')
+    else if (action === 'setTinkerDir') {
+      void window.ffe.settings.chooseTinkerDir().then((s) => setTinkerDir(s.tinkerDir))
+    }
   }
   useEffect(() => {
     return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
+  }, [])
+
+  // Load the persisted Tinker directory on startup.
+  useEffect(() => {
+    void window.ffe?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
 
   // Reset playback and selection when the active system changes.
@@ -471,7 +481,7 @@ export default function App() {
       )}
 
       {modal === 'commands' && (
-        <CommandsModal fileType={active?.fileType} onClose={() => setModal(null)} />
+        <CommandsModal system={active} tinkerDir={tinkerDir} onClose={() => setModal(null)} />
       )}
       {modal === 'keywords' && <KeywordsModal onClose={() => setModal(null)} />}
     </div>

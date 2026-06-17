@@ -20,6 +20,8 @@ export interface MolecularSystem {
   structure: Structure
   /** Present for multi-frame archives (.arc). */
   trajectory?: Trajectory
+  /** Absolute path of the source file on disk, if it came from one (needed to run Tinker). */
+  path?: string
 }
 
 let counter = 0

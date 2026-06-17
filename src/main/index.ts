@@ -1,7 +1,9 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, Menu } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
-import { join, basename } from 'path'
+import { join, basename, dirname } from 'path'
 import { readFile, writeFile } from 'fs/promises'
+import { readFileSync, writeFileSync } from 'fs'
+import { spawn, type ChildProcess } from 'child_process'
 
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
@@ -38,7 +40,9 @@ function buildApplicationMenu(): void {
       label: 'Tinker',
       submenu: [
         { label: 'Modeling Commands…', click: () => sendMenu('commands') },
-        { label: 'Keyword Reference…', click: () => sendMenu('keywords') }
+        { label: 'Keyword Reference…', click: () => sendMenu('keywords') },
+        { type: 'separator' },
+        { label: 'Set Tinker Directory…', click: () => sendMenu('setTinkerDir') }
       ]
     },
     { role: 'viewMenu' },
@@ -110,6 +114,31 @@ function createWindow(): void {
   }
 }
 
+// Persisted settings (userData/settings.json).
+interface Settings {
+  tinkerDir?: string
+}
+function settingsFile(): string {
+  return join(app.getPath('userData'), 'settings.json')
+}
+function loadSettings(): Settings {
+  try {
+    return JSON.parse(readFileSync(settingsFile(), 'utf8')) as Settings
+  } catch {
+    return {}
+  }
+}
+function saveSettings(s: Settings): void {
+  try {
+    writeFileSync(settingsFile(), JSON.stringify(s, null, 2))
+  } catch (e) {
+    console.error('Failed to save settings:', e)
+  }
+}
+
+// Running Tinker jobs, keyed by an id chosen by the renderer.
+const jobs = new Map<string, ChildProcess>()
+
 /** Privileged operations exposed to the renderer over IPC. */
 function registerIpcHandlers(): void {
   // Show an open dialog and return the chosen file's path + text contents.
@@ -152,6 +181,83 @@ function registerIpcHandlers(): void {
     }
     const text = await response.text()
     return { text, format, name: q }
+  })
+
+  // Settings: report current, or prompt for the Tinker binary directory.
+  ipcMain.handle('settings:get', () => loadSettings())
+  ipcMain.handle('settings:chooseTinkerDir', async () => {
+    const r = await dialog.showOpenDialog({
+      title: 'Select the Tinker Binary Directory',
+      properties: ['openDirectory']
+    })
+    const s = loadSettings()
+    if (!r.canceled && r.filePaths[0]) {
+      s.tinkerDir = r.filePaths[0]
+      saveSettings(s)
+    }
+    return s
+  })
+
+  // Launch a Tinker program: spawn `<tinkerDir>/<program> <file> [args]` in the
+  // structure's directory, feed option answers to stdin, stream output back.
+  ipcMain.handle(
+    'job:run',
+    (
+      event,
+      req: {
+        jobId: string
+        program: string
+        structurePath: string
+        extraArgs?: string[]
+        stdin?: string
+      }
+    ) => {
+      const { jobId, program, structurePath, extraArgs = [], stdin } = req
+      const { tinkerDir } = loadSettings()
+      const exe = tinkerDir ? join(tinkerDir, program) : program
+      const cwd = structurePath ? dirname(structurePath) : undefined
+      const args = [structurePath ? basename(structurePath) : '', ...extraArgs].filter(
+        (a) => a !== ''
+      )
+      try {
+        const child = spawn(exe, args, { cwd })
+        jobs.set(jobId, child)
+        const send = (stream: 'stdout' | 'stderr', chunk: Buffer): void => {
+          event.sender.send('job:output', { jobId, stream, chunk: chunk.toString() })
+        }
+        child.stdout?.on('data', (d) => send('stdout', d))
+        child.stderr?.on('data', (d) => send('stderr', d))
+        child.on('error', (e) => {
+          event.sender.send('job:exit', { jobId, code: null, error: e.message })
+          jobs.delete(jobId)
+        })
+        child.on('close', (code) => {
+          event.sender.send('job:exit', { jobId, code })
+          jobs.delete(jobId)
+        })
+        if (stdin && child.stdin) {
+          child.stdin.write(stdin)
+          child.stdin.end()
+        }
+        return { ok: true, commandLine: `${exe} ${args.join(' ')}` }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    }
+  )
+
+  ipcMain.handle('job:cancel', (_e, jobId: string) => {
+    jobs.get(jobId)?.kill()
+    jobs.delete(jobId)
+    return true
+  })
+
+  // Save text (e.g. a composed .key file) to a user-chosen path.
+  ipcMain.handle('file:saveText', async (_e, req: { suggestedName: string; contents: string }) => {
+    const r = await dialog.showSaveDialog({ defaultPath: req.suggestedName })
+    if (r.canceled || !r.filePath) return null
+    await writeFile(r.filePath, req.contents, 'utf8')
+    return r.filePath
   })
 }
 
