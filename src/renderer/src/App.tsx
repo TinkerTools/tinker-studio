@@ -551,6 +551,66 @@ export default function App() {
           </section>
         )}
 
+        {active && (
+          <section className="panel">
+            <details className="atoms-disclosure">
+              <summary>Selection &amp; Measure</summary>
+              <SegmentedControl<PickLevel>
+                label="Pick level"
+                options={PICK_LEVELS}
+                value={pickLevel}
+                onChange={setPickLevel}
+              />
+              <div className="sel-actions">
+                <button className="mini-btn" onClick={selectAllAtoms}>
+                  Select all
+                </button>
+                <button className="mini-btn" onClick={() => setPicks([])} disabled={picks.length === 0}>
+                  Clear
+                </button>
+              </div>
+              <div className="seg">
+                {MEASURE_MODES.map((m) => (
+                  <button
+                    key={m.value}
+                    className={m.value === measureMode ? 'seg-btn active' : 'seg-btn'}
+                    onClick={() => setMeasureMode(m.value)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <div className="measure-info">
+                {picks.length === 0 ? (
+                  <span className="measure-hint">
+                    Click an atom; ⌘-click to add more, click empty space to clear.
+                  </span>
+                ) : (
+                  <div className="pick-chips">
+                    {picks.slice(0, 12).map((p, i) => (
+                      <span key={i} className="pick-chip">
+                        {p.name}
+                        {p.atomIndex + 1}
+                      </span>
+                    ))}
+                    {picks.length > 12 && <span className="pick-chip">+{picks.length - 12}</span>}
+                  </div>
+                )}
+                {measureResult ? (
+                  <div className="measure-result">{measureResult}</div>
+                ) : (
+                  measureMode !== 'inspect' &&
+                  picks.length > 0 && (
+                    <div className="measure-hint">
+                      Select {need} atoms for {measureMode} ({picks.length} selected)
+                    </div>
+                  )
+                )}
+              </div>
+            </details>
+          </section>
+        )}
+
         <section className="panel">
           <details className="atoms-disclosure">
             <summary>Display</summary>
@@ -597,95 +657,39 @@ export default function App() {
 
         {active && (
           <section className="panel">
-            <h2>Selection &amp; Measure</h2>
-            <SegmentedControl<PickLevel>
-              label="Pick level"
-              options={PICK_LEVELS}
-              value={pickLevel}
-              onChange={setPickLevel}
-            />
-            <div className="sel-actions">
-              <button className="mini-btn" onClick={selectAllAtoms}>
-                Select all
-              </button>
-              <button className="mini-btn" onClick={() => setPicks([])} disabled={picks.length === 0}>
-                Clear
-              </button>
-            </div>
-            <div className="seg">
-              {MEASURE_MODES.map((m) => (
-                <button
-                  key={m.value}
-                  className={m.value === measureMode ? 'seg-btn active' : 'seg-btn'}
-                  onClick={() => setMeasureMode(m.value)}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <div className="measure-info">
-              {picks.length === 0 ? (
-                <span className="measure-hint">
-                  Click an atom; ⌘-click to add more, click empty space to clear.
-                </span>
-              ) : (
-                <div className="pick-chips">
-                  {picks.slice(0, 12).map((p, i) => (
-                    <span key={i} className="pick-chip">
-                      {p.name}
-                      {p.atomIndex + 1}
-                    </span>
-                  ))}
-                  {picks.length > 12 && <span className="pick-chip">+{picks.length - 12}</span>}
-                </div>
-              )}
-              {measureResult ? (
-                <div className="measure-result">{measureResult}</div>
-              ) : (
-                measureMode !== 'inspect' &&
-                picks.length > 0 && (
-                  <div className="measure-hint">
-                    Select {need} atoms for {measureMode} ({picks.length} selected)
-                  </div>
-                )
-              )}
-            </div>
-          </section>
-        )}
-
-        {active && (
-          <section className="panel">
-            <h2>Move System</h2>
-            <label className="move-toggle">
-              <input
-                type="checkbox"
-                checked={moveMode}
-                onChange={(e) => setMoveMode(e.target.checked)}
-              />
-              Move <b>{active.name}</b> independently
-            </label>
-            {moveMode && (
-              <>
-                <SegmentedControl<'translate' | 'rotate'>
-                  label="Gizmo"
-                  options={MOVE_MODES}
-                  value={moveTransform}
-                  onChange={setMoveTransform}
+            <details className="atoms-disclosure">
+              <summary>Move System</summary>
+              <label className="move-toggle">
+                <input
+                  type="checkbox"
+                  checked={moveMode}
+                  onChange={(e) => setMoveMode(e.target.checked)}
                 />
-                <p className="move-hint">
-                  Drag the {moveTransform === 'translate' ? 'arrows' : 'rings'} to{' '}
-                  {moveTransform} this system; drag empty space to orbit the camera. Picking is
-                  paused while moving. Merge or Save bakes the placement into the coordinates.
-                </p>
-                <button
-                  className="mini-btn"
-                  onClick={resetActiveTransform}
-                  disabled={isIdentityTransform(active.transform)}
-                >
-                  Reset placement
-                </button>
-              </>
-            )}
+                Move <b>{active.name}</b> independently
+              </label>
+              {moveMode && (
+                <>
+                  <SegmentedControl<'translate' | 'rotate'>
+                    label="Gizmo"
+                    options={MOVE_MODES}
+                    value={moveTransform}
+                    onChange={setMoveTransform}
+                  />
+                  <p className="move-hint">
+                    Drag the {moveTransform === 'translate' ? 'arrows' : 'rings'} to{' '}
+                    {moveTransform} this system; drag empty space to orbit the camera. Picking is
+                    paused while moving. Merge or Save bakes the placement into the coordinates.
+                  </p>
+                  <button
+                    className="mini-btn"
+                    onClick={resetActiveTransform}
+                    disabled={isIdentityTransform(active.transform)}
+                  >
+                    Reset placement
+                  </button>
+                </>
+              )}
+            </details>
           </section>
         )}
       </aside>
