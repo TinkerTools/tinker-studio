@@ -8,9 +8,15 @@ import { keywordSections } from './data/tinkerCatalog'
  */
 export function KeywordsModal({
   initialText,
+  attachLabel,
+  onAttach,
   onClose
 }: {
   initialText?: string
+  /** Label for the attach-back button (shown only when onAttach is provided). */
+  attachLabel?: string
+  /** Called with the edited draft to write it back to a system's key. */
+  onAttach?: (text: string) => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -83,13 +89,20 @@ export function KeywordsModal({
               placeholder="# Tinker keyword file"
               spellCheck={false}
             />
-            <button
-              className="modal-btn primary kw-save"
-              disabled={!draft.trim()}
-              onClick={() => void window.ffe.saveTextFile('tinker.key', draft)}
-            >
-              Save Key File…
-            </button>
+            <div className="kw-actions">
+              {onAttach && (
+                <button className="modal-btn primary" onClick={() => onAttach(draft)}>
+                  {attachLabel ?? 'Attach to system'}
+                </button>
+              )}
+              <button
+                className="modal-btn ghost kw-save"
+                disabled={!draft.trim()}
+                onClick={() => void window.ffe.saveTextFile('tinker.key', draft)}
+              >
+                Save Key File…
+              </button>
+            </div>
           </div>
         </div>
       </div>

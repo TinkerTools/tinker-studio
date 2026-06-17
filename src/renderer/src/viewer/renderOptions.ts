@@ -18,7 +18,18 @@ export interface RenderOptions {
   showLabels: boolean
   /** Render only the selected atoms (and their bonds). */
   restrictToSelection: boolean
+  /**
+   * Camera field of view in degrees. Smaller = telephoto (far + flat), larger =
+   * wide angle (near + strong perspective). The subject's on-screen size is held
+   * constant as this changes; only the perspective distortion varies.
+   */
+  fov: number
 }
+
+/** Field-of-view range for the perspective control (degrees). */
+export const FOV_MIN = 15
+export const FOV_MAX = 90
+export const FOV_DEFAULT = 50
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   representation: 'ball-and-stick',
@@ -26,7 +37,8 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   uniformColor: 0xc8ccd4,
   showHydrogens: true,
   showLabels: false,
-  restrictToSelection: false
+  restrictToSelection: false,
+  fov: FOV_DEFAULT
 }
 
 export const REPRESENTATIONS: ReadonlyArray<{ value: Representation; label: string }> = [

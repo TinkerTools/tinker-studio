@@ -15,6 +15,35 @@ function adjacency(structure: Structure): number[][] {
 }
 
 /**
+ * Partition the structure into connected molecules (each a sorted list of
+ * 0-based atom indices) over the bond graph. Singleton atoms form their own
+ * group. Order follows first appearance so numbering stays stable.
+ */
+export function connectedComponents(structure: Structure): number[][] {
+  const adj = adjacency(structure)
+  const seen = new Set<number>()
+  const components: number[][] = []
+  for (let start = 0; start < structure.atoms.length; start++) {
+    if (seen.has(start)) continue
+    const comp: number[] = []
+    const stack = [start]
+    seen.add(start)
+    while (stack.length) {
+      const cur = stack.pop() as number
+      comp.push(cur)
+      for (const nb of adj[cur]) {
+        if (!seen.has(nb)) {
+          seen.add(nb)
+          stack.push(nb)
+        }
+      }
+    }
+    components.push(comp.sort((x, y) => x - y))
+  }
+  return components
+}
+
+/**
  * Expand a picked atom (0-based) to the set of atom indices implied by the pick
  * level: the atom itself, its whole residue, its connected molecule, or the
  * entire system.

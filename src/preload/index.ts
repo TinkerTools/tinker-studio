@@ -13,6 +13,9 @@ export interface OpenedFile {
   /** Force-field .prm contents auto-located from a sibling .key (structure opens only). */
   prmText?: string
   prmName?: string
+  /** Sibling Tinker .key file auto-located on open (name + contents). */
+  keyName?: string
+  keyText?: string
 }
 
 export interface AppSettings {

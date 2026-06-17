@@ -56,6 +56,8 @@ export interface SceneHandle {
     target: ManipTarget | null,
     onChange: ((systemId: string, transform: Transform) => void) | null
   ): void
+  /** Set the camera field of view (degrees), holding the subject's apparent size. */
+  setFov(fov: number): void
   dispose(): void
 }
 
@@ -375,6 +377,21 @@ export function createScene(container: HTMLElement): SceneHandle {
       manipCallback = onChange
       if (!target) controls.enabled = true
       applyManipulation()
+    },
+    setFov(fov): void {
+      if (!Number.isFinite(fov) || fov <= 0 || fov === camera.fov) return
+      // Move the camera along its view direction so the subject keeps the same
+      // on-screen size: dist * tan(fov/2) is held constant.
+      const dir = new THREE.Vector3().subVectors(camera.position, controls.target)
+      const dist = dir.length() || 1
+      const k = dist * Math.tan((camera.fov * Math.PI) / 360)
+      const newDist = k / Math.tan((fov * Math.PI) / 360)
+      camera.fov = fov
+      camera.position.copy(controls.target).addScaledVector(dir.normalize(), newDist)
+      camera.near = Math.max(newDist / 100, 0.01)
+      camera.far = newDist * 100
+      camera.updateProjectionMatrix()
+      controls.update()
     },
     dispose(): void {
       cancelAnimationFrame(raf)

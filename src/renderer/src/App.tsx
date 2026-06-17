@@ -29,6 +29,8 @@ import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
   COLOR_MODES,
+  FOV_MIN,
+  FOV_MAX,
   type RenderOptions,
   type Representation,
   type ColorMode
@@ -62,6 +64,7 @@ export default function App() {
   const [jobs, setJobs] = useState<JobRecord[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [keyEditTarget, setKeyEditTarget] = useState<string | null>(null)
   const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
   const [keyText, setKeyText] = useState('')
   const [moveMode, setMoveMode] = useState(false)
@@ -79,9 +82,15 @@ export default function App() {
   function addSystem(
     parsed: Parsed,
     name: string,
-    opts: { path?: string; ffName?: string; select?: boolean } = {}
+    opts: {
+      path?: string
+      ffName?: string
+      keyName?: string
+      keyText?: string
+      select?: boolean
+    } = {}
   ): void {
-    const { path, ffName, select = true } = opts
+    const { path, ffName, keyName, keyText, select = true } = opts
     const system: MolecularSystem = {
       id: nextSystemId(),
       name,
@@ -89,7 +98,9 @@ export default function App() {
       structure: parsed.structure,
       trajectory: parsed.trajectory,
       path,
-      ffName
+      ffName,
+      keyName,
+      keyText
     }
     setSystems((prev) => [...prev, system])
     // A selected system becomes active and visible; an unselected one (e.g. a
@@ -122,12 +133,17 @@ export default function App() {
       const file = await window.ffe.openStructure()
       if (!file) return
       const parsed = parseStructureFile(file.text, file.name)
+      const key = { keyName: file.keyName, keyText: file.keyText }
       // Auto-apply the force field found via a sibling .key's PARAMETERS line.
       if (file.prmText) {
         const structure = applyForceField(parsed.structure, parsePrm(file.prmText))
-        addSystem({ ...parsed, structure }, file.name, { path: file.path, ffName: file.prmName })
+        addSystem({ ...parsed, structure }, file.name, {
+          path: file.path,
+          ffName: file.prmName,
+          ...key
+        })
       } else {
-        addSystem(parsed, file.name, { path: file.path })
+        addSystem(parsed, file.name, { path: file.path, ...key })
       }
     } catch (e) {
       setError(messageOf(e))
@@ -255,6 +271,32 @@ export default function App() {
     } catch (e) {
       setError(messageOf(e))
     }
+  }
+
+  function setSystemKey(id: string, keyName: string | undefined, keyText: string): void {
+    setSystems((prev) => prev.map((s) => (s.id === id ? { ...s, keyName, keyText } : s)))
+  }
+
+  // Pick a .key file from disk and attach it to the active system.
+  async function handleAttachKey(): Promise<void> {
+    if (!active) return
+    setError(null)
+    try {
+      const file = await window.ffe.openTextFile()
+      if (!file) return
+      setSystemKey(active.id, file.name, file.text)
+    } catch (e) {
+      setError(messageOf(e))
+    }
+  }
+
+  // Open the keyword editor seeded with the active system's key; on attach it
+  // writes the edited text back to that system.
+  function handleEditKey(): void {
+    if (!active) return
+    setKeyText(active.keyText ?? '')
+    setKeyEditTarget(active.id)
+    setModal('keywords')
   }
 
   // Tinker jobs are owned here (not in the Commands modal) so their output is
@@ -651,6 +693,22 @@ export default function App() {
                 </>
               )}
             </dl>
+            {active.fileType !== 'arc' && active.fileType !== 'pdb' && (
+              <div className="key-row">
+                <span className="key-row-label">Key file</span>
+                <span className={active.keyName ? 'key-row-name' : 'key-row-name none'}>
+                  {active.keyName ?? '(none)'}
+                </span>
+                <div className="key-row-actions">
+                  <button className="mini-btn" onClick={() => void handleAttachKey()}>
+                    Attach…
+                  </button>
+                  <button className="mini-btn" onClick={handleEditKey}>
+                    Edit…
+                  </button>
+                </div>
+              </div>
+            )}
             <details className="atoms-disclosure">
               <summary>Atoms ({active.structure.atoms.length})</summary>
               <AtomBrowser system={active} selected={selectedInActive} onPick={pickFromList} />
@@ -815,6 +873,29 @@ export default function App() {
                 Only selection
               </label>
             </div>
+            <div className="control">
+              <span className="control-label">Perspective</span>
+              <div className="perspective-row">
+                <span className="perspective-end" title="Wide angle — camera close">
+                  ◗
+                </span>
+                <input
+                  className="perspective-slider"
+                  type="range"
+                  min={FOV_MIN}
+                  max={FOV_MAX}
+                  // Left = wide angle (large FOV); invert so the slider reads
+                  // near-to-far left-to-right.
+                  value={FOV_MIN + FOV_MAX - options.fov}
+                  onChange={(e) =>
+                    setOptions((o) => ({ ...o, fov: FOV_MIN + FOV_MAX - Number(e.target.value) }))
+                  }
+                />
+                <span className="perspective-end" title="Telephoto — camera far">
+                  ◓
+                </span>
+              </div>
+            </div>
           </details>
         </section>
 
@@ -902,7 +983,24 @@ export default function App() {
         />
       )}
       {modal === 'keywords' && (
-        <KeywordsModal initialText={keyText} onClose={() => setModal(null)} />
+        <KeywordsModal
+          initialText={keyText}
+          attachLabel={keyEditTarget ? 'Attach to system' : undefined}
+          onAttach={
+            keyEditTarget
+              ? (text) => {
+                  const sys = systems.find((s) => s.id === keyEditTarget)
+                  setSystemKey(keyEditTarget, sys?.keyName ?? 'tinker.key', text)
+                  setKeyEditTarget(null)
+                  setModal(null)
+                }
+              : undefined
+          }
+          onClose={() => {
+            setKeyEditTarget(null)
+            setModal(null)
+          }}
+        />
       )}
     </div>
   )

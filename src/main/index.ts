@@ -166,24 +166,30 @@ async function readIfExists(p: string): Promise<string | undefined> {
  */
 async function findAssociatedForceField(
   structurePath: string
-): Promise<{ prmText?: string; prmName?: string }> {
+): Promise<{ prmText?: string; prmName?: string; keyName?: string; keyText?: string }> {
   const dir = dirname(structurePath)
   const stem = basename(structurePath).replace(/\.[^.]*$/, '')
-  const keyText =
-    (await readIfExists(join(dir, `${stem}.key`))) ?? (await readIfExists(join(dir, 'tinker.key')))
-  if (!keyText) return {}
+  let keyName: string | undefined
+  let keyText = await readIfExists(join(dir, `${stem}.key`))
+  if (keyText != null) keyName = `${stem}.key`
+  else {
+    keyText = await readIfExists(join(dir, 'tinker.key'))
+    if (keyText != null) keyName = 'tinker.key'
+  }
+  if (keyText == null) return {}
+  const key = { keyName, keyText }
 
   const paramLine = keyText
     .split(/\r?\n/)
     .map((l) => l.trim())
     .find((l) => /^parameters\b/i.test(l))
-  if (!paramLine) return {}
+  if (!paramLine) return key
 
   let param = paramLine
     .replace(/^parameters\s+/i, '')
     .replace(/^"(.*)"$/, '$1')
     .trim()
-  if (!param || param.toLowerCase() === 'none') return {}
+  if (!param || param.toLowerCase() === 'none') return key
   if (!param.toLowerCase().endsWith('.prm')) param += '.prm'
 
   const fileName = basename(param)
@@ -201,9 +207,9 @@ async function findAssociatedForceField(
   ]
   for (const c of candidates) {
     const prmText = await readIfExists(c)
-    if (prmText) return { prmText, prmName: fileName }
+    if (prmText) return { prmText, prmName: fileName, ...key }
   }
-  return {}
+  return key
 }
 
 /** Privileged operations exposed to the renderer over IPC. */

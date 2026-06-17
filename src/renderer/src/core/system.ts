@@ -27,6 +27,10 @@ export interface MolecularSystem {
   rev?: number
   /** Name of the applied force-field .prm, if any. */
   ffName?: string
+  /** Attached Tinker .key file name, if any. */
+  keyName?: string
+  /** Attached Tinker .key file contents (may be empty). */
+  keyText?: string
   /** Rigid-body placement of this system in the scene (default: identity). */
   transform?: Transform
 }

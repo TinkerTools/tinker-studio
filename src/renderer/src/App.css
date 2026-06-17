@@ -680,11 +680,66 @@ body {
   color: var(--text-dim);
 }
 
+.perspective-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.perspective-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.perspective-end {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+}
+
+.key-row-label {
+  color: var(--text-dim);
+}
+
+.key-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.key-row-name.none {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.key-row-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.kw-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 /* Job Output window */
 .jobs-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1;
   gap: 0.6rem;
 }
 
@@ -739,6 +794,7 @@ body {
   flex-direction: column;
   gap: 0.5rem;
   min-height: 0;
+  flex: 1;
 }
 
 .job-meta {
@@ -772,8 +828,10 @@ body {
   color: #e0605a;
 }
 
-.job-log {
-  max-height: 50vh;
+.run-log.job-log {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .run-log {

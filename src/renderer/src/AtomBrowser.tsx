@@ -1,26 +1,27 @@
 import { useMemo, useState } from 'react'
 import type { MolecularSystem } from './core/system'
+import { connectedComponents } from './core/select'
 import { elementInfo } from './core/elements'
 
 /**
  * Browsable list of a system's atoms (the "hierarchy" from the original FFE).
- * For structures with residue info (PDB) it groups atoms into collapsible
- * residue nodes; otherwise it shows a flat list. Clicking an atom selects it
- * (used for highlighting and measurement).
+ * Structures with residue info (PDB) group into collapsible residue nodes;
+ * multi-molecule structures group into per-molecule nodes; everything else
+ * shows a flat list. Clicking an atom selects it (highlight + measurement).
  */
 
 type Atoms = MolecularSystem['structure']['atoms']
 
-interface ResidueGroup {
+interface AtomGroup {
   key: string
   label: string
   atomIndices: number[]
 }
 
-function groupByResidue(atoms: Atoms): ResidueGroup[] | null {
+function groupByResidue(atoms: Atoms): AtomGroup[] | null {
   if (!atoms.some((a) => a.residueSeq !== undefined)) return null
-  const map = new Map<string, ResidueGroup>()
-  const groups: ResidueGroup[] = []
+  const map = new Map<string, AtomGroup>()
+  const groups: AtomGroup[] = []
   atoms.forEach((a, i) => {
     const key = `${a.chain ?? ''}/${a.residueSeq ?? ''}/${a.residue ?? ''}`
     let group = map.get(key)
@@ -33,6 +34,18 @@ function groupByResidue(atoms: Atoms): ResidueGroup[] | null {
     group.atomIndices.push(i)
   })
   return groups
+}
+
+// Group atoms by connected molecule, but only when there are at least two
+// molecules (a single molecule stays a flat list).
+function groupByMolecule(system: MolecularSystem): AtomGroup[] | null {
+  const components = connectedComponents(system.structure)
+  if (components.length < 2) return null
+  return components.map((atomIndices, i) => ({
+    key: `mol-${i}`,
+    label: `Molecule ${i + 1}`,
+    atomIndices
+  }))
 }
 
 function elementColor(element: string): string {
@@ -49,13 +62,16 @@ export function AtomBrowser({
   onPick: (atomIndex: number, additive: boolean) => void
 }) {
   const atoms = system.structure.atoms
-  const groups = useMemo(() => groupByResidue(atoms), [atoms])
+  const groups = useMemo(
+    () => groupByResidue(atoms) ?? groupByMolecule(system),
+    [atoms, system]
+  )
 
   return (
     <div className="atom-scroll">
       {groups ? (
         groups.map((g) => (
-          <ResidueNode key={g.key} group={g} atoms={atoms} selected={selected} onPick={onPick} />
+          <GroupNode key={g.key} group={g} atoms={atoms} selected={selected} onPick={onPick} />
         ))
       ) : (
         <ul className="atom-list">
@@ -68,13 +84,13 @@ export function AtomBrowser({
   )
 }
 
-function ResidueNode({
+function GroupNode({
   group,
   atoms,
   selected,
   onPick
 }: {
-  group: ResidueGroup
+  group: AtomGroup
   atoms: Atoms
   selected: Set<number>
   onPick: (atomIndex: number, additive: boolean) => void

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { expandSelection } from './select'
+import { expandSelection, connectedComponents } from './select'
 import type { Structure } from './types'
 
 // Two disconnected diatomics: atoms 0-1 bonded, atoms 2-3 bonded.
@@ -33,5 +33,19 @@ describe('expandSelection', () => {
 
   it('residue level falls back to the atom when there is no residue info', () => {
     expect(expandSelection(twoMolecules, 0, 'residue')).toEqual([0])
+  })
+})
+
+describe('connectedComponents', () => {
+  it('splits a structure into its molecules', () => {
+    expect(connectedComponents(twoMolecules)).toEqual([
+      [0, 1],
+      [2, 3]
+    ])
+  })
+
+  it('treats an unbonded atom as its own component', () => {
+    const single: Structure = { title: 'one', atoms: [twoMolecules.atoms[0]], bonds: [] }
+    expect(connectedComponents(single)).toEqual([[0]])
   })
 })

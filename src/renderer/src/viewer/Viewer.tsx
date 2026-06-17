@@ -95,5 +95,9 @@ export function Viewer({
     )
   }, [manipKey, sceneKey])
 
+  useEffect(() => {
+    handleRef.current?.setFov(options.fov)
+  }, [options.fov])
+
   return <div className={pickingEnabled ? 'viewer picking' : 'viewer'} ref={containerRef} />
 }
