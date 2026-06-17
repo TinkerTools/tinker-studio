@@ -10,18 +10,16 @@ import { DEFAULT_RENDER_OPTIONS, type RenderOptions, type Representation } from 
 import { createImpostorSpheres } from './impostorSpheres'
 
 /**
- * The Three.js viewport core. Intentionally "ours": no molecular viewer library,
- * just our own scene on top of Three.js / WebGL.
- *
- * Atoms are drawn as GPU impostor spheres (see impostorSpheres.ts); bonds as
- * instanced cylinders or lines. A small post-processing pipeline (SMAA + sRGB
- * output) keeps edges crisp. SSAO/outlines and impostor cylinders are the next
- * additions and slot in behind this same interface.
+ * The Three.js viewport core. Atoms are GPU impostor spheres; bonds are
+ * instanced cylinders or lines. Geometry is built from a Structure, optionally
+ * overriding atom positions with a trajectory frame's coordinates (setFrame).
  */
 
 export interface SceneHandle {
   setStructure(structure: Structure | null): void
   setOptions(options: RenderOptions): void
+  /** Override atom positions with a trajectory frame (numAtoms*3), or null to reset. */
+  setFrame(coords: Float32Array | null): void
   dispose(): void
 }
 
@@ -50,19 +48,15 @@ export function createScene(container: HTMLElement): SceneHandle {
   const renderer = new THREE.WebGLRenderer({ antialias: false })
   renderer.setPixelRatio(pixelRatio)
   renderer.setSize(container.clientWidth, container.clientHeight)
-  renderer.setClearColor(0x12141a, 1)
   container.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
-  // Use a managed scene background so it round-trips correctly through the
-  // post-processing sRGB OutputPass (a raw clear color gets brightened).
   scene.background = new THREE.Color(0x12141a)
   const camera = new THREE.PerspectiveCamera(50, aspectOf(container), 0.1, 5000)
   camera.position.set(0, 0, 30)
 
-  // Trackball (not orbit) controls so the molecule can be tumbled freely in any
-  // direction — orbit controls lock at the poles, which blocks rotating a
-  // molecule "over the top".
+  // Trackball (not orbit) controls so the molecule tumbles freely in any
+  // direction — orbit controls lock at the poles.
   const controls = new TrackballControls(camera, renderer.domElement)
   controls.rotateSpeed = 3.0
   controls.zoomSpeed = 1.2
@@ -70,8 +64,6 @@ export function createScene(container: HTMLElement): SceneHandle {
   controls.staticMoving = false
   controls.dynamicDampingFactor = 0.15
 
-  // Lights drive the (standard-material) bonds; impostor spheres use their own
-  // matched view-space shading.
   scene.add(new THREE.AmbientLight(0xffffff, 0.55))
   const key = new THREE.DirectionalLight(0xffffff, 1.3)
   key.position.set(5, 10, 7)
@@ -80,7 +72,6 @@ export function createScene(container: HTMLElement): SceneHandle {
   fill.position.set(-6, -3, -4)
   scene.add(fill)
 
-  // Post-processing: render -> SMAA antialiasing -> sRGB output.
   const composer = new EffectComposer(renderer)
   composer.addPass(new RenderPass(scene, camera))
   composer.addPass(new SMAAPass())
@@ -90,6 +81,7 @@ export function createScene(container: HTMLElement): SceneHandle {
 
   let structure: Structure | null = null
   let options: RenderOptions = DEFAULT_RENDER_OPTIONS
+  let frameCoords: Float32Array | null = null
   let molecule: THREE.Group | null = null
 
   function rebuild(): void {
@@ -99,7 +91,7 @@ export function createScene(container: HTMLElement): SceneHandle {
       molecule = null
     }
     if (!structure || structure.atoms.length === 0) return
-    molecule = buildMolecule(structure, options)
+    molecule = buildMolecule(structure, options, frameCoords)
     scene.add(molecule)
   }
 
@@ -127,11 +119,16 @@ export function createScene(container: HTMLElement): SceneHandle {
   return {
     setStructure(next: Structure | null): void {
       structure = next
+      frameCoords = null
       rebuild()
       if (structure) frameCamera(structure, camera, controls)
     },
     setOptions(next: RenderOptions): void {
       options = next
+      rebuild()
+    },
+    setFrame(coords: Float32Array | null): void {
+      frameCoords = coords
       rebuild()
     },
     dispose(): void {
@@ -152,7 +149,18 @@ function aspectOf(el: HTMLElement): number {
   return el.clientHeight > 0 ? el.clientWidth / el.clientHeight : 1
 }
 
-function buildMolecule(structure: Structure, options: RenderOptions): THREE.Group {
+/** Position of atom i (0-based), from a trajectory frame if given, else the structure. */
+function atomPos(structure: Structure, coords: Float32Array | null, i: number): [number, number, number] {
+  if (coords) return [coords[i * 3], coords[i * 3 + 1], coords[i * 3 + 2]]
+  const a = structure.atoms[i]
+  return [a.x, a.y, a.z]
+}
+
+function buildMolecule(
+  structure: Structure,
+  options: RenderOptions,
+  coords: Float32Array | null
+): THREE.Group {
   const group = new THREE.Group()
   const spec = repSpec(options.representation)
 
@@ -160,20 +168,25 @@ function buildMolecule(structure: Structure, options: RenderOptions): THREE.Grou
     options.colorMode === 'uniform' ? options.uniformColor : elementInfo(atom.element).color
   )
 
-  group.add(buildAtoms(structure, atomColors, spec))
+  group.add(buildAtoms(structure, atomColors, spec, coords))
 
   if (structure.bonds.length > 0) {
     if (spec.bond === 'cylinder') {
-      group.add(buildCylinderBonds(structure, atomColors, spec.bondRadius))
+      group.add(buildCylinderBonds(structure, atomColors, spec.bondRadius, coords))
     } else if (spec.bond === 'line') {
-      group.add(buildLineBonds(structure, atomColors))
+      group.add(buildLineBonds(structure, atomColors, coords))
     }
   }
 
   return group
 }
 
-function buildAtoms(structure: Structure, atomColors: number[], spec: RepSpec): THREE.Mesh {
+function buildAtoms(
+  structure: Structure,
+  atomColors: number[],
+  spec: RepSpec,
+  coords: Float32Array | null
+): THREE.Mesh {
   const n = structure.atoms.length
   const centers = new Float32Array(n * 3)
   const radii = new Float32Array(n)
@@ -181,11 +194,12 @@ function buildAtoms(structure: Structure, atomColors: number[], spec: RepSpec): 
   const color = new THREE.Color()
 
   structure.atoms.forEach((atom, i) => {
-    centers[i * 3] = atom.x
-    centers[i * 3 + 1] = atom.y
-    centers[i * 3 + 2] = atom.z
+    const [x, y, z] = atomPos(structure, coords, i)
+    centers[i * 3] = x
+    centers[i * 3 + 1] = y
+    centers[i * 3 + 2] = z
     radii[i] = spec.atomRadius(elementInfo(atom.element).vdwRadius)
-    color.set(atomColors[i]) // linear rgb
+    color.set(atomColors[i])
     colors[i * 3] = color.r
     colors[i * 3 + 1] = color.g
     colors[i * 3 + 2] = color.b
@@ -198,7 +212,8 @@ function buildAtoms(structure: Structure, atomColors: number[], spec: RepSpec): 
 function buildCylinderBonds(
   structure: Structure,
   atomColors: number[],
-  radius: number
+  radius: number,
+  coords: Float32Array | null
 ): THREE.InstancedMesh {
   const geometry = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true)
   const material = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.0 })
@@ -223,10 +238,10 @@ function buildCylinderBonds(
   }
 
   structure.bonds.forEach((bond, k) => {
-    const a = structure.atoms[bond.a - 1]
-    const b = structure.atoms[bond.b - 1]
-    start.set(a.x, a.y, a.z)
-    end.set(b.x, b.y, b.z)
+    const [ax, ay, az] = atomPos(structure, coords, bond.a - 1)
+    const [bx, by, bz] = atomPos(structure, coords, bond.b - 1)
+    start.set(ax, ay, az)
+    end.set(bx, by, bz)
     mid.addVectors(start, end).multiplyScalar(0.5)
     placeHalf(k * 2, start, mid, atomColors[bond.a - 1])
     placeHalf(k * 2 + 1, end, mid, atomColors[bond.b - 1])
@@ -237,15 +252,19 @@ function buildCylinderBonds(
   return mesh
 }
 
-function buildLineBonds(structure: Structure, atomColors: number[]): THREE.LineSegments {
+function buildLineBonds(
+  structure: Structure,
+  atomColors: number[],
+  coords: Float32Array | null
+): THREE.LineSegments {
   const positions = new Float32Array(structure.bonds.length * 6)
   const colors = new Float32Array(structure.bonds.length * 6)
   const color = new THREE.Color()
 
   structure.bonds.forEach((bond, k) => {
-    const a = structure.atoms[bond.a - 1]
-    const b = structure.atoms[bond.b - 1]
-    positions.set([a.x, a.y, a.z, b.x, b.y, b.z], k * 6)
+    const [ax, ay, az] = atomPos(structure, coords, bond.a - 1)
+    const [bx, by, bz] = atomPos(structure, coords, bond.b - 1)
+    positions.set([ax, ay, az, bx, by, bz], k * 6)
     color.set(atomColors[bond.a - 1])
     colors.set([color.r, color.g, color.b], k * 6)
     color.set(atomColors[bond.b - 1])

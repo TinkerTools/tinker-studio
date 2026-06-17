@@ -209,6 +209,26 @@ body {
   color: #fff;
 }
 
+/* Trajectory controls */
+.traj-counter {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.5rem;
+}
+
+.traj-slider {
+  width: 100%;
+  margin-bottom: 0.6rem;
+  accent-color: var(--accent);
+}
+
+.traj-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.3rem;
+}
+
 /* Viewport */
 .viewport {
   position: relative;

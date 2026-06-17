@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseTinkerXyz } from './parseXyz'
+import { parseTinkerXyz, parseTinkerArc } from './parseXyz'
 
 const ETHANOL = `     9  Ethanol
      1  C     -1.745979    1.106694    1.225781    49     2     3     4     5
@@ -50,5 +50,25 @@ describe('parseTinkerXyz', () => {
 
   it('throws on an invalid header', () => {
     expect(() => parseTinkerXyz('not a number\n')).toThrow()
+  })
+})
+
+describe('parseTinkerArc', () => {
+  const ARC = `2  frame test
+1 C 0.0 0.0 0.0 1 2
+2 O 1.2 0.0 0.0 2 1
+2  frame test
+1 C 0.0 0.0 0.0 1 2
+2 O 1.5 0.0 0.0 2 1
+`
+
+  it('returns the first frame as a Structure and every frame of coordinates', () => {
+    const { structure, frames } = parseTinkerArc(ARC)
+    expect(structure.atoms).toHaveLength(2)
+    expect(structure.bonds).toHaveLength(1)
+    expect(frames).toHaveLength(2)
+    // The moving oxygen's x-coordinate differs between frames.
+    expect(frames[0][3]).toBeCloseTo(1.2)
+    expect(frames[1][3]).toBeCloseTo(1.5)
   })
 })

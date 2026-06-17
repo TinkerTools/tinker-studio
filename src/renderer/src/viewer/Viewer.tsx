@@ -4,17 +4,18 @@ import type { Structure } from '../core/types'
 import type { RenderOptions } from './renderOptions'
 
 /**
- * React wrapper that owns the lifetime of the Three.js scene. React manages the
- * DOM container and feeds in the current structure and render options;
- * everything inside the WebGL canvas is plain Three.js so we keep full,
- * framework-independent control.
+ * React wrapper that owns the lifetime of the Three.js scene. React feeds in the
+ * structure, render options, and (for trajectories) the current frame's
+ * coordinates; everything inside the WebGL canvas is plain Three.js.
  */
 export function Viewer({
   structure,
-  options
+  options,
+  frameCoords
 }: {
   structure: Structure | null
   options: RenderOptions
+  frameCoords: Float32Array | null
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<SceneHandle | null>(null)
@@ -34,9 +35,15 @@ export function Viewer({
     handleRef.current?.setOptions(options)
   }, [options])
 
+  // Setting the structure resets coordinates to the base frame and reframes the
+  // camera, so apply it before any frame override.
   useEffect(() => {
     handleRef.current?.setStructure(structure)
   }, [structure])
+
+  useEffect(() => {
+    if (frameCoords) handleRef.current?.setFrame(frameCoords)
+  }, [frameCoords])
 
   return <div className="viewer" ref={containerRef} />
 }

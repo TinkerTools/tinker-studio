@@ -11,21 +11,38 @@ import {
 } from './viewer/renderOptions'
 import ethanolSample from './samples/ethanol.xyz?raw'
 
+const PLAYBACK_FPS = 15
+
 /**
- * Root layout: a sidebar (loaded systems + active-system info + display
- * controls) beside the 3D viewport. File actions live in the native menu
- * (File ▸ Open… / Load Example / Close System), not an in-window toolbar.
+ * Root layout: a sidebar (loaded systems, active-system info, display controls,
+ * and trajectory playback) beside the 3D viewport. File actions live in the
+ * native menu (File ▸ Open… / Load Example / Close System).
  */
 export default function App() {
   const [systems, setSystems] = useState<MolecularSystem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [options, setOptions] = useState<RenderOptions>(DEFAULT_RENDER_OPTIONS)
   const [error, setError] = useState<string | null>(null)
+  const [frameIndex, setFrameIndex] = useState(0)
+  const [playing, setPlaying] = useState(false)
 
   const active = systems.find((s) => s.id === activeId) ?? null
+  const trajectory = active?.trajectory ?? null
+  const frameCount = trajectory?.frames.length ?? 0
+  const frameCoords = trajectory
+    ? trajectory.frames[Math.min(frameIndex, frameCount - 1)] ?? null
+    : null
 
-  function addSystem(structure: MolecularSystem['structure'], name: string, fileType: string): void {
-    const system: MolecularSystem = { id: nextSystemId(), name, fileType, structure }
+  type Parsed = ReturnType<typeof parseStructureFile>
+
+  function addSystem(parsed: Parsed, name: string): void {
+    const system: MolecularSystem = {
+      id: nextSystemId(),
+      name,
+      fileType: parsed.fileType,
+      structure: parsed.structure,
+      trajectory: parsed.trajectory
+    }
     setSystems((prev) => [...prev, system])
     setActiveId(system.id)
   }
@@ -35,8 +52,7 @@ export default function App() {
     try {
       const file = await window.ffe.openStructure()
       if (!file) return
-      const { structure, fileType } = parseStructureFile(file.text, file.name)
-      addSystem(structure, file.name, fileType)
+      addSystem(parseStructureFile(file.text, file.name), file.name)
     } catch (e) {
       setError(messageOf(e))
     }
@@ -45,8 +61,7 @@ export default function App() {
   function handleExample(): void {
     setError(null)
     try {
-      const { structure, fileType } = parseStructureFile(ethanolSample, 'ethanol.xyz')
-      addSystem(structure, 'ethanol.xyz (example)', fileType)
+      addSystem(parseStructureFile(ethanolSample, 'ethanol.xyz'), 'ethanol.xyz (example)')
     } catch (e) {
       setError(messageOf(e))
     }
@@ -61,8 +76,7 @@ export default function App() {
     })
   }
 
-  // Route native-menu actions to handlers. A ref keeps the subscription stable
-  // while always calling the latest closures (avoids stale state).
+  // Route native-menu actions to handlers via a ref (stable subscription, fresh closures).
   const menuHandlerRef = useRef<(action: string) => void>(() => {})
   menuHandlerRef.current = (action: string): void => {
     if (action === 'open') void handleOpen()
@@ -72,6 +86,21 @@ export default function App() {
   useEffect(() => {
     return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
   }, [])
+
+  // Reset playback when the active system changes.
+  useEffect(() => {
+    setFrameIndex(0)
+    setPlaying(false)
+  }, [activeId])
+
+  // Trajectory playback loop.
+  useEffect(() => {
+    if (!playing || frameCount === 0) return
+    const id = window.setInterval(() => {
+      setFrameIndex((f) => (f + 1) % frameCount)
+    }, 1000 / PLAYBACK_FPS)
+    return () => window.clearInterval(id)
+  }, [playing, frameCount])
 
   // Under the headless screenshot harness, load the example automatically (once).
   const autoLoadedRef = useRef(false)
@@ -92,7 +121,8 @@ export default function App() {
           <h2>Systems</h2>
           {systems.length === 0 ? (
             <p className="placeholder">
-              No systems loaded. Use <b>File ▸ Open…</b> for a Tinker <code>.xyz</code> file, or
+              No systems loaded. Use <b>File ▸ Open…</b> for a Tinker <code>.xyz</code>/
+              <code>.arc</code>, a <code>.pdb</code>, or a <code>.int</code> file — or
               <b> File ▸ Load Example</b>.
             </p>
           ) : (
@@ -142,13 +172,55 @@ export default function App() {
               <dd>{active.structure.atoms.length}</dd>
               <dt>Bonds</dt>
               <dd>{active.structure.bonds.length}</dd>
-              {active.structure.box && (
+              {frameCount > 0 && (
                 <>
-                  <dt>Periodic box</dt>
-                  <dd>{active.structure.box.slice(0, 3).map((n) => n.toFixed(2)).join(' × ')} Å</dd>
+                  <dt>Frames</dt>
+                  <dd>{frameCount}</dd>
                 </>
               )}
             </dl>
+          </section>
+        )}
+
+        {trajectory && (
+          <section className="panel">
+            <h2>Trajectory</h2>
+            <div className="traj-counter">
+              Frame {frameIndex + 1} / {frameCount}
+            </div>
+            <input
+              className="traj-slider"
+              type="range"
+              min={0}
+              max={frameCount - 1}
+              value={Math.min(frameIndex, frameCount - 1)}
+              onChange={(e) => {
+                setPlaying(false)
+                setFrameIndex(Number(e.target.value))
+              }}
+            />
+            <div className="traj-buttons">
+              <button className="seg-btn" title="First frame" onClick={() => { setPlaying(false); setFrameIndex(0) }}>
+                ⏮
+              </button>
+              <button
+                className="seg-btn"
+                title="Step back"
+                onClick={() => { setPlaying(false); setFrameIndex((f) => (f - 1 + frameCount) % frameCount) }}
+              >
+                ◀
+              </button>
+              <button className="seg-btn" title={playing ? 'Pause' : 'Play'} onClick={() => setPlaying((p) => !p)}>
+                {playing ? '⏸' : '▶'}
+              </button>
+              <button
+                className="seg-btn"
+                title="Step forward"
+                onClick={() => { setPlaying(false); setFrameIndex((f) => (f + 1) % frameCount) }}
+              >
+                ▶▏
+              </button>
+            </div>
           </section>
         )}
 
@@ -170,7 +242,7 @@ export default function App() {
       </aside>
 
       <section className="viewport">
-        <Viewer structure={active?.structure ?? null} options={options} />
+        <Viewer structure={active?.structure ?? null} options={options} frameCoords={frameCoords} />
       </section>
     </div>
   )

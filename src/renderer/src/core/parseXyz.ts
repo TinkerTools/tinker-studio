@@ -130,3 +130,56 @@ function dedupeBonds(atoms: AtomRecord[]): BondRecord[] {
   }
   return bonds
 }
+
+/**
+ * Parse a Tinker archive (.arc): concatenated coordinate frames that share one
+ * topology. Returns the first frame as a full Structure plus every frame's
+ * coordinates (numAtoms * 3 floats each) for trajectory playback.
+ */
+export function parseTinkerArc(text: string): { structure: Structure; frames: Float32Array[] } {
+  const structure = parseTinkerXyz(text)
+  const frames = extractFrames(text, structure.atoms.length)
+  return { structure, frames }
+}
+
+function extractFrames(text: string, numAtoms: number): Float32Array[] {
+  const lines = text.split(/\r?\n/)
+  const frames: Float32Array[] = []
+  let i = 0
+  const skipBlank = (): void => {
+    while (i < lines.length && lines[i].trim() === '') i++
+  }
+
+  for (;;) {
+    skipBlank()
+    if (i >= lines.length) break
+    // Each frame starts with the atom count; stop if topology changes.
+    if (Number.parseInt(lines[i].trim().split(/\s+/)[0], 10) !== numAtoms) break
+    i++
+    skipBlank()
+    if (i < lines.length && isBoxLine(lines[i].trim().split(/\s+/))) i++
+
+    const coords = new Float32Array(numAtoms * 3)
+    let complete = true
+    for (let a = 0; a < numAtoms; a++) {
+      skipBlank()
+      if (i >= lines.length) {
+        complete = false
+        break
+      }
+      const t = lines[i].trim().split(/\s+/)
+      i++
+      if (t.length < 5) {
+        complete = false
+        break
+      }
+      coords[a * 3] = Number.parseFloat(t[2])
+      coords[a * 3 + 1] = Number.parseFloat(t[3])
+      coords[a * 3 + 2] = Number.parseFloat(t[4])
+    }
+    if (!complete) break
+    frames.push(coords)
+  }
+
+  return frames
+}
