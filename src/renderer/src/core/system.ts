@@ -1,5 +1,7 @@
 import type { Structure } from './types'
 import { parseTinkerXyz } from './parseXyz'
+import { parsePdb } from './parsePdb'
+import { parseTinkerInt } from './parseInt'
 
 /**
  * A loaded molecular system. Multiple systems can be open at once; the UI lists
@@ -29,6 +31,10 @@ export function parseStructureFile(
 ): { structure: Structure; fileType: string } {
   const ext = (fileName.split('.').pop() ?? '').toLowerCase()
   switch (ext) {
+    case 'pdb':
+      return { structure: parsePdb(text), fileType: 'pdb' }
+    case 'int':
+      return { structure: parseTinkerInt(text), fileType: 'int' }
     case 'arc':
       return { structure: parseTinkerXyz(text), fileType: 'arc' }
     case 'xyz':
