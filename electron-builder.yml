@@ -1,0 +1,24 @@
+appId: org.tinkertools.force-field-explorer
+productName: Force Field Explorer
+copyright: Copyright © Jay Ponder Lab
+
+directories:
+  output: dist
+  buildResources: build
+
+# The whole app is bundled into out/ by electron-vite (renderer libs are inlined
+# by Vite, main/preload by rollup), so only out/ needs to ship.
+files:
+  - out/**
+
+mac:
+  category: public.app-category.education
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch: arm64
+  # Unsigned local build: ad-hoc signature only (no Apple Developer identity).
+  identity: null
+
+dmg:
+  title: ${productName} ${version}
