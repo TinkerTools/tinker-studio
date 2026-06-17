@@ -6,20 +6,34 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import type { Structure } from '../core/types'
 import { elementInfo } from '../core/elements'
-import { DEFAULT_RENDER_OPTIONS, type RenderOptions, type Representation } from './renderOptions'
+import { type RenderOptions, type Representation } from './renderOptions'
 import { createImpostorSpheres } from './impostorSpheres'
 
 /**
- * The Three.js viewport core. Atoms are GPU impostor spheres; bonds are
- * instanced cylinders or lines. Geometry is built from a Structure, optionally
- * overriding atom positions with a trajectory frame's coordinates (setFrame).
+ * The Three.js viewport core. Renders one or more systems at once (setScene),
+ * supports CPU ray-sphere picking of atoms, and highlight markers. Atoms are GPU
+ * impostor spheres; bonds are instanced cylinders or lines.
  */
 
+export interface Renderable {
+  id: string
+  structure: Structure
+  /** Trajectory frame coordinates (numAtoms*3), or null for the base structure. */
+  coords: Float32Array | null
+}
+
+export interface PickResult {
+  systemId: string
+  atomIndex: number // 0-based index into structure.atoms
+  name: string
+  element: string
+  position: [number, number, number]
+}
+
 export interface SceneHandle {
-  setStructure(structure: Structure | null): void
-  setOptions(options: RenderOptions): void
-  /** Override atom positions with a trajectory frame (numAtoms*3), or null to reset. */
-  setFrame(coords: Float32Array | null): void
+  setScene(renderables: Renderable[], options: RenderOptions): void
+  pick(clientX: number, clientY: number): PickResult | null
+  setHighlights(points: Array<[number, number, number]>): void
   dispose(): void
 }
 
@@ -27,6 +41,17 @@ interface RepSpec {
   atomRadius: (vdw: number) => number
   bond: 'cylinder' | 'line' | 'none'
   bondRadius: number
+}
+
+interface Pickable {
+  systemId: string
+  atomIndex: number
+  name: string
+  element: string
+  x: number
+  y: number
+  z: number
+  radius: number
 }
 
 function repSpec(rep: Representation): RepSpec {
@@ -55,8 +80,6 @@ export function createScene(container: HTMLElement): SceneHandle {
   const camera = new THREE.PerspectiveCamera(50, aspectOf(container), 0.1, 5000)
   camera.position.set(0, 0, 30)
 
-  // Trackball (not orbit) controls so the molecule tumbles freely in any
-  // direction — orbit controls lock at the poles.
   const controls = new TrackballControls(camera, renderer.domElement)
   controls.rotateSpeed = 3.0
   controls.zoomSpeed = 1.2
@@ -79,20 +102,107 @@ export function createScene(container: HTMLElement): SceneHandle {
   composer.setPixelRatio(pixelRatio)
   composer.setSize(container.clientWidth, container.clientHeight)
 
-  let structure: Structure | null = null
-  let options: RenderOptions = DEFAULT_RENDER_OPTIONS
-  let frameCoords: Float32Array | null = null
-  let molecule: THREE.Group | null = null
+  let groups: THREE.Group[] = []
+  let highlightGroup: THREE.Group | null = null
+  let pickables: Pickable[] = []
+  let lastKey = ''
+  const raycaster = new THREE.Raycaster()
 
-  function rebuild(): void {
-    if (molecule) {
-      scene.remove(molecule)
-      disposeGroup(molecule)
-      molecule = null
+  function clearGroups(): void {
+    for (const g of groups) {
+      scene.remove(g)
+      disposeGroup(g)
     }
-    if (!structure || structure.atoms.length === 0) return
-    molecule = buildMolecule(structure, options, frameCoords)
-    scene.add(molecule)
+    groups = []
+  }
+
+  function setScene(renderables: Renderable[], options: RenderOptions): void {
+    clearGroups()
+    pickables = []
+    const spec = repSpec(options.representation)
+    for (const r of renderables) {
+      const group = buildMolecule(r.structure, options, r.coords, spec)
+      scene.add(group)
+      groups.push(group)
+      r.structure.atoms.forEach((atom, i) => {
+        const [x, y, z] = atomPos(r.structure, r.coords, i)
+        pickables.push({
+          systemId: r.id,
+          atomIndex: i,
+          name: atom.name,
+          element: atom.element,
+          x,
+          y,
+          z,
+          radius: Math.max(spec.atomRadius(elementInfo(atom.element).vdwRadius), 0.4)
+        })
+      })
+    }
+    const key = renderables.map((r) => r.id).join(',')
+    if (key !== lastKey) {
+      frameCameraToRenderables(renderables, camera, controls)
+      lastKey = key
+    }
+  }
+
+  function pick(clientX: number, clientY: number): PickResult | null {
+    const rect = renderer.domElement.getBoundingClientRect()
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    )
+    raycaster.setFromCamera(ndc, camera)
+    const ray = raycaster.ray
+    const oc = new THREE.Vector3()
+    const center = new THREE.Vector3()
+    let best: Pickable | null = null
+    let bestT = Infinity
+    for (const p of pickables) {
+      oc.subVectors(ray.origin, center.set(p.x, p.y, p.z))
+      const b = oc.dot(ray.direction)
+      const c = oc.dot(oc) - p.radius * p.radius
+      const disc = b * b - c
+      if (disc < 0) continue
+      const t = -b - Math.sqrt(disc)
+      if (t > 0 && t < bestT) {
+        bestT = t
+        best = p
+      }
+    }
+    if (!best) return null
+    return {
+      systemId: best.systemId,
+      atomIndex: best.atomIndex,
+      name: best.name,
+      element: best.element,
+      position: [best.x, best.y, best.z]
+    }
+  }
+
+  function setHighlights(points: Array<[number, number, number]>): void {
+    if (highlightGroup) {
+      scene.remove(highlightGroup)
+      disposeGroup(highlightGroup)
+      highlightGroup = null
+    }
+    if (points.length === 0) return
+    const group = new THREE.Group()
+    const geometry = new THREE.SphereGeometry(1, 16, 16)
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffd400,
+      transparent: true,
+      opacity: 0.5,
+      depthTest: false
+    })
+    for (const [x, y, z] of points) {
+      const mesh = new THREE.Mesh(geometry, material)
+      mesh.position.set(x, y, z)
+      mesh.scale.setScalar(0.55)
+      mesh.renderOrder = 999
+      group.add(mesh)
+    }
+    scene.add(group)
+    highlightGroup = group
   }
 
   const resize = (): void => {
@@ -117,25 +227,15 @@ export function createScene(container: HTMLElement): SceneHandle {
   tick()
 
   return {
-    setStructure(next: Structure | null): void {
-      structure = next
-      frameCoords = null
-      rebuild()
-      if (structure) frameCamera(structure, camera, controls)
-    },
-    setOptions(next: RenderOptions): void {
-      options = next
-      rebuild()
-    },
-    setFrame(coords: Float32Array | null): void {
-      frameCoords = coords
-      rebuild()
-    },
+    setScene,
+    pick,
+    setHighlights,
     dispose(): void {
       cancelAnimationFrame(raf)
       resizeObserver.disconnect()
       controls.dispose()
-      if (molecule) disposeGroup(molecule)
+      clearGroups()
+      if (highlightGroup) disposeGroup(highlightGroup)
       composer.dispose()
       renderer.dispose()
       if (renderer.domElement.parentNode === container) {
@@ -149,7 +249,6 @@ function aspectOf(el: HTMLElement): number {
   return el.clientHeight > 0 ? el.clientWidth / el.clientHeight : 1
 }
 
-/** Position of atom i (0-based), from a trajectory frame if given, else the structure. */
 function atomPos(structure: Structure, coords: Float32Array | null, i: number): [number, number, number] {
   if (coords) return [coords[i * 3], coords[i * 3 + 1], coords[i * 3 + 2]]
   const a = structure.atoms[i]
@@ -159,10 +258,10 @@ function atomPos(structure: Structure, coords: Float32Array | null, i: number): 
 function buildMolecule(
   structure: Structure,
   options: RenderOptions,
-  coords: Float32Array | null
+  coords: Float32Array | null,
+  spec: RepSpec
 ): THREE.Group {
   const group = new THREE.Group()
-  const spec = repSpec(options.representation)
 
   const atomColors = structure.atoms.map((atom) =>
     options.colorMode === 'uniform' ? options.uniformColor : elementInfo(atom.element).color
@@ -208,7 +307,6 @@ function buildAtoms(
   return createImpostorSpheres({ centers, radii, colors, count: n })
 }
 
-// Each bond is two half-cylinders so it takes the color of the nearer atom.
 function buildCylinderBonds(
   structure: Structure,
   atomColors: number[],
@@ -278,19 +376,23 @@ function buildLineBonds(
   return new THREE.LineSegments(geometry, material)
 }
 
-function frameCamera(
-  structure: Structure,
+function frameCameraToRenderables(
+  renderables: Renderable[],
   camera: THREE.PerspectiveCamera,
   controls: TrackballControls
 ): void {
   const box = new THREE.Box3()
   const point = new THREE.Vector3()
-  for (const atom of structure.atoms) {
-    box.expandByPoint(point.set(atom.x, atom.y, atom.z))
+  for (const r of renderables) {
+    r.structure.atoms.forEach((_atom, i) => {
+      const [x, y, z] = atomPos(r.structure, r.coords, i)
+      box.expandByPoint(point.set(x, y, z))
+    })
   }
+  if (box.isEmpty()) return
+
   const center = box.getCenter(new THREE.Vector3())
   const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1)
-
   const fov = (camera.fov * Math.PI) / 180
   const distance = (radius / Math.sin(fov / 2)) * 1.25
 

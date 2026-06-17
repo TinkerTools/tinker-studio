@@ -1,4 +1,4 @@
-import type { Structure } from './types'
+import type { Structure, AtomRecord, BondRecord } from './types'
 import { parseTinkerXyz, parseTinkerArc } from './parseXyz'
 import { parsePdb } from './parsePdb'
 import { parseTinkerInt } from './parseInt'
@@ -26,6 +26,30 @@ let counter = 0
 export function nextSystemId(): string {
   counter += 1
   return `sys-${counter}`
+}
+
+/**
+ * Combine several structures into one by concatenating atoms (renumbered to a
+ * single sequence) and bonds (re-indexed). Atoms keep their own coordinates.
+ */
+export function mergeStructures(structures: Structure[]): Structure {
+  const atoms: AtomRecord[] = []
+  const bonds: BondRecord[] = []
+  let offset = 0
+  for (const s of structures) {
+    for (const atom of s.atoms) {
+      atoms.push({
+        ...atom,
+        index: atom.index + offset,
+        bonds: atom.bonds.map((b) => b + offset)
+      })
+    }
+    for (const bond of s.bonds) {
+      bonds.push({ a: bond.a + offset, b: bond.b + offset })
+    }
+    offset += s.atoms.length
+  }
+  return { title: 'Merged system', atoms, bonds }
 }
 
 /**

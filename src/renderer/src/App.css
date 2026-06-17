@@ -138,6 +138,43 @@ body {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.vis {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.vis.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.merge-btn {
+  width: 100%;
+  margin-top: 0.5rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem;
+  cursor: pointer;
+}
+
+.merge-btn:hover {
+  background: #262b38;
+}
+
+.viewer.picking {
+  cursor: crosshair;
+}
+
 /* Active-system info */
 .info {
   display: grid;
