@@ -91,6 +91,9 @@ const api = {
       return () => ipcRenderer.removeListener('job:exit', listener)
     }
   },
+  /** Enable/disable the File ▸ Save Structure As ▸ PDB menu item. */
+  setPdbExportEnabled: (enabled: boolean): void =>
+    ipcRenderer.send('menu:pdbExportEnabled', enabled),
   /** Save text (e.g. a .key file) to a user-chosen path; resolves to the path or null. */
   saveTextFile: (suggestedName: string, contents: string): Promise<string | null> =>
     ipcRenderer.invoke('file:saveText', { suggestedName, contents }),

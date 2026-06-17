@@ -484,6 +484,12 @@ export default function App() {
     void window.ffe?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
 
+  // Only PDB-derived systems carry the residue/chain data PDB needs, so gate
+  // the "Save as PDB" menu item on the active system's format.
+  useEffect(() => {
+    window.ffe?.setPdbExportEnabled(active?.fileType === 'pdb')
+  }, [active?.fileType])
+
   // Reset playback and selection when the active system changes.
   useEffect(() => {
     setFrameIndex(0)

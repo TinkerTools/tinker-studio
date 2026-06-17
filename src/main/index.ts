@@ -25,7 +25,7 @@ function buildApplicationMenu(): void {
             { label: 'Tinker XYZ (.xyz)', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save:txyz') },
             { label: 'XYZ (.xyz)', click: () => sendMenu('save:xyz') },
             { label: 'MDL MOL (.mol)', click: () => sendMenu('save:mol') },
-            { label: 'PDB (.pdb)', click: () => sendMenu('save:pdb') }
+            { id: 'save-pdb', label: 'PDB (.pdb)', click: () => sendMenu('save:pdb') }
           ]
         },
         { label: 'Load Example', click: () => sendMenu('loadExample') },
@@ -353,6 +353,13 @@ function registerIpcHandlers(): void {
       }
     }
   )
+
+  // Enable/disable the "Save as PDB" item — only structures carrying residue
+  // data (i.e. loaded from PDB) round-trip meaningfully to PDB.
+  ipcMain.on('menu:pdbExportEnabled', (_e, enabled: boolean) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById('save-pdb')
+    if (item) item.enabled = enabled
+  })
 
   // Save text (e.g. a composed .key file) to a user-chosen path.
   ipcMain.handle('file:saveText', async (_e, req: { suggestedName: string; contents: string }) => {
