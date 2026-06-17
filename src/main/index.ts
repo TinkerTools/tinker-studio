@@ -19,7 +19,15 @@ function buildApplicationMenu(): void {
       label: 'File',
       submenu: [
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
-        { label: 'Save Structure As…', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save') },
+        {
+          label: 'Save Structure As',
+          submenu: [
+            { label: 'Tinker XYZ (.xyz)', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save:txyz') },
+            { label: 'XYZ (.xyz)', click: () => sendMenu('save:xyz') },
+            { label: 'MDL MOL (.mol)', click: () => sendMenu('save:mol') },
+            { label: 'PDB (.pdb)', click: () => sendMenu('save:pdb') }
+          ]
+        },
         { label: 'Load Example', click: () => sendMenu('loadExample') },
         {
           label: 'Download',

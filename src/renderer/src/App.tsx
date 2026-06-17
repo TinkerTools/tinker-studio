@@ -11,7 +11,7 @@ import {
 } from './core/system'
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
-import { writeTinkerXyz } from './core/writeXyz'
+import { SAVE_FORMATS, type SaveFormat } from './core/writers'
 import { parsePrm, applyForceField } from './core/parsePrm'
 import {
   applyTransform,
@@ -197,11 +197,12 @@ export default function App() {
     setVisibleIds(new Set([merged.id]))
   }
 
-  function handleSave(): void {
+  function handleSave(format: SaveFormat): void {
     if (!active) return
+    const spec = SAVE_FORMATS.find((s) => s.id === format) ?? SAVE_FORMATS[0]
     const base = active.name.replace(/\s*\(.*\)$/, '').replace(/\.[^./\\]*$/, '') || 'structure'
     const structure = bakeTransform(active.structure, active.transform)
-    void window.ffe.saveTextFile(`${base}.xyz`, writeTinkerXyz(structure))
+    void window.ffe.saveTextFile(`${base}.${spec.ext}`, spec.write(structure))
   }
 
   async function handleOpenKey(): Promise<void> {
@@ -468,7 +469,7 @@ export default function App() {
     else if (action === 'keywords') {
       setKeyText('')
       setModal('keywords')
-    } else if (action === 'save') handleSave()
+    } else if (action.startsWith('save:')) handleSave(action.slice(5) as SaveFormat)
     else if (action === 'openKey') void handleOpenKey()
     else if (action === 'applyFF') void handleApplyFF()
     else if (action === 'setTinkerDir') {
