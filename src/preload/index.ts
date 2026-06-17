@@ -10,6 +10,9 @@ export interface OpenedFile {
   path: string
   name: string
   text: string
+  /** Force-field .prm contents auto-located from a sibling .key (structure opens only). */
+  prmText?: string
+  prmName?: string
 }
 
 export interface AppSettings {

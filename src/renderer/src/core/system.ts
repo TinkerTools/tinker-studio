@@ -24,6 +24,8 @@ export interface MolecularSystem {
   path?: string
   /** Bumped when the structure is modified in place (e.g. a force field is applied). */
   rev?: number
+  /** Name of the applied force-field .prm, if any. */
+  ffName?: string
 }
 
 let counter = 0

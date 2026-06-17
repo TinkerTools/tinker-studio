@@ -142,6 +142,61 @@ function saveSettings(s: Settings): void {
 // Running Tinker jobs, keyed by an id chosen by the renderer.
 const jobs = new Map<string, ChildProcess>()
 
+async function readIfExists(p: string): Promise<string | undefined> {
+  try {
+    return await readFile(p, 'utf8')
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Replicate the original FFE's open chain: find a sibling .key file, read its
+ * PARAMETERS line, and locate + read the referenced force-field .prm so the
+ * renderer can apply it automatically.
+ */
+async function findAssociatedForceField(
+  structurePath: string
+): Promise<{ prmText?: string; prmName?: string }> {
+  const dir = dirname(structurePath)
+  const stem = basename(structurePath).replace(/\.[^.]*$/, '')
+  const keyText =
+    (await readIfExists(join(dir, `${stem}.key`))) ?? (await readIfExists(join(dir, 'tinker.key')))
+  if (!keyText) return {}
+
+  const paramLine = keyText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => /^parameters\b/i.test(l))
+  if (!paramLine) return {}
+
+  let param = paramLine
+    .replace(/^parameters\s+/i, '')
+    .replace(/^"(.*)"$/, '$1')
+    .trim()
+  if (!param || param.toLowerCase() === 'none') return {}
+  if (!param.toLowerCase().endsWith('.prm')) param += '.prm'
+
+  const fileName = basename(param)
+  const { tinkerDir } = loadSettings()
+  const candidates = [
+    param, // absolute path
+    join(dir, param), // relative to the structure
+    ...(tinkerDir
+      ? [
+          join(tinkerDir, fileName),
+          join(tinkerDir, 'params', fileName),
+          join(tinkerDir, '..', 'params', fileName)
+        ]
+      : [])
+  ]
+  for (const c of candidates) {
+    const prmText = await readIfExists(c)
+    if (prmText) return { prmText, prmName: fileName }
+  }
+  return {}
+}
+
 /** Privileged operations exposed to the renderer over IPC. */
 function registerIpcHandlers(): void {
   // Show an open dialog and return the chosen file's path + text contents.
@@ -157,7 +212,8 @@ function registerIpcHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) return null
     const path = result.filePaths[0]
     const text = await readFile(path, 'utf8')
-    return { path, name: basename(path), text }
+    const ff = await findAssociatedForceField(path)
+    return { path, name: basename(path), text, ...ff }
   })
 
   // Fetch a structure from an online database (done in main to avoid CORS).

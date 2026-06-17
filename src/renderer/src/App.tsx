@@ -62,14 +62,15 @@ export default function App() {
 
   type Parsed = ReturnType<typeof parseStructureFile>
 
-  function addSystem(parsed: Parsed, name: string, path?: string): void {
+  function addSystem(parsed: Parsed, name: string, path?: string, ffName?: string): void {
     const system: MolecularSystem = {
       id: nextSystemId(),
       name,
       fileType: parsed.fileType,
       structure: parsed.structure,
       trajectory: parsed.trajectory,
-      path
+      path,
+      ffName
     }
     setSystems((prev) => [...prev, system])
     setActiveId(system.id)
@@ -81,7 +82,14 @@ export default function App() {
     try {
       const file = await window.ffe.openStructure()
       if (!file) return
-      addSystem(parseStructureFile(file.text, file.name), file.name, file.path)
+      const parsed = parseStructureFile(file.text, file.name)
+      // Auto-apply the force field found via a sibling .key's PARAMETERS line.
+      if (file.prmText) {
+        const structure = applyForceField(parsed.structure, parsePrm(file.prmText))
+        addSystem({ ...parsed, structure }, file.name, file.path, file.prmName)
+      } else {
+        addSystem(parsed, file.name, file.path)
+      }
     } catch (e) {
       setError(messageOf(e))
     }
@@ -175,7 +183,9 @@ export default function App() {
       const newStructure = applyForceField(active.structure, parsePrm(file.text))
       setSystems((prev) =>
         prev.map((s) =>
-          s.id === active.id ? { ...s, structure: newStructure, rev: (s.rev ?? 0) + 1 } : s
+          s.id === active.id
+            ? { ...s, structure: newStructure, rev: (s.rev ?? 0) + 1, ffName: file.name }
+            : s
         )
       )
     } catch (e) {
@@ -434,6 +444,12 @@ export default function App() {
               <dd>{active.structure.atoms.length}</dd>
               <dt>Bonds</dt>
               <dd>{active.structure.bonds.length}</dd>
+              {active.ffName && (
+                <>
+                  <dt>Force field</dt>
+                  <dd>{active.ffName}</dd>
+                </>
+              )}
               {frameCount > 0 && (
                 <>
                   <dt>Frames</dt>
