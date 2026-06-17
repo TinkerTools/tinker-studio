@@ -22,6 +22,8 @@ export interface MolecularSystem {
   trajectory?: Trajectory
   /** Absolute path of the source file on disk, if it came from one (needed to run Tinker). */
   path?: string
+  /** Bumped when the structure is modified in place (e.g. a force field is applied). */
+  rev?: number
 }
 
 let counter = 0

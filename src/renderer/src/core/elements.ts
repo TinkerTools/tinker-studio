@@ -55,6 +55,21 @@ export function elementInfo(symbol: string): ElementInfo {
   return { symbol, ...(TABLE[symbol] ?? DEFAULT) }
 }
 
+// Symbol by atomic number (index 0 unused). Used by the .prm parser to turn an
+// atom type's atomic number into an element symbol.
+const ATOMIC_SYMBOLS = [
+  '', 'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S',
+  'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge',
+  'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd',
+  'In', 'Sn', 'Sb', 'Te', 'I', 'Xe', 'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd',
+  'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg',
+  'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn', 'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu'
+]
+
+export function symbolForAtomicNumber(z: number): string | undefined {
+  return ATOMIC_SYMBOLS[z]
+}
+
 /** Normalize an element symbol to canonical case (e.g. "FE" -> "Fe", " c" -> "C"). */
 export function normalizeElement(symbol: string): string {
   const s = symbol.trim()

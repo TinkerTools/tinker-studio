@@ -104,9 +104,23 @@ function computeAtomColors(structure: Structure, options: RenderOptions): number
       return structure.atoms.map((a) =>
         a.chain ? paletteColor(`chain:${a.chain}`) : elementInfo(a.element).color
       )
+    case 'charge':
+      return structure.atoms.map((a) => (a.charge !== undefined ? chargeColor(a.charge) : 0x808080))
     default:
       return structure.atoms.map((a) => elementInfo(a.element).color)
   }
+}
+
+// Diverging blue (negative) → white (0) → red (positive), clamped to ±1.
+const CHARGE_BLUE = new THREE.Color(0x3b6fe0)
+const CHARGE_WHITE = new THREE.Color(0xf2f2f2)
+const CHARGE_RED = new THREE.Color(0xe0403b)
+function chargeColor(q: number): number {
+  const t = Math.max(-1, Math.min(1, q))
+  const c = new THREE.Color()
+  if (t < 0) c.lerpColors(CHARGE_WHITE, CHARGE_BLUE, -t)
+  else c.lerpColors(CHARGE_WHITE, CHARGE_RED, t)
+  return c.getHex()
 }
 
 function computeVisibility(structure: Structure, options: RenderOptions, selected?: Set<number>): boolean[] {

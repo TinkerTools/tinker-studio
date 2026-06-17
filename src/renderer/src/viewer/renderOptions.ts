@@ -6,7 +6,7 @@
 
 export type Representation = 'ball-and-stick' | 'spacefill' | 'sticks' | 'wireframe' | 'tube'
 
-export type ColorMode = 'element' | 'uniform' | 'residue' | 'chain'
+export type ColorMode = 'element' | 'uniform' | 'residue' | 'chain' | 'charge'
 
 export interface RenderOptions {
   representation: Representation
@@ -41,5 +41,6 @@ export const COLOR_MODES: ReadonlyArray<{ value: ColorMode; label: string }> = [
   { value: 'element', label: 'Element' },
   { value: 'uniform', label: 'Uniform' },
   { value: 'residue', label: 'Residue' },
-  { value: 'chain', label: 'Chain' }
+  { value: 'chain', label: 'Chain' },
+  { value: 'charge', label: 'Charge' }
 ]

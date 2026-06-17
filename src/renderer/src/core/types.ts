@@ -23,6 +23,8 @@ export interface AtomRecord {
   residueSeq?: number
   /** Chain identifier (PDB). */
   chain?: string
+  /** Partial charge, once a force field (.prm) has been applied. */
+  charge?: number
 }
 
 export interface BondRecord {

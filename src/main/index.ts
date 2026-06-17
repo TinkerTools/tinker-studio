@@ -43,6 +43,7 @@ function buildApplicationMenu(): void {
         { label: 'Modeling Commands…', click: () => sendMenu('commands') },
         { label: 'Keyword Reference…', click: () => sendMenu('keywords') },
         { label: 'Open Key File…', click: () => sendMenu('openKey') },
+        { label: 'Apply Force Field (.prm)…', click: () => sendMenu('applyFF') },
         { type: 'separator' },
         { label: 'Set Tinker Directory…', click: () => sendMenu('setTinkerDir') }
       ]

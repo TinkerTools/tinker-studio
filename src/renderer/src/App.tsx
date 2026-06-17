@@ -12,6 +12,7 @@ import {
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
 import { writeTinkerXyz } from './core/writeXyz'
+import { parsePrm, applyForceField } from './core/parsePrm'
 import { AtomBrowser } from './AtomBrowser'
 import { CommandsModal } from './CommandsModal'
 import { KeywordsModal } from './KeywordsModal'
@@ -165,6 +166,23 @@ export default function App() {
     }
   }
 
+  async function handleApplyFF(): Promise<void> {
+    if (!active) return
+    setError(null)
+    try {
+      const file = await window.ffe.openTextFile()
+      if (!file) return
+      const newStructure = applyForceField(active.structure, parsePrm(file.text))
+      setSystems((prev) =>
+        prev.map((s) =>
+          s.id === active.id ? { ...s, structure: newStructure, rev: (s.rev ?? 0) + 1 } : s
+        )
+      )
+    } catch (e) {
+      setError(messageOf(e))
+    }
+  }
+
   // The displayed position of a picked atom — tracks the current trajectory frame
   // for the active animating system so highlights/measurements follow it.
   function livePosition(p: PickResult): [number, number, number] {
@@ -245,6 +263,7 @@ export default function App() {
 
   const sceneKey = [
     visibleSystems.map((s) => s.id).join(','),
+    visibleSystems.map((s) => s.rev ?? 0).join(','),
     activeId ?? '',
     frameIndex,
     options.representation,
@@ -286,6 +305,7 @@ export default function App() {
       setModal('keywords')
     } else if (action === 'save') handleSave()
     else if (action === 'openKey') void handleOpenKey()
+    else if (action === 'applyFF') void handleApplyFF()
     else if (action === 'setTinkerDir') {
       void window.ffe.settings.chooseTinkerDir().then((s) => setTinkerDir(s.tinkerDir))
     }
