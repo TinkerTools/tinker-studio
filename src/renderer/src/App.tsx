@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Viewer } from './viewer/Viewer'
 import type { Renderable, PickResult } from './viewer/scene'
 import { distance, angle, dihedral } from './core/measure'
+import { expandSelection, type PickLevel } from './core/select'
 import {
   parseStructureFile,
   nextSystemId,
@@ -24,10 +25,10 @@ import {
 import ethanolSample from './samples/ethanol.xyz?raw'
 
 /**
- * Root layout: a sidebar (systems, active-system info, display controls,
- * trajectory playback) beside the 3D viewport. Multiple systems can be shown at
- * once (per-system visibility) and merged into one. File actions live in the
- * native menu.
+ * Root layout: a sidebar (systems, active-system info + atom browser, trajectory
+ * playback, display controls, selection & measure) beside the 3D viewport.
+ * Multiple systems can be shown at once and merged; file/Tinker actions live in
+ * the native menu.
  */
 export default function App() {
   const [systems, setSystems] = useState<MolecularSystem[]>([])
@@ -44,6 +45,7 @@ export default function App() {
   const [downloadSource, setDownloadSource] = useState<DownloadSource | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
+  const [pickLevel, setPickLevel] = useState<PickLevel>('atom')
   const [picks, setPicks] = useState<PickResult[]>([])
   const [modal, setModal] = useState<'commands' | 'keywords' | null>(null)
   const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
@@ -51,26 +53,9 @@ export default function App() {
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
   const frameCount = trajectory?.frames.length ?? 0
-
   const visibleSystems = systems.filter((s) => visibleIds.has(s.id))
   const mergeable = visibleSystems.filter((s) => !s.trajectory)
-
-  const renderables: Renderable[] = visibleSystems.map((s) => ({
-    id: s.id,
-    structure: s.structure,
-    coords:
-      s.id === activeId && s.trajectory
-        ? s.trajectory.frames[Math.min(frameIndex, s.trajectory.frames.length - 1)] ?? null
-        : null
-  }))
-
-  const sceneKey = [
-    visibleSystems.map((s) => s.id).join(','),
-    activeId ?? '',
-    frameIndex,
-    options.representation,
-    options.colorMode
-  ].join('|')
+  const need = MEASURE_NEED[measureMode]
 
   type Parsed = ReturnType<typeof parseStructureFile>
 
@@ -160,42 +145,8 @@ export default function App() {
     setVisibleIds(new Set([merged.id]))
   }
 
-  // Selection: a plain click selects one atom, ⌘/Ctrl-click toggles an atom into
-  // a multi-atom selection, and clicking empty space clears it. Works from both
-  // the 3D view and the atom list.
-  const need = MEASURE_NEED[measureMode]
-
-  function applySelection(result: PickResult | null, additive: boolean): void {
-    if (!result) {
-      if (!additive) setPicks([]) // click away to deselect
-      return
-    }
-    setPicks((prev) => {
-      const i = prev.findIndex(
-        (p) => p.systemId === result.systemId && p.atomIndex === result.atomIndex
-      )
-      if (additive) return i >= 0 ? prev.filter((_, k) => k !== i) : [...prev, result]
-      return [result]
-    })
-  }
-
-  function pickFromList(atomIndex: number, additive: boolean): void {
-    if (!active) return
-    const a = active.structure.atoms[atomIndex]
-    const coords = active.trajectory
-      ? active.trajectory.frames[Math.min(frameIndex, frameCount - 1)]
-      : null
-    const position: [number, number, number] = coords
-      ? [coords[atomIndex * 3], coords[atomIndex * 3 + 1], coords[atomIndex * 3 + 2]]
-      : [a.x, a.y, a.z]
-    applySelection(
-      { systemId: active.id, atomIndex, name: a.name, element: a.element, position },
-      additive
-    )
-  }
-
-  // The displayed position of a picked atom — tracks the current trajectory
-  // frame for the active animating system, so highlights/measurements follow it.
+  // The displayed position of a picked atom — tracks the current trajectory frame
+  // for the active animating system so highlights/measurements follow it.
   function livePosition(p: PickResult): [number, number, number] {
     if (active?.trajectory && p.systemId === active.id) {
       const c = active.trajectory.frames[Math.min(frameIndex, frameCount - 1)]
@@ -204,18 +155,84 @@ export default function App() {
     return p.position
   }
 
-  const highlights = useMemo(
-    () => picks.map(livePosition),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [picks, activeId, frameIndex, frameCount]
-  )
+  function makePick(sys: MolecularSystem, i: number): PickResult {
+    const a = sys.structure.atoms[i]
+    return { systemId: sys.id, atomIndex: i, name: a.name, element: a.element, position: [a.x, a.y, a.z] }
+  }
 
-  // Atom indices selected within the active system (to mark them in the browser).
+  // Selection: a click selects the picked atom expanded to the current pick level
+  // (atom/residue/molecule/system); ⌘/Ctrl-click toggles that group; clicking
+  // empty space clears. Works from the 3D view and the atom list.
+  function selectGroup(systemId: string, atomIndex: number, additive: boolean): void {
+    const sys = systems.find((s) => s.id === systemId)
+    if (!sys) return
+    const indices = expandSelection(sys.structure, atomIndex, pickLevel)
+    setPicks((prev) => {
+      if (!additive) return indices.map((i) => makePick(sys, i))
+      const allSelected = indices.every((i) =>
+        prev.some((p) => p.systemId === systemId && p.atomIndex === i)
+      )
+      if (allSelected) {
+        const remove = new Set(indices)
+        return prev.filter((p) => !(p.systemId === systemId && remove.has(p.atomIndex)))
+      }
+      const present = new Set(prev.filter((p) => p.systemId === systemId).map((p) => p.atomIndex))
+      return [...prev, ...indices.filter((i) => !present.has(i)).map((i) => makePick(sys, i))]
+    })
+  }
+
+  function applySelection(result: PickResult | null, additive: boolean): void {
+    if (!result) {
+      if (!additive) setPicks([])
+      return
+    }
+    selectGroup(result.systemId, result.atomIndex, additive)
+  }
+
+  function pickFromList(atomIndex: number, additive: boolean): void {
+    if (active) selectGroup(active.id, atomIndex, additive)
+  }
+
+  function selectAllAtoms(): void {
+    if (active) setPicks(active.structure.atoms.map((_, i) => makePick(active, i)))
+  }
+
   const selectedInActive = useMemo(() => {
     const set = new Set<number>()
     if (active) for (const p of picks) if (p.systemId === active.id) set.add(p.atomIndex)
     return set
   }, [picks, active])
+
+  const highlights = useMemo(
+    () =>
+      picks.map((p) => ({
+        position: livePosition(p),
+        label: options.showLabels ? `${p.name}${p.atomIndex + 1}` : undefined
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [picks, activeId, frameIndex, frameCount, options.showLabels]
+  )
+
+  const renderables: Renderable[] = visibleSystems.map((s) => ({
+    id: s.id,
+    structure: s.structure,
+    coords:
+      s.id === activeId && s.trajectory
+        ? s.trajectory.frames[Math.min(frameIndex, s.trajectory.frames.length - 1)] ?? null
+        : null,
+    selected: s.id === activeId ? selectedInActive : undefined
+  }))
+
+  const sceneKey = [
+    visibleSystems.map((s) => s.id).join(','),
+    activeId ?? '',
+    frameIndex,
+    options.representation,
+    options.colorMode,
+    options.showHydrogens ? 'h' : '',
+    options.restrictToSelection ? 'r' : '',
+    options.restrictToSelection ? [...selectedInActive].sort((a, b) => a - b).join(',') : ''
+  ].join('|')
 
   let measureResult: string | null = null
   if (picks.length > 0) {
@@ -253,7 +270,6 @@ export default function App() {
     return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
   }, [])
 
-  // Load the persisted Tinker directory on startup.
   useEffect(() => {
     void window.ffe?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
@@ -429,31 +445,16 @@ export default function App() {
             </div>
             <div className="traj-opts">
               <label className="traj-opt">
-                <input
-                  type="checkbox"
-                  checked={oscillate}
-                  onChange={(e) => setOscillate(e.target.checked)}
-                />
+                <input type="checkbox" checked={oscillate} onChange={(e) => setOscillate(e.target.checked)} />
                 Oscillate
               </label>
               <label className="traj-opt">
                 Speed
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={speed}
-                  onChange={(e) => setSpeed(Number(e.target.value) || 1)}
-                />
+                <input type="number" min={1} max={60} value={speed} onChange={(e) => setSpeed(Number(e.target.value) || 1)} />
               </label>
               <label className="traj-opt">
                 Skip
-                <input
-                  type="number"
-                  min={1}
-                  value={skip}
-                  onChange={(e) => setSkip(Number(e.target.value) || 1)}
-                />
+                <input type="number" min={1} value={skip} onChange={(e) => setSkip(Number(e.target.value) || 1)} />
               </label>
             </div>
           </section>
@@ -474,12 +475,52 @@ export default function App() {
               value={options.colorMode}
               onChange={(colorMode) => setOptions((o) => ({ ...o, colorMode }))}
             />
+            <div className="display-toggles">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={options.showHydrogens}
+                  onChange={(e) => setOptions((o) => ({ ...o, showHydrogens: e.target.checked }))}
+                />
+                Hydrogens
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={options.showLabels}
+                  onChange={(e) => setOptions((o) => ({ ...o, showLabels: e.target.checked }))}
+                />
+                Labels
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={options.restrictToSelection}
+                  onChange={(e) => setOptions((o) => ({ ...o, restrictToSelection: e.target.checked }))}
+                />
+                Only selection
+              </label>
+            </div>
           </details>
         </section>
 
         {active && (
           <section className="panel">
             <h2>Selection &amp; Measure</h2>
+            <SegmentedControl<PickLevel>
+              label="Pick level"
+              options={PICK_LEVELS}
+              value={pickLevel}
+              onChange={setPickLevel}
+            />
+            <div className="sel-actions">
+              <button className="mini-btn" onClick={selectAllAtoms}>
+                Select all
+              </button>
+              <button className="mini-btn" onClick={() => setPicks([])} disabled={picks.length === 0}>
+                Clear
+              </button>
+            </div>
             <div className="seg">
               {MEASURE_MODES.map((m) => (
                 <button
@@ -498,12 +539,13 @@ export default function App() {
                 </span>
               ) : (
                 <div className="pick-chips">
-                  {picks.map((p, i) => (
+                  {picks.slice(0, 12).map((p, i) => (
                     <span key={i} className="pick-chip">
                       {p.name}
                       {p.atomIndex + 1}
                     </span>
                   ))}
+                  {picks.length > 12 && <span className="pick-chip">+{picks.length - 12}</span>}
                 </div>
               )}
               {measureResult ? (
@@ -519,7 +561,6 @@ export default function App() {
             </div>
           </section>
         )}
-
       </aside>
 
       <section className="viewport">
@@ -593,6 +634,13 @@ const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
   { value: 'distance', label: 'Distance' },
   { value: 'angle', label: 'Angle' },
   { value: 'dihedral', label: 'Dihedral' }
+]
+
+const PICK_LEVELS: ReadonlyArray<{ value: PickLevel; label: string }> = [
+  { value: 'atom', label: 'Atom' },
+  { value: 'residue', label: 'Residue' },
+  { value: 'molecule', label: 'Molecule' },
+  { value: 'system', label: 'System' }
 ]
 
 type DownloadSource = 'pubchem' | 'nci' | 'pdb'

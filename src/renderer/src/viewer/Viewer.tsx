@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { createScene, type SceneHandle, type Renderable, type PickResult } from './scene'
+import { createScene, type SceneHandle, type Renderable, type PickResult, type HighlightItem } from './scene'
 import type { RenderOptions } from './renderOptions'
 
 /**
@@ -20,7 +20,7 @@ export function Viewer({
   options: RenderOptions
   sceneKey: string
   pickingEnabled?: boolean
-  highlights?: Array<[number, number, number]>
+  highlights?: HighlightItem[]
   onPick?: (result: PickResult | null, additive: boolean) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)

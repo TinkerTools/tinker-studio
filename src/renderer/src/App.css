@@ -211,6 +211,47 @@ body {
   padding: 0.12rem 0.4rem;
 }
 
+.display-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.display-toggles label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.sel-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.7rem 0;
+}
+
+.mini-btn {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+}
+
+.mini-btn:hover {
+  background: #262b38;
+}
+
+.mini-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Atom browser */
 .atom-scroll {
   max-height: 260px;

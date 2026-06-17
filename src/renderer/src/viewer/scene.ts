@@ -11,8 +11,9 @@ import { createImpostorSpheres } from './impostorSpheres'
 
 /**
  * The Three.js viewport core. Renders one or more systems at once (setScene),
- * supports CPU ray-sphere picking of atoms, and highlight markers. Atoms are GPU
- * impostor spheres; bonds are instanced cylinders or lines.
+ * supports CPU ray-sphere picking, highlight markers, and labels. Atoms are GPU
+ * impostor spheres; bonds are instanced cylinders or lines. Color schemes,
+ * hidden hydrogens, and restrict-to-selection are applied here.
  */
 
 export interface Renderable {
@@ -20,6 +21,8 @@ export interface Renderable {
   structure: Structure
   /** Trajectory frame coordinates (numAtoms*3), or null for the base structure. */
   coords: Float32Array | null
+  /** Selected atom indices (for restrict-to-selection). */
+  selected?: Set<number>
 }
 
 export interface PickResult {
@@ -30,10 +33,15 @@ export interface PickResult {
   position: [number, number, number]
 }
 
+export interface HighlightItem {
+  position: [number, number, number]
+  label?: string
+}
+
 export interface SceneHandle {
   setScene(renderables: Renderable[], options: RenderOptions): void
   pick(clientX: number, clientY: number): PickResult | null
-  setHighlights(points: Array<[number, number, number]>): void
+  setHighlights(items: HighlightItem[]): void
   dispose(): void
 }
 
@@ -63,9 +71,51 @@ function repSpec(rep: Representation): RepSpec {
     case 'wireframe':
       return { atomRadius: () => 0.12, bond: 'line', bondRadius: 0 }
     case 'ball-and-stick':
+    case 'tube': // tube falls back to ball-and-stick until the backbone tracer lands
     default:
       return { atomRadius: (vdw) => Math.max(vdw * 0.3, 0.25), bond: 'cylinder', bondRadius: 0.1 }
   }
+}
+
+// Distinct cycling palette for residue / chain coloring; stable per key.
+const PALETTE = [
+  0x4e79a7, 0xf28e2b, 0xe15759, 0x76b7b2, 0x59a14f, 0xedc948, 0xb07aa1, 0xff9da7,
+  0x9c755f, 0xbab0ac, 0x86bcb6, 0xd37295, 0xfabfd2, 0xb6992d, 0x499894, 0xd7b5a6
+]
+const paletteCache = new Map<string, number>()
+function paletteColor(key: string): number {
+  let c = paletteCache.get(key)
+  if (c === undefined) {
+    c = PALETTE[paletteCache.size % PALETTE.length]
+    paletteCache.set(key, c)
+  }
+  return c
+}
+
+function computeAtomColors(structure: Structure, options: RenderOptions): number[] {
+  switch (options.colorMode) {
+    case 'uniform':
+      return structure.atoms.map(() => options.uniformColor)
+    case 'residue':
+      return structure.atoms.map((a) =>
+        a.residueSeq !== undefined ? paletteColor(`${a.chain ?? ''}:${a.residueSeq}`) : elementInfo(a.element).color
+      )
+    case 'chain':
+      return structure.atoms.map((a) =>
+        a.chain ? paletteColor(`chain:${a.chain}`) : elementInfo(a.element).color
+      )
+    default:
+      return structure.atoms.map((a) => elementInfo(a.element).color)
+  }
+}
+
+function computeVisibility(structure: Structure, options: RenderOptions, selected?: Set<number>): boolean[] {
+  const restrict = options.restrictToSelection && selected !== undefined && selected.size > 0
+  return structure.atoms.map((a, i) => {
+    if (!options.showHydrogens && a.element === 'H') return false
+    if (restrict && !selected!.has(i)) return false
+    return true
+  })
 }
 
 export function createScene(container: HTMLElement): SceneHandle {
@@ -121,10 +171,13 @@ export function createScene(container: HTMLElement): SceneHandle {
     pickables = []
     const spec = repSpec(options.representation)
     for (const r of renderables) {
-      const group = buildMolecule(r.structure, options, r.coords, spec)
+      const colors = computeAtomColors(r.structure, options)
+      const visible = computeVisibility(r.structure, options, r.selected)
+      const group = buildMolecule(r.structure, r.coords, spec, colors, visible)
       scene.add(group)
       groups.push(group)
       r.structure.atoms.forEach((atom, i) => {
+        if (!visible[i]) return
         const [x, y, z] = atomPos(r.structure, r.coords, i)
         pickables.push({
           systemId: r.id,
@@ -138,10 +191,10 @@ export function createScene(container: HTMLElement): SceneHandle {
         })
       })
     }
-    const key = renderables.map((r) => r.id).join(',')
-    if (key !== lastKey) {
+    const k = renderables.map((r) => r.id).join(',')
+    if (k !== lastKey) {
       frameCameraToRenderables(renderables, camera, controls)
-      lastKey = key
+      lastKey = k
     }
   }
 
@@ -179,13 +232,13 @@ export function createScene(container: HTMLElement): SceneHandle {
     }
   }
 
-  function setHighlights(points: Array<[number, number, number]>): void {
+  function setHighlights(items: HighlightItem[]): void {
     if (highlightGroup) {
       scene.remove(highlightGroup)
       disposeGroup(highlightGroup)
       highlightGroup = null
     }
-    if (points.length === 0) return
+    if (items.length === 0) return
     const group = new THREE.Group()
     const geometry = new THREE.SphereGeometry(1, 16, 16)
     const material = new THREE.MeshBasicMaterial({
@@ -194,12 +247,18 @@ export function createScene(container: HTMLElement): SceneHandle {
       opacity: 0.5,
       depthTest: false
     })
-    for (const [x, y, z] of points) {
+    for (const it of items) {
+      const [x, y, z] = it.position
       const mesh = new THREE.Mesh(geometry, material)
       mesh.position.set(x, y, z)
       mesh.scale.setScalar(0.55)
       mesh.renderOrder = 999
       group.add(mesh)
+      if (it.label) {
+        const sprite = makeLabelSprite(it.label)
+        sprite.position.set(x, y, z)
+        group.add(sprite)
+      }
     }
     scene.add(group)
     highlightGroup = group
@@ -257,65 +316,67 @@ function atomPos(structure: Structure, coords: Float32Array | null, i: number): 
 
 function buildMolecule(
   structure: Structure,
-  options: RenderOptions,
   coords: Float32Array | null,
-  spec: RepSpec
+  spec: RepSpec,
+  atomColors: number[],
+  visible: boolean[]
 ): THREE.Group {
   const group = new THREE.Group()
-
-  const atomColors = structure.atoms.map((atom) =>
-    options.colorMode === 'uniform' ? options.uniformColor : elementInfo(atom.element).color
-  )
-
-  group.add(buildAtoms(structure, atomColors, spec, coords))
+  group.add(buildAtoms(structure, coords, spec, atomColors, visible))
 
   if (structure.bonds.length > 0) {
     if (spec.bond === 'cylinder') {
-      group.add(buildCylinderBonds(structure, atomColors, spec.bondRadius, coords))
+      group.add(buildCylinderBonds(structure, coords, spec.bondRadius, atomColors, visible))
     } else if (spec.bond === 'line') {
-      group.add(buildLineBonds(structure, atomColors, coords))
+      group.add(buildLineBonds(structure, coords, atomColors, visible))
     }
   }
-
   return group
 }
 
 function buildAtoms(
   structure: Structure,
-  atomColors: number[],
+  coords: Float32Array | null,
   spec: RepSpec,
-  coords: Float32Array | null
+  atomColors: number[],
+  visible: boolean[]
 ): THREE.Mesh {
-  const n = structure.atoms.length
-  const centers = new Float32Array(n * 3)
-  const radii = new Float32Array(n)
-  const colors = new Float32Array(n * 3)
+  const shown: number[] = []
+  for (let i = 0; i < structure.atoms.length; i++) if (visible[i]) shown.push(i)
+
+  const centers = new Float32Array(shown.length * 3)
+  const radii = new Float32Array(shown.length)
+  const colors = new Float32Array(shown.length * 3)
   const color = new THREE.Color()
 
-  structure.atoms.forEach((atom, i) => {
-    const [x, y, z] = atomPos(structure, coords, i)
-    centers[i * 3] = x
-    centers[i * 3 + 1] = y
-    centers[i * 3 + 2] = z
-    radii[i] = spec.atomRadius(elementInfo(atom.element).vdwRadius)
-    color.set(atomColors[i])
-    colors[i * 3] = color.r
-    colors[i * 3 + 1] = color.g
-    colors[i * 3 + 2] = color.b
+  shown.forEach((atomIndex, k) => {
+    const atom = structure.atoms[atomIndex]
+    const [x, y, z] = atomPos(structure, coords, atomIndex)
+    centers[k * 3] = x
+    centers[k * 3 + 1] = y
+    centers[k * 3 + 2] = z
+    radii[k] = spec.atomRadius(elementInfo(atom.element).vdwRadius)
+    color.set(atomColors[atomIndex])
+    colors[k * 3] = color.r
+    colors[k * 3 + 1] = color.g
+    colors[k * 3 + 2] = color.b
   })
 
-  return createImpostorSpheres({ centers, radii, colors, count: n })
+  return createImpostorSpheres({ centers, radii, colors, count: shown.length })
 }
 
+// Each bond is two half-cylinders so it takes the color of the nearer atom.
 function buildCylinderBonds(
   structure: Structure,
-  atomColors: number[],
+  coords: Float32Array | null,
   radius: number,
-  coords: Float32Array | null
+  atomColors: number[],
+  visible: boolean[]
 ): THREE.InstancedMesh {
+  const drawn = structure.bonds.filter((b) => visible[b.a - 1] && visible[b.b - 1])
   const geometry = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true)
   const material = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.0 })
-  const mesh = new THREE.InstancedMesh(geometry, material, structure.bonds.length * 2)
+  const mesh = new THREE.InstancedMesh(geometry, material, drawn.length * 2)
 
   const dummy = new THREE.Object3D()
   const color = new THREE.Color()
@@ -335,7 +396,7 @@ function buildCylinderBonds(
     mesh.setColorAt(slot, color.set(colorHex))
   }
 
-  structure.bonds.forEach((bond, k) => {
+  drawn.forEach((bond, k) => {
     const [ax, ay, az] = atomPos(structure, coords, bond.a - 1)
     const [bx, by, bz] = atomPos(structure, coords, bond.b - 1)
     start.set(ax, ay, az)
@@ -352,14 +413,16 @@ function buildCylinderBonds(
 
 function buildLineBonds(
   structure: Structure,
+  coords: Float32Array | null,
   atomColors: number[],
-  coords: Float32Array | null
+  visible: boolean[]
 ): THREE.LineSegments {
-  const positions = new Float32Array(structure.bonds.length * 6)
-  const colors = new Float32Array(structure.bonds.length * 6)
+  const drawn = structure.bonds.filter((b) => visible[b.a - 1] && visible[b.b - 1])
+  const positions = new Float32Array(drawn.length * 6)
+  const colors = new Float32Array(drawn.length * 6)
   const color = new THREE.Color()
 
-  structure.bonds.forEach((bond, k) => {
+  drawn.forEach((bond, k) => {
     const [ax, ay, az] = atomPos(structure, coords, bond.a - 1)
     const [bx, by, bz] = atomPos(structure, coords, bond.b - 1)
     positions.set([ax, ay, az, bx, by, bz], k * 6)
@@ -374,6 +437,39 @@ function buildLineBonds(
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   const material = new THREE.LineBasicMaterial({ vertexColors: true })
   return new THREE.LineSegments(geometry, material)
+}
+
+function makeLabelSprite(text: string): THREE.Sprite {
+  const fontPx = 56
+  const pad = 10
+  const measureCtx = document.createElement('canvas').getContext('2d')!
+  measureCtx.font = `${fontPx}px sans-serif`
+  const textWidth = Math.ceil(measureCtx.measureText(text).width)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = textWidth + pad * 2
+  canvas.height = fontPx + pad * 2
+  const ctx = canvas.getContext('2d')!
+  ctx.font = `${fontPx}px sans-serif`
+  ctx.fillStyle = 'rgba(10,12,18,0.72)'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#ffe066'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, pad, canvas.height / 2)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    depthTest: false,
+    transparent: true,
+    sizeAttenuation: false
+  })
+  const sprite = new THREE.Sprite(material)
+  const h = 0.05
+  sprite.scale.set((canvas.width / canvas.height) * h, h, 1)
+  sprite.renderOrder = 1001
+  return sprite
 }
 
 function frameCameraToRenderables(
@@ -407,9 +503,15 @@ function frameCameraToRenderables(
 
 function disposeGroup(group: THREE.Group): void {
   group.traverse((object) => {
-    const obj = object as THREE.Mesh | THREE.LineSegments
-    if (obj.geometry) obj.geometry.dispose()
-    const material = obj.material
+    const o = object as THREE.Mesh & { isSprite?: boolean; material?: THREE.Material | THREE.Material[] }
+    if (o.isSprite) {
+      const m = o.material as THREE.SpriteMaterial | undefined
+      m?.map?.dispose()
+      m?.dispose()
+      return
+    }
+    if (o.geometry) o.geometry.dispose()
+    const material = o.material
     if (Array.isArray(material)) material.forEach((m) => m.dispose())
     else if (material) material.dispose()
   })
