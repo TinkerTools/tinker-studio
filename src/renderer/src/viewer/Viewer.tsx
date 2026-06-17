@@ -1,5 +1,13 @@
 import { useEffect, useRef } from 'react'
-import { createScene, type SceneHandle, type Renderable, type PickResult, type HighlightItem } from './scene'
+import {
+  createScene,
+  type SceneHandle,
+  type Renderable,
+  type PickResult,
+  type HighlightItem,
+  type ManipTarget
+} from './scene'
+import type { Transform } from '../core/transform'
 import type { RenderOptions } from './renderOptions'
 
 /**
@@ -14,7 +22,9 @@ export function Viewer({
   sceneKey,
   pickingEnabled = false,
   highlights,
-  onPick
+  onPick,
+  manipulation = null,
+  onTransform
 }: {
   renderables: Renderable[]
   options: RenderOptions
@@ -22,6 +32,8 @@ export function Viewer({
   pickingEnabled?: boolean
   highlights?: HighlightItem[]
   onPick?: (result: PickResult | null, additive: boolean) => void
+  manipulation?: ManipTarget | null
+  onTransform?: (systemId: string, transform: Transform) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<SceneHandle | null>(null)
@@ -29,10 +41,14 @@ export function Viewer({
   const optionsRef = useRef(options)
   const pickingRef = useRef(pickingEnabled)
   const onPickRef = useRef(onPick)
+  const manipulationRef = useRef(manipulation)
+  const onTransformRef = useRef(onTransform)
   renderablesRef.current = renderables
   optionsRef.current = options
   pickingRef.current = pickingEnabled
   onPickRef.current = onPick
+  manipulationRef.current = manipulation
+  onTransformRef.current = onTransform
 
   useEffect(() => {
     const container = containerRef.current
@@ -70,6 +86,14 @@ export function Viewer({
   useEffect(() => {
     handleRef.current?.setHighlights(highlights ?? [])
   }, [highlights])
+
+  const manipKey = manipulation ? `${manipulation.systemId}:${manipulation.mode}` : 'none'
+  useEffect(() => {
+    handleRef.current?.setManipulation(
+      manipulationRef.current,
+      (id, t) => onTransformRef.current?.(id, t)
+    )
+  }, [manipKey, sceneKey])
 
   return <div className={pickingEnabled ? 'viewer picking' : 'viewer'} ref={containerRef} />
 }

@@ -1,4 +1,5 @@
 import type { Structure, AtomRecord, BondRecord } from './types'
+import type { Transform } from './transform'
 import { parseTinkerXyz, parseTinkerArc } from './parseXyz'
 import { parsePdb } from './parsePdb'
 import { parseTinkerInt } from './parseInt'
@@ -26,6 +27,8 @@ export interface MolecularSystem {
   rev?: number
   /** Name of the applied force-field .prm, if any. */
   ffName?: string
+  /** Rigid-body placement of this system in the scene (default: identity). */
+  transform?: Transform
 }
 
 let counter = 0

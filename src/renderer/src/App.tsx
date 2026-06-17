@@ -13,6 +13,13 @@ import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
 import { writeTinkerXyz } from './core/writeXyz'
 import { parsePrm, applyForceField } from './core/parsePrm'
+import {
+  applyTransform,
+  bakeTransform,
+  IDENTITY_TRANSFORM,
+  isIdentityTransform,
+  type Transform
+} from './core/transform'
 import { AtomBrowser } from './AtomBrowser'
 import { CommandsModal } from './CommandsModal'
 import { KeywordsModal } from './KeywordsModal'
@@ -52,6 +59,8 @@ export default function App() {
   const [modal, setModal] = useState<'commands' | 'keywords' | null>(null)
   const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
   const [keyText, setKeyText] = useState('')
+  const [moveMode, setMoveMode] = useState(false)
+  const [moveTransform, setMoveTransform] = useState<'translate' | 'rotate'>('translate')
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
@@ -144,7 +153,9 @@ export default function App() {
 
   function mergeVisible(): void {
     if (mergeable.length < 2) return
-    const structure = mergeStructures(mergeable.map((s) => s.structure))
+    // Bake each system's placement into its coordinates before concatenating, so
+    // the merged structure preserves the relative configuration on screen.
+    const structure = mergeStructures(mergeable.map((s) => bakeTransform(s.structure, s.transform)))
     const merged: MolecularSystem = {
       id: nextSystemId(),
       name: `merged (${mergeable.length} systems)`,
@@ -159,7 +170,8 @@ export default function App() {
   function handleSave(): void {
     if (!active) return
     const base = active.name.replace(/\s*\(.*\)$/, '').replace(/\.[^./\\]*$/, '') || 'structure'
-    void window.ffe.saveTextFile(`${base}.xyz`, writeTinkerXyz(active.structure))
+    const structure = bakeTransform(active.structure, active.transform)
+    void window.ffe.saveTextFile(`${base}.xyz`, writeTinkerXyz(structure))
   }
 
   async function handleOpenKey(): Promise<void> {
@@ -194,13 +206,27 @@ export default function App() {
   }
 
   // The displayed position of a picked atom — tracks the current trajectory frame
-  // for the active animating system so highlights/measurements follow it.
+  // for the active animating system, then applies that system's rigid-body
+  // placement, so highlights/measurements follow both animation and moves.
   function livePosition(p: PickResult): [number, number, number] {
-    if (active?.trajectory && p.systemId === active.id) {
-      const c = active.trajectory.frames[Math.min(frameIndex, frameCount - 1)]
-      return [c[p.atomIndex * 3], c[p.atomIndex * 3 + 1], c[p.atomIndex * 3 + 2]]
+    const sys = systems.find((s) => s.id === p.systemId)
+    let base: [number, number, number]
+    if (sys?.trajectory && p.systemId === active?.id) {
+      const c = sys.trajectory.frames[Math.min(frameIndex, frameCount - 1)]
+      base = [c[p.atomIndex * 3], c[p.atomIndex * 3 + 1], c[p.atomIndex * 3 + 2]]
+    } else {
+      base = p.position
     }
-    return p.position
+    return sys?.transform ? applyTransform(base, sys.transform) : base
+  }
+
+  // Persist a gizmo drag (or a button nudge) into the system's transform.
+  function setSystemTransform(systemId: string, transform: Transform): void {
+    setSystems((prev) => prev.map((s) => (s.id === systemId ? { ...s, transform } : s)))
+  }
+
+  function resetActiveTransform(): void {
+    if (active) setSystemTransform(active.id, { ...IDENTITY_TRANSFORM })
   }
 
   function makePick(sys: MolecularSystem, i: number): PickResult {
@@ -268,12 +294,17 @@ export default function App() {
       s.id === activeId && s.trajectory
         ? s.trajectory.frames[Math.min(frameIndex, s.trajectory.frames.length - 1)] ?? null
         : null,
-    selected: s.id === activeId ? selectedInActive : undefined
+    selected: s.id === activeId ? selectedInActive : undefined,
+    transform: s.transform
   }))
+
+  const transformSig = (t?: Transform): string =>
+    isIdentityTransform(t) ? '' : [...t!.position, ...t!.quaternion].map((v) => v.toFixed(4)).join(' ')
 
   const sceneKey = [
     visibleSystems.map((s) => s.id).join(','),
     visibleSystems.map((s) => s.rev ?? 0).join(','),
+    visibleSystems.map((s) => transformSig(s.transform)).join(';'),
     activeId ?? '',
     frameIndex,
     options.representation,
@@ -621,6 +652,42 @@ export default function App() {
             </div>
           </section>
         )}
+
+        {active && (
+          <section className="panel">
+            <h2>Move System</h2>
+            <label className="move-toggle">
+              <input
+                type="checkbox"
+                checked={moveMode}
+                onChange={(e) => setMoveMode(e.target.checked)}
+              />
+              Move <b>{active.name}</b> independently
+            </label>
+            {moveMode && (
+              <>
+                <SegmentedControl<'translate' | 'rotate'>
+                  label="Gizmo"
+                  options={MOVE_MODES}
+                  value={moveTransform}
+                  onChange={setMoveTransform}
+                />
+                <p className="move-hint">
+                  Drag the {moveTransform === 'translate' ? 'arrows' : 'rings'} to{' '}
+                  {moveTransform} this system; drag empty space to orbit the camera. Picking is
+                  paused while moving. Merge or Save bakes the placement into the coordinates.
+                </p>
+                <button
+                  className="mini-btn"
+                  onClick={resetActiveTransform}
+                  disabled={isIdentityTransform(active.transform)}
+                >
+                  Reset placement
+                </button>
+              </>
+            )}
+          </section>
+        )}
       </aside>
 
       <section className="viewport">
@@ -628,9 +695,11 @@ export default function App() {
           renderables={renderables}
           options={options}
           sceneKey={sceneKey}
-          pickingEnabled={active != null}
+          pickingEnabled={active != null && !moveMode}
           highlights={highlights}
           onPick={applySelection}
+          manipulation={moveMode && active ? { systemId: active.id, mode: moveTransform } : null}
+          onTransform={setSystemTransform}
         />
       </section>
 
@@ -696,6 +765,11 @@ const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
   { value: 'distance', label: 'Distance' },
   { value: 'angle', label: 'Angle' },
   { value: 'dihedral', label: 'Dihedral' }
+]
+
+const MOVE_MODES: ReadonlyArray<{ value: 'translate' | 'rotate'; label: string }> = [
+  { value: 'translate', label: 'Translate' },
+  { value: 'rotate', label: 'Rotate' }
 ]
 
 const PICK_LEVELS: ReadonlyArray<{ value: PickLevel; label: string }> = [

@@ -1,10 +1,12 @@
 import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
+import { TransformControls } from 'three/addons/controls/TransformControls.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import type { Structure } from '../core/types'
+import { applyTransform, type Transform } from '../core/transform'
 import { elementInfo } from '../core/elements'
 import { type RenderOptions, type Representation } from './renderOptions'
 import { createImpostorSpheres } from './impostorSpheres'
@@ -23,6 +25,13 @@ export interface Renderable {
   coords: Float32Array | null
   /** Selected atom indices (for restrict-to-selection). */
   selected?: Set<number>
+  /** Rigid-body placement of this system in the scene. */
+  transform?: Transform
+}
+
+export interface ManipTarget {
+  systemId: string
+  mode: 'translate' | 'rotate'
 }
 
 export interface PickResult {
@@ -42,6 +51,11 @@ export interface SceneHandle {
   setScene(renderables: Renderable[], options: RenderOptions): void
   pick(clientX: number, clientY: number): PickResult | null
   setHighlights(items: HighlightItem[]): void
+  /** Show a move/rotate gizmo on a system's group, or null to hide it. */
+  setManipulation(
+    target: ManipTarget | null,
+    onChange: ((systemId: string, transform: Transform) => void) | null
+  ): void
   dispose(): void
 }
 
@@ -56,9 +70,14 @@ interface Pickable {
   atomIndex: number
   name: string
   element: string
+  // World-space center (transform applied) — used for ray testing.
   x: number
   y: number
   z: number
+  // Base (untransformed) atom coords — returned to callers.
+  bx: number
+  by: number
+  bz: number
   radius: number
 }
 
@@ -167,17 +186,53 @@ export function createScene(container: HTMLElement): SceneHandle {
   composer.setSize(container.clientWidth, container.clientHeight)
 
   let groups: THREE.Group[] = []
+  const groupById = new Map<string, THREE.Group>()
   let highlightGroup: THREE.Group | null = null
   let pickables: Pickable[] = []
   let lastKey = ''
   const raycaster = new THREE.Raycaster()
 
+  // Interactive move/rotate gizmo. Attached to the active system's group while in
+  // move mode; persists the resulting transform back to React on drag-end.
+  let manipTarget: ManipTarget | null = null
+  let manipCallback: ((systemId: string, transform: Transform) => void) | null = null
+  const gizmo = new TransformControls(camera, renderer.domElement)
+  gizmo.setSize(0.9)
+  const gizmoHelper = gizmo.getHelper()
+  scene.add(gizmoHelper)
+  gizmo.addEventListener('dragging-changed', (e) => {
+    // Suspend camera trackball while a handle is being dragged.
+    controls.enabled = !e.value
+    if (!e.value && manipTarget && manipCallback) {
+      const obj = gizmo.object
+      if (obj) {
+        manipCallback(manipTarget.systemId, {
+          position: [obj.position.x, obj.position.y, obj.position.z],
+          quaternion: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w]
+        })
+      }
+    }
+  })
+
+  function applyManipulation(): void {
+    if (!manipTarget) {
+      gizmo.detach()
+      return
+    }
+    gizmo.setMode(manipTarget.mode)
+    const group = groupById.get(manipTarget.systemId)
+    if (group) gizmo.attach(group)
+    else gizmo.detach()
+  }
+
   function clearGroups(): void {
+    gizmo.detach()
     for (const g of groups) {
       scene.remove(g)
       disposeGroup(g)
     }
     groups = []
+    groupById.clear()
   }
 
   function setScene(renderables: Renderable[], options: RenderOptions): void {
@@ -188,11 +243,19 @@ export function createScene(container: HTMLElement): SceneHandle {
       const colors = computeAtomColors(r.structure, options)
       const visible = computeVisibility(r.structure, options, r.selected)
       const group = buildMolecule(r.structure, r.coords, spec, colors, visible, options.representation)
+      if (r.transform) {
+        group.position.set(...r.transform.position)
+        group.quaternion.set(...r.transform.quaternion)
+      }
       scene.add(group)
       groups.push(group)
+      groupById.set(r.id, group)
       r.structure.atoms.forEach((atom, i) => {
         if (!visible[i]) return
-        const [x, y, z] = atomPos(r.structure, r.coords, i)
+        // Base coords (in the system's own frame) are returned by picks; world
+        // coords (transform applied) are what the camera ray actually tests.
+        const base = atomPos(r.structure, r.coords, i)
+        const [x, y, z] = r.transform ? applyTransform(base, r.transform) : base
         pickables.push({
           systemId: r.id,
           atomIndex: i,
@@ -201,10 +264,14 @@ export function createScene(container: HTMLElement): SceneHandle {
           x,
           y,
           z,
+          bx: base[0],
+          by: base[1],
+          bz: base[2],
           radius: Math.max(spec.atomRadius(elementInfo(atom.element).vdwRadius), 0.4)
         })
       })
     }
+    applyManipulation()
     const k = renderables.map((r) => r.id).join(',')
     if (k !== lastKey) {
       frameCameraToRenderables(renderables, camera, controls)
@@ -242,7 +309,7 @@ export function createScene(container: HTMLElement): SceneHandle {
       atomIndex: best.atomIndex,
       name: best.name,
       element: best.element,
-      position: [best.x, best.y, best.z]
+      position: [best.bx, best.by, best.bz]
     }
   }
 
@@ -303,10 +370,19 @@ export function createScene(container: HTMLElement): SceneHandle {
     setScene,
     pick,
     setHighlights,
+    setManipulation(target, onChange): void {
+      manipTarget = target
+      manipCallback = onChange
+      if (!target) controls.enabled = true
+      applyManipulation()
+    },
     dispose(): void {
       cancelAnimationFrame(raf)
       resizeObserver.disconnect()
       controls.dispose()
+      gizmo.detach()
+      scene.remove(gizmoHelper)
+      gizmo.dispose()
       clearGroups()
       if (highlightGroup) disposeGroup(highlightGroup)
       composer.dispose()
@@ -535,7 +611,8 @@ function frameCameraToRenderables(
   const point = new THREE.Vector3()
   for (const r of renderables) {
     r.structure.atoms.forEach((_atom, i) => {
-      const [x, y, z] = atomPos(r.structure, r.coords, i)
+      const base = atomPos(r.structure, r.coords, i)
+      const [x, y, z] = r.transform ? applyTransform(base, r.transform) : base
       box.expandByPoint(point.set(x, y, z))
     })
   }

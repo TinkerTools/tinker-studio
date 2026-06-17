@@ -185,6 +185,28 @@ body {
   color: var(--text-dim);
 }
 
+.move-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.move-toggle b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-hint {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: 0.6rem 0;
+  line-height: 1.4;
+}
+
 .measure-result {
   margin-top: 0.5rem;
   font-size: 0.9rem;
