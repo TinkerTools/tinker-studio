@@ -17,6 +17,12 @@ export interface AtomRecord {
   type: number
   /** 1-based indices of bonded atoms, as listed for this atom. */
   bonds: number[]
+  /** Residue name (PDB), e.g. "ALA". */
+  residue?: string
+  /** Residue sequence number (PDB). */
+  residueSeq?: number
+  /** Chain identifier (PDB). */
+  chain?: string
 }
 
 export interface BondRecord {

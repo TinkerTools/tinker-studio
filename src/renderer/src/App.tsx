@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Viewer } from './viewer/Viewer'
-import type { Renderable } from './viewer/scene'
+import type { Renderable, PickResult } from './viewer/scene'
+import { distance, angle, dihedral } from './core/measure'
 import {
   parseStructureFile,
   nextSystemId,
@@ -9,6 +10,7 @@ import {
 } from './core/system'
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
+import { AtomBrowser } from './AtomBrowser'
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -37,6 +39,8 @@ export default function App() {
   const [playing, setPlaying] = useState(false)
   const [downloadSource, setDownloadSource] = useState<DownloadSource | null>(null)
   const [downloading, setDownloading] = useState(false)
+  const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
+  const [picks, setPicks] = useState<PickResult[]>([])
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
@@ -149,6 +153,50 @@ export default function App() {
     setVisibleIds(new Set([merged.id]))
   }
 
+  // Selection + measurement: pick atoms (in the 3D view or from the atom list)
+  // and compute distance / angle / dihedral.
+  const need = MEASURE_NEED[measureMode]
+
+  function handlePick(result: PickResult | null): void {
+    if (!result) return
+    setPicks((prev) => (prev.length >= need ? [result] : [...prev, result]))
+  }
+
+  function pickFromList(atomIndex: number): void {
+    if (!active) return
+    const a = active.structure.atoms[atomIndex]
+    const coords = active.trajectory
+      ? active.trajectory.frames[Math.min(frameIndex, frameCount - 1)]
+      : null
+    const position: [number, number, number] = coords
+      ? [coords[atomIndex * 3], coords[atomIndex * 3 + 1], coords[atomIndex * 3 + 2]]
+      : [a.x, a.y, a.z]
+    handlePick({ systemId: active.id, atomIndex, name: a.name, element: a.element, position })
+  }
+
+  const highlights = useMemo(() => picks.map((p) => p.position), [picks])
+
+  // Atom indices selected within the active system (to mark them in the browser).
+  const selectedInActive = useMemo(() => {
+    const set = new Set<number>()
+    if (active) for (const p of picks) if (p.systemId === active.id) set.add(p.atomIndex)
+    return set
+  }, [picks, active])
+
+  let measureResult: string | null = null
+  if (picks.length === need) {
+    const pos = picks.map((p) => p.position)
+    if (measureMode === 'inspect') {
+      measureResult = `${picks[0].element} · (${pos[0].map((v) => v.toFixed(2)).join(', ')})`
+    } else if (measureMode === 'distance') {
+      measureResult = `${distance(pos[0], pos[1]).toFixed(3)} Å`
+    } else if (measureMode === 'angle') {
+      measureResult = `${angle(pos[0], pos[1], pos[2]).toFixed(2)}°`
+    } else if (measureMode === 'dihedral') {
+      measureResult = `${dihedral(pos[0], pos[1], pos[2], pos[3]).toFixed(2)}°`
+    }
+  }
+
   // Route native-menu actions to handlers via a ref (stable subscription, fresh closures).
   const menuHandlerRef = useRef<(action: string) => void>(() => {})
   menuHandlerRef.current = (action: string): void => {
@@ -163,11 +211,17 @@ export default function App() {
     return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
   }, [])
 
-  // Reset playback when the active system changes.
+  // Reset playback and selection when the active system changes.
   useEffect(() => {
     setFrameIndex(0)
     setPlaying(false)
+    setPicks([])
   }, [activeId])
+
+  // Clear the selection when the measurement mode changes.
+  useEffect(() => {
+    setPicks([])
+  }, [measureMode])
 
   // Trajectory playback loop.
   useEffect(() => {
@@ -330,10 +384,64 @@ export default function App() {
             onChange={(colorMode) => setOptions((o) => ({ ...o, colorMode }))}
           />
         </section>
+
+        {active && (
+          <section className="panel">
+            <h2>Selection &amp; Measure</h2>
+            <div className="seg">
+              {MEASURE_MODES.map((m) => (
+                <button
+                  key={m.value}
+                  className={m.value === measureMode ? 'seg-btn active' : 'seg-btn'}
+                  onClick={() => setMeasureMode(m.value)}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="measure-info">
+              {picks.length === 0 ? (
+                <span className="measure-hint">Click an atom in the view or list below.</span>
+              ) : (
+                <div className="pick-chips">
+                  {picks.map((p, i) => (
+                    <span key={i} className="pick-chip">
+                      {p.name}
+                      {p.atomIndex + 1}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {measureResult ? (
+                <div className="measure-result">{measureResult}</div>
+              ) : (
+                picks.length > 0 && (
+                  <div className="measure-hint">
+                    {picks.length}/{need} atoms selected
+                  </div>
+                )
+              )}
+            </div>
+          </section>
+        )}
+
+        {active && (
+          <section className="panel">
+            <h2>Atoms — {active.structure.atoms.length}</h2>
+            <AtomBrowser system={active} selected={selectedInActive} onPick={pickFromList} />
+          </section>
+        )}
       </aside>
 
       <section className="viewport">
-        <Viewer renderables={renderables} options={options} sceneKey={sceneKey} />
+        <Viewer
+          renderables={renderables}
+          options={options}
+          sceneKey={sceneKey}
+          pickingEnabled={active != null}
+          highlights={highlights}
+          onPick={handlePick}
+        />
       </section>
 
       {downloadSource && (
@@ -376,6 +484,22 @@ function SegmentedControl<T extends string>({
     </div>
   )
 }
+
+type MeasureMode = 'inspect' | 'distance' | 'angle' | 'dihedral'
+
+const MEASURE_NEED: Record<MeasureMode, number> = {
+  inspect: 1,
+  distance: 2,
+  angle: 3,
+  dihedral: 4
+}
+
+const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
+  { value: 'inspect', label: 'Inspect' },
+  { value: 'distance', label: 'Distance' },
+  { value: 'angle', label: 'Angle' },
+  { value: 'dihedral', label: 'Dihedral' }
+]
 
 type DownloadSource = 'pubchem' | 'nci' | 'pdb'
 

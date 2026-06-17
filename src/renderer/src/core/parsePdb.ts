@@ -37,8 +37,13 @@ export function parsePdb(text: string): Structure {
       const element = elementField ? normalizeElement(elementField) : guessElement(name)
       const serial = Number.parseInt(line.slice(6, 11), 10)
 
+      const residue = line.slice(17, 20).trim() || undefined
+      const chain = line.charAt(21).trim() || undefined
+      const resSeq = Number.parseInt(line.slice(22, 26), 10)
+      const residueSeq = Number.isFinite(resSeq) ? resSeq : undefined
+
       const index = atoms.length + 1
-      atoms.push({ index, name, element, x, y, z, type: 0, bonds: [] })
+      atoms.push({ index, name, element, x, y, z, type: 0, bonds: [], residue, residueSeq, chain })
       if (Number.isFinite(serial)) serialToIndex.set(serial, index)
       continue
     }

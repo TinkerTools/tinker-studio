@@ -175,6 +175,123 @@ body {
   cursor: crosshair;
 }
 
+/* Selection & measure */
+.measure-info {
+  margin-top: 0.7rem;
+}
+
+.measure-hint {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.measure-result {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+}
+
+.pick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.pick-chip {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: #1b1d24;
+  background: #ffd400;
+  border-radius: 4px;
+  padding: 0.12rem 0.4rem;
+}
+
+/* Atom browser */
+.atom-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.atom-list {
+  list-style: none;
+}
+
+.atom-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.18rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.atom-row:hover {
+  background: var(--panel-2);
+}
+
+.atom-row.sel {
+  background: rgba(255, 212, 0, 0.16);
+}
+
+.atom-idx {
+  width: 2.5rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.atom-name {
+  flex: 1;
+}
+
+.atom-elem {
+  font-weight: 600;
+}
+
+.res-node {
+  border-bottom: 1px solid var(--border);
+}
+
+.res-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.res-header:hover {
+  background: var(--panel-2);
+}
+
+.res-header.has-sel {
+  background: rgba(255, 212, 0, 0.12);
+}
+
+.res-caret {
+  width: 0.8rem;
+  color: var(--text-dim);
+}
+
+.res-label {
+  flex: 1;
+}
+
+.res-count {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Active-system info */
 .info {
   display: grid;
