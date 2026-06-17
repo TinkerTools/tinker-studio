@@ -173,7 +173,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     for (const r of renderables) {
       const colors = computeAtomColors(r.structure, options)
       const visible = computeVisibility(r.structure, options, r.selected)
-      const group = buildMolecule(r.structure, r.coords, spec, colors, visible)
+      const group = buildMolecule(r.structure, r.coords, spec, colors, visible, options.representation)
       scene.add(group)
       groups.push(group)
       r.structure.atoms.forEach((atom, i) => {
@@ -319,11 +319,21 @@ function buildMolecule(
   coords: Float32Array | null,
   spec: RepSpec,
   atomColors: number[],
-  visible: boolean[]
+  visible: boolean[],
+  representation: Representation
 ): THREE.Group {
   const group = new THREE.Group()
-  group.add(buildAtoms(structure, coords, spec, atomColors, visible))
 
+  if (representation === 'tube') {
+    const tube = buildBackboneTube(structure, coords)
+    if (tube) {
+      group.add(tube)
+      return group
+    }
+    // No protein backbone (no CA atoms) — fall through to ball-and-stick.
+  }
+
+  group.add(buildAtoms(structure, coords, spec, atomColors, visible))
   if (structure.bonds.length > 0) {
     if (spec.bond === 'cylinder') {
       group.add(buildCylinderBonds(structure, coords, spec.bondRadius, atomColors, visible))
@@ -332,6 +342,36 @@ function buildMolecule(
     }
   }
   return group
+}
+
+// A smooth tube through the backbone (CA atoms) of each chain — a simple protein
+// cartoon stand-in. Returns null if there is no protein backbone.
+function buildBackboneTube(structure: Structure, coords: Float32Array | null): THREE.Group | null {
+  const byChain = new Map<string, Array<{ seq: number; pos: THREE.Vector3 }>>()
+  structure.atoms.forEach((a, i) => {
+    if (a.name !== 'CA') return
+    const [x, y, z] = atomPos(structure, coords, i)
+    const chain = a.chain ?? ''
+    const list = byChain.get(chain) ?? []
+    list.push({ seq: a.residueSeq ?? i, pos: new THREE.Vector3(x, y, z) })
+    byChain.set(chain, list)
+  })
+  if (byChain.size === 0) return null
+
+  const group = new THREE.Group()
+  for (const [chain, cas] of byChain) {
+    if (cas.length < 2) continue
+    cas.sort((p, q) => p.seq - q.seq)
+    const curve = new THREE.CatmullRomCurve3(cas.map((c) => c.pos))
+    const geometry = new THREE.TubeGeometry(curve, Math.max(cas.length * 4, 8), 0.35, 10, false)
+    const material = new THREE.MeshStandardMaterial({
+      color: paletteColor(`chain:${chain}`),
+      roughness: 0.4,
+      metalness: 0.0
+    })
+    group.add(new THREE.Mesh(geometry, material))
+  }
+  return group.children.length ? group : null
 }
 
 function buildAtoms(
