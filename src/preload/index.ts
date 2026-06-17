@@ -74,6 +74,12 @@ const api = {
   job: {
     run: (req: JobRunRequest): Promise<JobRunResult> => ipcRenderer.invoke('job:run', req),
     cancel: (jobId: string): Promise<boolean> => ipcRenderer.invoke('job:cancel', jobId),
+    /** After a job finishes, fetch the coordinate file Tinker produced (or null). */
+    collectResult: (
+      structurePath: string,
+      since: number
+    ): Promise<{ name: string; path: string; text: string } | null> =>
+      ipcRenderer.invoke('job:collectResult', { structurePath, since }),
     onOutput: (cb: (o: JobOutput) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, o: JobOutput): void => cb(o)
       ipcRenderer.on('job:output', listener)

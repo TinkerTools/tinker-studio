@@ -9,6 +9,8 @@ export interface JobRecord {
   program: string
   /** Name of the system the job was run on. */
   systemName: string
+  /** Path of the input structure on disk (used to locate Tinker's output). */
+  structurePath?: string
   /** Full command line, once the job has started. */
   commandLine?: string
   startedAt: number

@@ -60,6 +60,8 @@ export default function App() {
   const [picks, setPicks] = useState<PickResult[]>([])
   const [modal, setModal] = useState<'commands' | 'keywords' | 'jobs' | null>(null)
   const [jobs, setJobs] = useState<JobRecord[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
   const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
   const [keyText, setKeyText] = useState('')
   const [moveMode, setMoveMode] = useState(false)
@@ -74,7 +76,12 @@ export default function App() {
 
   type Parsed = ReturnType<typeof parseStructureFile>
 
-  function addSystem(parsed: Parsed, name: string, path?: string, ffName?: string): void {
+  function addSystem(
+    parsed: Parsed,
+    name: string,
+    opts: { path?: string; ffName?: string; select?: boolean } = {}
+  ): void {
+    const { path, ffName, select = true } = opts
     const system: MolecularSystem = {
       id: nextSystemId(),
       name,
@@ -85,8 +92,28 @@ export default function App() {
       ffName
     }
     setSystems((prev) => [...prev, system])
-    setActiveId(system.id)
-    setVisibleIds((prev) => new Set(prev).add(system.id))
+    // A selected system becomes active and visible; an unselected one (e.g. a
+    // finished job's result) is just added to the list for the user to reveal.
+    if (select) {
+      setActiveId(system.id)
+      setVisibleIds((prev) => new Set(prev).add(system.id))
+    }
+  }
+
+  function renameSystem(id: string, name: string): void {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setSystems((prev) => prev.map((s) => (s.id === id ? { ...s, name: trimmed } : s)))
+  }
+
+  function beginRename(s: MolecularSystem): void {
+    setEditingId(s.id)
+    setEditingName(s.name)
+  }
+
+  function commitRename(): void {
+    if (editingId) renameSystem(editingId, editingName)
+    setEditingId(null)
   }
 
   async function handleOpen(): Promise<void> {
@@ -98,9 +125,9 @@ export default function App() {
       // Auto-apply the force field found via a sibling .key's PARAMETERS line.
       if (file.prmText) {
         const structure = applyForceField(parsed.structure, parsePrm(file.prmText))
-        addSystem({ ...parsed, structure }, file.name, file.path, file.prmName)
+        addSystem({ ...parsed, structure }, file.name, { path: file.path, ffName: file.prmName })
       } else {
-        addSystem(parsed, file.name, file.path)
+        addSystem(parsed, file.name, { path: file.path })
       }
     } catch (e) {
       setError(messageOf(e))
@@ -208,6 +235,27 @@ export default function App() {
     }
   }
 
+  // When a job finishes successfully, load the coordinate file Tinker produced
+  // as a new, deselected system (kept in a ref so the once-mounted job
+  // subscription always calls the latest closure).
+  const jobsRef = useRef<JobRecord[]>([])
+  jobsRef.current = jobs
+  const onJobFinishedRef = useRef<(jobId: string) => void>(() => {})
+  onJobFinishedRef.current = async (jobId: string): Promise<void> => {
+    const job = jobsRef.current.find((j) => j.id === jobId)
+    if (!job?.structurePath) return
+    try {
+      const result = await window.ffe.job.collectResult(job.structurePath, job.startedAt)
+      if (!result) return
+      addSystem(parseStructureFile(result.text, result.name), `${job.program} · ${result.name}`, {
+        path: result.path,
+        select: false
+      })
+    } catch (e) {
+      setError(messageOf(e))
+    }
+  }
+
   // Tinker jobs are owned here (not in the Commands modal) so their output is
   // retained after the modal closes and can be reviewed in the Job Output window.
   useEffect(() => {
@@ -216,7 +264,7 @@ export default function App() {
         prev.map((j) => (j.id === o.jobId ? { ...j, output: j.output + o.chunk } : j))
       )
     )
-    const offExit = window.ffe.job.onExit((e) =>
+    const offExit = window.ffe.job.onExit((e) => {
       setJobs((prev) =>
         prev.map((j) =>
           j.id === e.jobId
@@ -231,7 +279,9 @@ export default function App() {
             : j
         )
       )
-    )
+      // Only a clean exit produces a usable result (skip failures and cancels).
+      if (!e.error && e.code === 0) onJobFinishedRef.current(e.jobId)
+    })
     return () => {
       offOut()
       offExit()
@@ -248,6 +298,7 @@ export default function App() {
         id,
         program,
         systemName: system.name,
+        structurePath: system.path,
         startedAt: Date.now(),
         status: 'running',
         output: ''
@@ -503,10 +554,42 @@ export default function App() {
                         toggleVisible(s.id)
                       }}
                     />
-                    <span className="system-name" title={s.name}>
-                      {s.name}
-                    </span>
+                    {editingId === s.id ? (
+                      <input
+                        className="system-rename"
+                        autoFocus
+                        value={editingName}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitRename()
+                          else if (e.key === 'Escape') setEditingId(null)
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="system-name"
+                        title={`${s.name} — double-click to rename`}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          beginRename(s)
+                        }}
+                      >
+                        {s.name}
+                      </span>
+                    )}
                     <span className="system-meta">{s.structure.atoms.length}</span>
+                    <button
+                      className="system-rename-btn"
+                      title="Rename system"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        beginRename(s)
+                      }}
+                    >
+                      ✎
+                    </button>
                     <button
                       className="system-close"
                       title="Close system"

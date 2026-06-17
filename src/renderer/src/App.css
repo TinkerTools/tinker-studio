@@ -115,15 +115,28 @@ body {
   text-overflow: ellipsis;
 }
 
+.system-rename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--accent, #5b8def);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+
 .system-meta {
   font-size: 0.72rem;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
 
+.system-rename-btn,
 .system-close {
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.95rem;
   line-height: 1;
   color: var(--text-dim);
   background: transparent;
@@ -133,6 +146,7 @@ body {
   border-radius: 4px;
 }
 
+.system-rename-btn:hover,
 .system-close:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.08);

@@ -2,7 +2,7 @@ import { app, BrowserWindow, shell, ipcMain, dialog, Menu } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename, dirname } from 'path'
 import { readFile, writeFile } from 'fs/promises'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 
 /** Send a menu action to the focused window's renderer. */
@@ -311,6 +311,40 @@ function registerIpcHandlers(): void {
     jobs.delete(jobId)
     return true
   })
+
+  // After a job finishes, locate the coordinate file Tinker produced. Tinker
+  // writes optimized/derived structures as numbered cycle files next to the
+  // input — e.g. `mol.xyz` -> `mol.xyz_2` (highest number = latest). Returns the
+  // newest one written since the job started, or null if none was produced.
+  ipcMain.handle(
+    'job:collectResult',
+    (_e, req: { structurePath: string; since: number }): { name: string; path: string; text: string } | null => {
+      try {
+        const dir = dirname(req.structurePath)
+        const inputName = basename(req.structurePath)
+        const cycle = /_(\d+)$/
+        const candidates = readdirSync(dir)
+          .filter((n) => n.startsWith(`${inputName}_`) && cycle.test(n))
+          .map((name) => {
+            const path = join(dir, name)
+            return {
+              name,
+              path,
+              n: Number(name.match(cycle)![1]),
+              mtime: statSync(path).mtimeMs
+            }
+          })
+          // Allow a little clock slack so we don't miss a just-written file.
+          .filter((c) => c.mtime >= req.since - 2000)
+        if (candidates.length === 0) return null
+        candidates.sort((a, b) => b.n - a.n)
+        const best = candidates[0]
+        return { name: best.name, path: best.path, text: readFileSync(best.path, 'utf8') }
+      } catch {
+        return null
+      }
+    }
+  )
 
   // Save text (e.g. a composed .key file) to a user-chosen path.
   ipcMain.handle('file:saveText', async (_e, req: { suggestedName: string; contents: string }) => {
