@@ -18,6 +18,14 @@ function buildApplicationMenu(): void {
       submenu: [
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
         { label: 'Load Example', click: () => sendMenu('loadExample') },
+        {
+          label: 'Download',
+          submenu: [
+            { label: 'From PubChem…', click: () => sendMenu('download:pubchem') },
+            { label: 'From NCI…', click: () => sendMenu('download:nci') },
+            { label: 'From PDB…', click: () => sendMenu('download:pdb') }
+          ]
+        },
         { type: 'separator' },
         { label: 'Close System', accelerator: 'CmdOrCtrl+W', click: () => sendMenu('close') },
         ...(isMac
@@ -111,6 +119,32 @@ function registerIpcHandlers(): void {
     const path = result.filePaths[0]
     const text = await readFile(path, 'utf8')
     return { path, name: basename(path), text }
+  })
+
+  // Fetch a structure from an online database (done in main to avoid CORS).
+  ipcMain.handle('structure:download', async (_event, source: string, query: string) => {
+    const q = query.trim()
+    if (!q) throw new Error('Empty query')
+    let url: string
+    let format: 'sdf' | 'pdb'
+    if (source === 'pubchem') {
+      url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(q)}/record/SDF/?record_type=3d&response_type=display`
+      format = 'sdf'
+    } else if (source === 'nci') {
+      url = `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(q)}/sdf`
+      format = 'sdf'
+    } else if (source === 'pdb') {
+      url = `https://files.rcsb.org/download/${encodeURIComponent(q.toUpperCase())}.pdb`
+      format = 'pdb'
+    } else {
+      throw new Error(`Unknown download source: ${source}`)
+    }
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error(`Download failed (HTTP ${response.status}) — not found?`)
+    }
+    const text = await response.text()
+    return { text, format, name: q }
   })
 }
 

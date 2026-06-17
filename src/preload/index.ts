@@ -22,6 +22,12 @@ const api = {
   captureMode: Boolean(process.env['FFE_CAPTURE']),
   /** Prompt the user for a Tinker file; resolves to its contents, or null if cancelled. */
   openStructure: (): Promise<OpenedFile | null> => ipcRenderer.invoke('structure:open'),
+  /** Download a structure from an online database (pubchem | nci | pdb). */
+  download: (
+    source: string,
+    query: string
+  ): Promise<{ text: string; format: 'sdf' | 'pdb'; name: string }> =>
+    ipcRenderer.invoke('structure:download', source, query),
   /** Subscribe to native-menu actions (open / loadExample / close). Returns an unsubscribe fn. */
   onMenu: (callback: (action: string) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, action: string): void => callback(action)

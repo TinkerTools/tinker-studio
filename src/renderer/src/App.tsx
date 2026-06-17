@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Viewer } from './viewer/Viewer'
 import { parseStructureFile, nextSystemId, type MolecularSystem } from './core/system'
+import { parsePdb } from './core/parsePdb'
+import { parseSdf } from './core/parseSdf'
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -25,6 +27,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [frameIndex, setFrameIndex] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [downloadSource, setDownloadSource] = useState<DownloadSource | null>(null)
+  const [downloading, setDownloading] = useState(false)
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
@@ -67,6 +71,21 @@ export default function App() {
     }
   }
 
+  async function runDownload(source: DownloadSource, query: string): Promise<void> {
+    setError(null)
+    setDownloading(true)
+    try {
+      const result = await window.ffe.download(source, query)
+      const structure = result.format === 'pdb' ? parsePdb(result.text) : parseSdf(result.text)
+      addSystem({ structure, fileType: result.format }, `${result.name} (${source})`)
+      setDownloadSource(null)
+    } catch (e) {
+      setError(messageOf(e))
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   function closeSystem(id: string): void {
     setSystems((prev) => prev.filter((s) => s.id !== id))
     setActiveId((current) => {
@@ -82,6 +101,9 @@ export default function App() {
     if (action === 'open') void handleOpen()
     else if (action === 'loadExample') handleExample()
     else if (action === 'close' && activeId) closeSystem(activeId)
+    else if (action === 'download:pubchem') setDownloadSource('pubchem')
+    else if (action === 'download:nci') setDownloadSource('nci')
+    else if (action === 'download:pdb') setDownloadSource('pdb')
   }
   useEffect(() => {
     return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
@@ -244,6 +266,68 @@ export default function App() {
       <section className="viewport">
         <Viewer structure={active?.structure ?? null} options={options} frameCoords={frameCoords} />
       </section>
+
+      {downloadSource && (
+        <DownloadModal
+          source={downloadSource}
+          busy={downloading}
+          onSubmit={(q) => void runDownload(downloadSource, q)}
+          onCancel={() => setDownloadSource(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+type DownloadSource = 'pubchem' | 'nci' | 'pdb'
+
+const DOWNLOAD_LABELS: Record<DownloadSource, { name: string; prompt: string }> = {
+  pubchem: { name: 'PubChem', prompt: 'Molecule name (e.g. aspirin)' },
+  nci: { name: 'NCI', prompt: 'Molecule name or SMILES (e.g. caffeine)' },
+  pdb: { name: 'RCSB PDB', prompt: '4-character PDB ID (e.g. 1CRN)' }
+}
+
+function DownloadModal({
+  source,
+  busy,
+  onSubmit,
+  onCancel
+}: {
+  source: DownloadSource
+  busy: boolean
+  onSubmit: (query: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState('')
+  const { name, prompt } = DOWNLOAD_LABELS[source]
+  const submit = (): void => {
+    if (value.trim()) onSubmit(value.trim())
+  }
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Download from {name}</h3>
+        <input
+          autoFocus
+          className="modal-input"
+          placeholder={prompt}
+          value={value}
+          disabled={busy}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit()
+            else if (e.key === 'Escape') onCancel()
+          }}
+        />
+        <div className="modal-buttons">
+          <button className="modal-btn ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="modal-btn primary" onClick={submit} disabled={busy || !value.trim()}>
+            {busy ? 'Downloading…' : 'Download'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

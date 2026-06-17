@@ -1,5 +1,5 @@
 import type { Structure, AtomRecord } from './types'
-import { guessElement } from './elements'
+import { guessElement, normalizeElement } from './elements'
 import { perceiveBonds } from './bondPerception'
 
 /**
@@ -73,11 +73,4 @@ export function parsePdb(text: string): Structure {
   }
 
   return { title, atoms, bonds }
-}
-
-function normalizeElement(symbol: string): string {
-  const s = symbol.trim()
-  if (s.length === 0) return 'X'
-  if (s.length === 1) return s.toUpperCase()
-  return s[0].toUpperCase() + s.slice(1).toLowerCase()
 }

@@ -55,6 +55,14 @@ export function elementInfo(symbol: string): ElementInfo {
   return { symbol, ...(TABLE[symbol] ?? DEFAULT) }
 }
 
+/** Normalize an element symbol to canonical case (e.g. "FE" -> "Fe", " c" -> "C"). */
+export function normalizeElement(symbol: string): string {
+  const s = symbol.trim()
+  if (s.length === 0) return 'X'
+  if (s.length === 1) return s.toUpperCase()
+  return s[0].toUpperCase() + s.slice(1).toLowerCase()
+}
+
 // First letters that are common single-letter organic/biomolecular elements; for
 // these we default to the single-letter reading. Genuine two-letter elements
 // sharing those first letters that commonly appear as whole atom names are

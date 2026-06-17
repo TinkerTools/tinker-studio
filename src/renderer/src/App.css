@@ -229,6 +229,84 @@ body {
   gap: 0.3rem;
 }
 
+/* Download modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  width: 360px;
+  max-width: 90vw;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.modal h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.85rem;
+}
+
+.modal-input {
+  width: 100%;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  outline: none;
+}
+
+.modal-input:focus {
+  border-color: var(--accent);
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.modal-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.modal-btn.ghost {
+  color: var(--text);
+  background: transparent;
+}
+
+.modal-btn.ghost:hover {
+  background: var(--panel-2);
+}
+
+.modal-btn.primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.modal-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Viewport */
 .viewport {
   position: relative;
