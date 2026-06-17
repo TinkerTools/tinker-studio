@@ -657,7 +657,12 @@ export default function App() {
 
         {active && (
           <section className="panel">
-            <details className="atoms-disclosure">
+            <details
+              className="atoms-disclosure"
+              onToggle={(e) => {
+                if (!e.currentTarget.open) setMoveMode(false)
+              }}
+            >
               <summary>Move System</summary>
               <label className="move-toggle">
                 <input
