@@ -23,8 +23,6 @@ import {
 } from './viewer/renderOptions'
 import ethanolSample from './samples/ethanol.xyz?raw'
 
-const PLAYBACK_FPS = 15
-
 /**
  * Root layout: a sidebar (systems, active-system info, display controls,
  * trajectory playback) beside the 3D viewport. Multiple systems can be shown at
@@ -39,6 +37,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [frameIndex, setFrameIndex] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [oscillate, setOscillate] = useState(false)
+  const [speed, setSpeed] = useState(15)
+  const [skip, setSkip] = useState(1)
+  const playDirRef = useRef(1)
   const [downloadSource, setDownloadSource] = useState<DownloadSource | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
@@ -192,7 +194,21 @@ export default function App() {
     )
   }
 
-  const highlights = useMemo(() => picks.map((p) => p.position), [picks])
+  // The displayed position of a picked atom — tracks the current trajectory
+  // frame for the active animating system, so highlights/measurements follow it.
+  function livePosition(p: PickResult): [number, number, number] {
+    if (active?.trajectory && p.systemId === active.id) {
+      const c = active.trajectory.frames[Math.min(frameIndex, frameCount - 1)]
+      return [c[p.atomIndex * 3], c[p.atomIndex * 3 + 1], c[p.atomIndex * 3 + 2]]
+    }
+    return p.position
+  }
+
+  const highlights = useMemo(
+    () => picks.map(livePosition),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [picks, activeId, frameIndex, frameCount]
+  )
 
   // Atom indices selected within the active system (to mark them in the browser).
   const selectedInActive = useMemo(() => {
@@ -203,10 +219,10 @@ export default function App() {
 
   let measureResult: string | null = null
   if (picks.length > 0) {
-    const pos = picks.map((p) => p.position)
+    const pos = picks.map(livePosition)
     if (measureMode === 'inspect') {
       const p = picks[picks.length - 1]
-      measureResult = `${p.name}${p.atomIndex + 1}: ${p.element} · (${p.position
+      measureResult = `${p.name}${p.atomIndex + 1}: ${p.element} · (${pos[pos.length - 1]
         .map((v) => v.toFixed(2))
         .join(', ')})`
     } else if (measureMode === 'distance' && picks.length === 2) {
@@ -249,14 +265,29 @@ export default function App() {
     setPicks([])
   }, [activeId])
 
-  // Trajectory playback loop.
+  // Trajectory playback loop (honors oscillate / speed / skip).
   useEffect(() => {
     if (!playing || frameCount === 0) return
+    const step = Math.max(1, skip)
     const id = window.setInterval(() => {
-      setFrameIndex((f) => (f + 1) % frameCount)
-    }, 1000 / PLAYBACK_FPS)
+      setFrameIndex((f) => {
+        let next = f + playDirRef.current * step
+        if (oscillate) {
+          if (next >= frameCount - 1) {
+            next = frameCount - 1
+            playDirRef.current = -1
+          } else if (next <= 0) {
+            next = 0
+            playDirRef.current = 1
+          }
+        } else {
+          next = ((next % frameCount) + frameCount) % frameCount
+        }
+        return next
+      })
+    }, 1000 / Math.max(1, speed))
     return () => window.clearInterval(id)
-  }, [playing, frameCount])
+  }, [playing, frameCount, oscillate, speed, skip])
 
   // Under the headless screenshot harness, load the example automatically (once).
   const autoLoadedRef = useRef(false)
@@ -396,23 +427,54 @@ export default function App() {
                 ▶▏
               </button>
             </div>
+            <div className="traj-opts">
+              <label className="traj-opt">
+                <input
+                  type="checkbox"
+                  checked={oscillate}
+                  onChange={(e) => setOscillate(e.target.checked)}
+                />
+                Oscillate
+              </label>
+              <label className="traj-opt">
+                Speed
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={speed}
+                  onChange={(e) => setSpeed(Number(e.target.value) || 1)}
+                />
+              </label>
+              <label className="traj-opt">
+                Skip
+                <input
+                  type="number"
+                  min={1}
+                  value={skip}
+                  onChange={(e) => setSkip(Number(e.target.value) || 1)}
+                />
+              </label>
+            </div>
           </section>
         )}
 
         <section className="panel">
-          <h2>Display</h2>
-          <SegmentedControl<Representation>
-            label="Representation"
-            options={REPRESENTATIONS}
-            value={options.representation}
-            onChange={(representation) => setOptions((o) => ({ ...o, representation }))}
-          />
-          <SegmentedControl<ColorMode>
-            label="Color"
-            options={COLOR_MODES}
-            value={options.colorMode}
-            onChange={(colorMode) => setOptions((o) => ({ ...o, colorMode }))}
-          />
+          <details className="atoms-disclosure">
+            <summary>Display</summary>
+            <SegmentedControl<Representation>
+              label="Representation"
+              options={REPRESENTATIONS}
+              value={options.representation}
+              onChange={(representation) => setOptions((o) => ({ ...o, representation }))}
+            />
+            <SegmentedControl<ColorMode>
+              label="Color"
+              options={COLOR_MODES}
+              value={options.colorMode}
+              onChange={(colorMode) => setOptions((o) => ({ ...o, colorMode }))}
+            />
+          </details>
         </section>
 
         {active && (

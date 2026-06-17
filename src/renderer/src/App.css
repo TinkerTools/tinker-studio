@@ -702,6 +702,33 @@ body {
   gap: 0.3rem;
 }
 
+.traj-opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.traj-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.traj-opt input[type='number'] {
+  width: 3rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.25rem;
+}
+
 /* Download modal */
 .modal-backdrop {
   position: fixed;
