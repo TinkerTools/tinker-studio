@@ -376,8 +376,14 @@ function registerIpcHandlers(): void {
   })
 
   // Open any text file (e.g. a .key file) and return its path + contents.
-  ipcMain.handle('file:openText', async () => {
-    const r = await dialog.showOpenDialog({ title: 'Open File', properties: ['openFile'] })
+  ipcMain.handle(
+    'file:openText',
+    async (_e, filters?: Array<{ name: string; extensions: string[] }>) => {
+    const r = await dialog.showOpenDialog({
+      title: 'Open File',
+      properties: ['openFile'],
+      ...(filters ? { filters } : {})
+    })
     if (r.canceled || r.filePaths.length === 0) return null
     const path = r.filePaths[0]
     const text = await readFile(path, 'utf8')

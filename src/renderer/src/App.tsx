@@ -224,7 +224,7 @@ export default function App() {
   async function handleOpenKey(): Promise<void> {
     setError(null)
     try {
-      const file = await window.ffe.openTextFile()
+      const file = await window.ffe.openTextFile(KEY_FILE_FILTERS)
       if (!file) return
       setKeyText(file.text)
       setModal('keywords')
@@ -282,7 +282,7 @@ export default function App() {
     if (!active) return
     setError(null)
     try {
-      const file = await window.ffe.openTextFile()
+      const file = await window.ffe.openTextFile(KEY_FILE_FILTERS)
       if (!file) return
       setSystemKey(active.id, file.name, file.text)
     } catch (e) {
@@ -1050,6 +1050,8 @@ const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
   { value: 'angle', label: 'Angle' },
   { value: 'dihedral', label: 'Dihedral' }
 ]
+
+const KEY_FILE_FILTERS = [{ name: 'Tinker Key Files', extensions: ['key'] }]
 
 const MOVE_MODES: ReadonlyArray<{ value: 'translate' | 'rotate'; label: string }> = [
   { value: 'translate', label: 'Translate' },
