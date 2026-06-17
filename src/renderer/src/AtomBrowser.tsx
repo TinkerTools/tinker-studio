@@ -46,7 +46,7 @@ export function AtomBrowser({
 }: {
   system: MolecularSystem
   selected: Set<number>
-  onPick: (atomIndex: number) => void
+  onPick: (atomIndex: number, additive: boolean) => void
 }) {
   const atoms = system.structure.atoms
   const groups = useMemo(() => groupByResidue(atoms), [atoms])
@@ -77,7 +77,7 @@ function ResidueNode({
   group: ResidueGroup
   atoms: Atoms
   selected: Set<number>
-  onPick: (atomIndex: number) => void
+  onPick: (atomIndex: number, additive: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const hasSelected = group.atomIndices.some((i) => selected.has(i))
@@ -120,10 +120,13 @@ function AtomRow({
   name: string
   element: string
   selected: boolean
-  onPick: (atomIndex: number) => void
+  onPick: (atomIndex: number, additive: boolean) => void
 }) {
   return (
-    <li className={selected ? 'atom-row sel' : 'atom-row'} onClick={() => onPick(index)}>
+    <li
+      className={selected ? 'atom-row sel' : 'atom-row'}
+      onClick={(e) => onPick(index, e.metaKey || e.ctrlKey)}
+    >
       <span className="atom-idx">{index + 1}</span>
       <span className="atom-name">{name}</span>
       <span className="atom-elem" style={{ color: elementColor(element) }}>

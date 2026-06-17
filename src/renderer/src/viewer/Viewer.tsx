@@ -21,7 +21,7 @@ export function Viewer({
   sceneKey: string
   pickingEnabled?: boolean
   highlights?: Array<[number, number, number]>
-  onPick?: (result: PickResult | null) => void
+  onPick?: (result: PickResult | null, additive: boolean) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<SceneHandle | null>(null)
@@ -50,7 +50,7 @@ export function Viewer({
     const onUp = (e: PointerEvent): void => {
       if (!pickingRef.current || !onPickRef.current) return
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
-      onPickRef.current(handle.pick(e.clientX, e.clientY))
+      onPickRef.current(handle.pick(e.clientX, e.clientY), e.metaKey || e.ctrlKey)
     }
     container.addEventListener('pointerdown', onDown)
     container.addEventListener('pointerup', onUp)

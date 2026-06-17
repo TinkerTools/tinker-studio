@@ -156,16 +156,26 @@ export default function App() {
     setVisibleIds(new Set([merged.id]))
   }
 
-  // Selection + measurement: pick atoms (in the 3D view or from the atom list)
-  // and compute distance / angle / dihedral.
+  // Selection: a plain click selects one atom, ⌘/Ctrl-click toggles an atom into
+  // a multi-atom selection, and clicking empty space clears it. Works from both
+  // the 3D view and the atom list.
   const need = MEASURE_NEED[measureMode]
 
-  function handlePick(result: PickResult | null): void {
-    if (!result) return
-    setPicks((prev) => (prev.length >= need ? [result] : [...prev, result]))
+  function applySelection(result: PickResult | null, additive: boolean): void {
+    if (!result) {
+      if (!additive) setPicks([]) // click away to deselect
+      return
+    }
+    setPicks((prev) => {
+      const i = prev.findIndex(
+        (p) => p.systemId === result.systemId && p.atomIndex === result.atomIndex
+      )
+      if (additive) return i >= 0 ? prev.filter((_, k) => k !== i) : [...prev, result]
+      return [result]
+    })
   }
 
-  function pickFromList(atomIndex: number): void {
+  function pickFromList(atomIndex: number, additive: boolean): void {
     if (!active) return
     const a = active.structure.atoms[atomIndex]
     const coords = active.trajectory
@@ -174,7 +184,10 @@ export default function App() {
     const position: [number, number, number] = coords
       ? [coords[atomIndex * 3], coords[atomIndex * 3 + 1], coords[atomIndex * 3 + 2]]
       : [a.x, a.y, a.z]
-    handlePick({ systemId: active.id, atomIndex, name: a.name, element: a.element, position })
+    applySelection(
+      { systemId: active.id, atomIndex, name: a.name, element: a.element, position },
+      additive
+    )
   }
 
   const highlights = useMemo(() => picks.map((p) => p.position), [picks])
@@ -187,15 +200,18 @@ export default function App() {
   }, [picks, active])
 
   let measureResult: string | null = null
-  if (picks.length === need) {
+  if (picks.length > 0) {
     const pos = picks.map((p) => p.position)
     if (measureMode === 'inspect') {
-      measureResult = `${picks[0].element} · (${pos[0].map((v) => v.toFixed(2)).join(', ')})`
-    } else if (measureMode === 'distance') {
+      const p = picks[picks.length - 1]
+      measureResult = `${p.name}${p.atomIndex + 1}: ${p.element} · (${p.position
+        .map((v) => v.toFixed(2))
+        .join(', ')})`
+    } else if (measureMode === 'distance' && picks.length === 2) {
       measureResult = `${distance(pos[0], pos[1]).toFixed(3)} Å`
-    } else if (measureMode === 'angle') {
+    } else if (measureMode === 'angle' && picks.length === 3) {
       measureResult = `${angle(pos[0], pos[1], pos[2]).toFixed(2)}°`
-    } else if (measureMode === 'dihedral') {
+    } else if (measureMode === 'dihedral' && picks.length === 4) {
       measureResult = `${dihedral(pos[0], pos[1], pos[2], pos[3]).toFixed(2)}°`
     }
   }
@@ -222,11 +238,6 @@ export default function App() {
     setPlaying(false)
     setPicks([])
   }, [activeId])
-
-  // Clear the selection when the measurement mode changes.
-  useEffect(() => {
-    setPicks([])
-  }, [measureMode])
 
   // Trajectory playback loop.
   useEffect(() => {
@@ -329,6 +340,10 @@ export default function App() {
                 </>
               )}
             </dl>
+            <details className="atoms-disclosure">
+              <summary>Atoms ({active.structure.atoms.length})</summary>
+              <AtomBrowser system={active} selected={selectedInActive} onPick={pickFromList} />
+            </details>
           </section>
         )}
 
@@ -406,7 +421,9 @@ export default function App() {
             </div>
             <div className="measure-info">
               {picks.length === 0 ? (
-                <span className="measure-hint">Click an atom in the view or list below.</span>
+                <span className="measure-hint">
+                  Click an atom; ⌘-click to add more, click empty space to clear.
+                </span>
               ) : (
                 <div className="pick-chips">
                   {picks.map((p, i) => (
@@ -420,9 +437,10 @@ export default function App() {
               {measureResult ? (
                 <div className="measure-result">{measureResult}</div>
               ) : (
+                measureMode !== 'inspect' &&
                 picks.length > 0 && (
                   <div className="measure-hint">
-                    {picks.length}/{need} atoms selected
+                    Select {need} atoms for {measureMode} ({picks.length} selected)
                   </div>
                 )
               )}
@@ -430,12 +448,6 @@ export default function App() {
           </section>
         )}
 
-        {active && (
-          <section className="panel">
-            <h2>Atoms — {active.structure.atoms.length}</h2>
-            <AtomBrowser system={active} selected={selectedInActive} onPick={pickFromList} />
-          </section>
-        )}
       </aside>
 
       <section className="viewport">
@@ -445,7 +457,7 @@ export default function App() {
           sceneKey={sceneKey}
           pickingEnabled={active != null}
           highlights={highlights}
-          onPick={handlePick}
+          onPick={applySelection}
         />
       </section>
 
