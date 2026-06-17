@@ -292,6 +292,242 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Large modals (commands / keywords) — .modal.modal-lg to win over base .modal */
+.modal.modal-lg {
+  width: 880px;
+  max-width: 94vw;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.modal-head h3 {
+  margin: 0;
+}
+
+.modal-x {
+  font: inherit;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.modal-x:hover {
+  color: var(--text);
+}
+
+.cmd-body {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 1rem;
+  min-height: 0;
+  flex: 1;
+}
+
+.cmd-list {
+  list-style: none;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.cmd-item {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.cmd-item:hover {
+  background: var(--panel-2);
+}
+
+.cmd-item.active {
+  background: rgba(91, 140, 255, 0.16);
+  color: #fff;
+}
+
+.cmd-detail {
+  overflow-y: auto;
+  padding-right: 0.4rem;
+}
+
+.cmd-detail h4 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.cmd-desc {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.cmd-note {
+  margin-top: 1rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.opt-field {
+  margin-bottom: 1rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.opt-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.opt-desc {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+  margin-bottom: 0.4rem;
+  white-space: pre-line;
+}
+
+.opt-input {
+  width: 100%;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.35rem 0.5rem;
+}
+
+.opt-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.opt-choice {
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.opt-textarea {
+  width: 100%;
+  min-height: 60px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.4rem;
+}
+
+.opt-cond {
+  margin-top: 0.4rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+}
+
+.opt-cond-label {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  margin-bottom: 0.25rem;
+}
+
+.kw-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 1rem;
+  min-height: 0;
+  flex: 1;
+  margin-top: 0.7rem;
+}
+
+.kw-list {
+  overflow-y: auto;
+  padding-right: 0.4rem;
+}
+
+.kw-section-name {
+  position: sticky;
+  top: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  background: var(--panel);
+  padding: 0.4rem 0;
+}
+
+.kw-item {
+  padding: 0.4rem 0.5rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.kw-item:hover {
+  background: var(--panel-2);
+}
+
+.kw-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.kw-rep {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.kw-desc {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+  margin-top: 0.15rem;
+}
+
+.kw-values {
+  font-size: 0.74rem;
+  color: var(--accent);
+  margin-top: 0.2rem;
+}
+
+.kw-draft {
+  display: flex;
+  flex-direction: column;
+}
+
+.kw-textarea {
+  flex: 1;
+  margin-top: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  resize: none;
+}
+
 /* Active-system info */
 .info {
   display: grid;

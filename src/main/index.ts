@@ -34,6 +34,13 @@ function buildApplicationMenu(): void {
       ]
     },
     { role: 'editMenu' },
+    {
+      label: 'Tinker',
+      submenu: [
+        { label: 'Modeling Commands…', click: () => sendMenu('commands') },
+        { label: 'Keyword Reference…', click: () => sendMenu('keywords') }
+      ]
+    },
     { role: 'viewMenu' },
     { role: 'windowMenu' }
   ]

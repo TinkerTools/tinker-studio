@@ -11,6 +11,8 @@ import {
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
 import { AtomBrowser } from './AtomBrowser'
+import { CommandsModal } from './CommandsModal'
+import { KeywordsModal } from './KeywordsModal'
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -41,6 +43,7 @@ export default function App() {
   const [downloading, setDownloading] = useState(false)
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
   const [picks, setPicks] = useState<PickResult[]>([])
+  const [modal, setModal] = useState<'commands' | 'keywords' | null>(null)
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
@@ -206,6 +209,8 @@ export default function App() {
     else if (action === 'download:pubchem') setDownloadSource('pubchem')
     else if (action === 'download:nci') setDownloadSource('nci')
     else if (action === 'download:pdb') setDownloadSource('pdb')
+    else if (action === 'commands') setModal('commands')
+    else if (action === 'keywords') setModal('keywords')
   }
   useEffect(() => {
     return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
@@ -452,6 +457,11 @@ export default function App() {
           onCancel={() => setDownloadSource(null)}
         />
       )}
+
+      {modal === 'commands' && (
+        <CommandsModal fileType={active?.fileType} onClose={() => setModal(null)} />
+      )}
+      {modal === 'keywords' && <KeywordsModal onClose={() => setModal(null)} />}
     </div>
   )
 }
