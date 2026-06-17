@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
@@ -60,9 +60,15 @@ export function createScene(container: HTMLElement): SceneHandle {
   const camera = new THREE.PerspectiveCamera(50, aspectOf(container), 0.1, 5000)
   camera.position.set(0, 0, 30)
 
-  const controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.dampingFactor = 0.08
+  // Trackball (not orbit) controls so the molecule can be tumbled freely in any
+  // direction — orbit controls lock at the poles, which blocks rotating a
+  // molecule "over the top".
+  const controls = new TrackballControls(camera, renderer.domElement)
+  controls.rotateSpeed = 3.0
+  controls.zoomSpeed = 1.2
+  controls.panSpeed = 0.8
+  controls.staticMoving = false
+  controls.dynamicDampingFactor = 0.15
 
   // Lights drive the (standard-material) bonds; impostor spheres use their own
   // matched view-space shading.
@@ -105,6 +111,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     composer.setSize(w, h)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
+    controls.handleResize()
   }
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(container)
@@ -255,7 +262,7 @@ function buildLineBonds(structure: Structure, atomColors: number[]): THREE.LineS
 function frameCamera(
   structure: Structure,
   camera: THREE.PerspectiveCamera,
-  controls: OrbitControls
+  controls: TrackballControls
 ): void {
   const box = new THREE.Box3()
   const point = new THREE.Vector3()

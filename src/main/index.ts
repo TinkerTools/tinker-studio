@@ -1,6 +1,36 @@
-import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, Menu } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { readFile, writeFile } from 'fs/promises'
+
+/** Send a menu action to the focused window's renderer. */
+function sendMenu(action: string): void {
+  BrowserWindow.getFocusedWindow()?.webContents.send('menu', action)
+}
+
+/** Build the native application menu. Open / Load Example live here now. */
+function buildApplicationMenu(): void {
+  const isMac = process.platform === 'darwin'
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
+        { label: 'Load Example', click: () => sendMenu('loadExample') },
+        { type: 'separator' },
+        { label: 'Close System', accelerator: 'CmdOrCtrl+W', click: () => sendMenu('close') },
+        ...(isMac
+          ? []
+          : [{ type: 'separator' as const }, { role: 'quit' as const }])
+      ]
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
 
 /**
  * Electron main process.
@@ -85,6 +115,7 @@ function registerIpcHandlers(): void {
 }
 
 app.whenReady().then(() => {
+  buildApplicationMenu()
   registerIpcHandlers()
   createWindow()
 

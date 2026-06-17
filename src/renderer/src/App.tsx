@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Viewer } from './viewer/Viewer'
-import { parseTinkerXyz } from './core/parseXyz'
-import type { Structure } from './core/types'
+import { parseStructureFile, nextSystemId, type MolecularSystem } from './core/system'
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -13,29 +12,31 @@ import {
 import ethanolSample from './samples/ethanol.xyz?raw'
 
 /**
- * Root layout shell: a toolbar, a sidebar (system info + display controls), the
- * 3D viewport, and a status bar. Loading flows through here; the parsed
- * Structure and the current RenderOptions are handed to the Viewer.
+ * Root layout: a sidebar (loaded systems + active-system info + display
+ * controls) beside the 3D viewport. File actions live in the native menu
+ * (File ▸ Open… / Load Example / Close System), not an in-window toolbar.
  */
 export default function App() {
-  const [structure, setStructure] = useState<Structure | null>(null)
-  const [fileName, setFileName] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [systems, setSystems] = useState<MolecularSystem[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [options, setOptions] = useState<RenderOptions>(DEFAULT_RENDER_OPTIONS)
+  const [error, setError] = useState<string | null>(null)
 
-  // Under the headless screenshot harness, load the example automatically.
-  useEffect(() => {
-    if (window.ffe?.captureMode) handleExample()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const active = systems.find((s) => s.id === activeId) ?? null
+
+  function addSystem(structure: MolecularSystem['structure'], name: string, fileType: string): void {
+    const system: MolecularSystem = { id: nextSystemId(), name, fileType, structure }
+    setSystems((prev) => [...prev, system])
+    setActiveId(system.id)
+  }
 
   async function handleOpen(): Promise<void> {
     setError(null)
     try {
       const file = await window.ffe.openStructure()
       if (!file) return
-      setStructure(parseTinkerXyz(file.text))
-      setFileName(file.name)
+      const { structure, fileType } = parseStructureFile(file.text, file.name)
+      addSystem(structure, file.name, fileType)
     } catch (e) {
       setError(messageOf(e))
     }
@@ -44,98 +45,133 @@ export default function App() {
   function handleExample(): void {
     setError(null)
     try {
-      setStructure(parseTinkerXyz(ethanolSample))
-      setFileName('ethanol.xyz (example)')
+      const { structure, fileType } = parseStructureFile(ethanolSample, 'ethanol.xyz')
+      addSystem(structure, 'ethanol.xyz (example)', fileType)
     } catch (e) {
       setError(messageOf(e))
     }
   }
 
-  const v = window.ffe?.versions
+  function closeSystem(id: string): void {
+    setSystems((prev) => prev.filter((s) => s.id !== id))
+    setActiveId((current) => {
+      if (current !== id) return current
+      const remaining = systems.filter((s) => s.id !== id)
+      return remaining.length ? remaining[remaining.length - 1].id : null
+    })
+  }
+
+  // Route native-menu actions to handlers. A ref keeps the subscription stable
+  // while always calling the latest closures (avoids stale state).
+  const menuHandlerRef = useRef<(action: string) => void>(() => {})
+  menuHandlerRef.current = (action: string): void => {
+    if (action === 'open') void handleOpen()
+    else if (action === 'loadExample') handleExample()
+    else if (action === 'close' && activeId) closeSystem(activeId)
+  }
+  useEffect(() => {
+    return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
+  }, [])
+
+  // Under the headless screenshot harness, load the example automatically (once).
+  const autoLoadedRef = useRef(false)
+  useEffect(() => {
+    if (window.ffe?.captureMode && !autoLoadedRef.current) {
+      autoLoadedRef.current = true
+      handleExample()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="app">
-      <header className="titlebar">
-        <span className="brand">Force Field Explorer</span>
-        <span className="subtitle">molecular modeling for Tinker</span>
-        <span className="spacer" />
-        <button className="btn" onClick={handleOpen}>
-          Open…
-        </button>
-        <button className="btn btn-ghost" onClick={handleExample}>
-          Load example
-        </button>
-      </header>
+      <aside className="sidebar">
+        <div className="sidebar-brand">Force Field Explorer</div>
 
-      <main className="workspace">
-        <aside className="sidebar">
-          <section className="panel">
-            <h2>System</h2>
-            {structure ? (
-              <dl className="info">
-                <dt>File</dt>
-                <dd>{fileName}</dd>
-                {structure.title && (
-                  <>
-                    <dt>Title</dt>
-                    <dd>{structure.title}</dd>
-                  </>
-                )}
-                <dt>Atoms</dt>
-                <dd>{structure.atoms.length}</dd>
-                <dt>Bonds</dt>
-                <dd>{structure.bonds.length}</dd>
-                {structure.box && (
-                  <>
-                    <dt>Periodic box</dt>
-                    <dd>{structure.box.slice(0, 3).map((n) => n.toFixed(2)).join(' × ')} Å</dd>
-                  </>
-                )}
-              </dl>
-            ) : (
-              <p className="placeholder">
-                No structure loaded. Use <b>Open…</b> to read a Tinker <code>.xyz</code> file, or
-                <b> Load example</b> to view bundled ethanol.
-              </p>
-            )}
-            {error && <p className="error">{error}</p>}
-          </section>
-
-          <section className="panel">
-            <h2>Display</h2>
-            <SegmentedControl<Representation>
-              label="Representation"
-              options={REPRESENTATIONS}
-              value={options.representation}
-              onChange={(representation) => setOptions((o) => ({ ...o, representation }))}
-            />
-            <SegmentedControl<ColorMode>
-              label="Color"
-              options={COLOR_MODES}
-              value={options.colorMode}
-              onChange={(colorMode) => setOptions((o) => ({ ...o, colorMode }))}
-            />
-          </section>
-        </aside>
-
-        <section className="viewport">
-          <Viewer structure={structure} options={options} />
+        <section className="panel">
+          <h2>Systems</h2>
+          {systems.length === 0 ? (
+            <p className="placeholder">
+              No systems loaded. Use <b>File ▸ Open…</b> for a Tinker <code>.xyz</code> file, or
+              <b> File ▸ Load Example</b>.
+            </p>
+          ) : (
+            <ul className="system-list">
+              {systems.map((s) => (
+                <li
+                  key={s.id}
+                  className={s.id === activeId ? 'system active' : 'system'}
+                  onClick={() => setActiveId(s.id)}
+                >
+                  <span className="system-name" title={s.name}>
+                    {s.name}
+                  </span>
+                  <span className="system-meta">{s.structure.atoms.length} atoms</span>
+                  <button
+                    className="system-close"
+                    title="Close system"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      closeSystem(s.id)
+                    }}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {error && <p className="error">{error}</p>}
         </section>
-      </main>
 
-      <footer className="statusbar">
-        <span>
-          {structure
-            ? `${structure.atoms.length} atoms · ${structure.bonds.length} bonds`
-            : 'Ready'}
-        </span>
-        <span className="spacer" />
-        {v && (
-          <span className="versions">
-            Electron {v.electron} · Chromium {v.chrome} · Node {v.node}
-          </span>
+        {active && (
+          <section className="panel">
+            <h2>Active System</h2>
+            <dl className="info">
+              <dt>Name</dt>
+              <dd>{active.name}</dd>
+              {active.structure.title && (
+                <>
+                  <dt>Title</dt>
+                  <dd>{active.structure.title}</dd>
+                </>
+              )}
+              <dt>Format</dt>
+              <dd>{active.fileType.toUpperCase()}</dd>
+              <dt>Atoms</dt>
+              <dd>{active.structure.atoms.length}</dd>
+              <dt>Bonds</dt>
+              <dd>{active.structure.bonds.length}</dd>
+              {active.structure.box && (
+                <>
+                  <dt>Periodic box</dt>
+                  <dd>{active.structure.box.slice(0, 3).map((n) => n.toFixed(2)).join(' × ')} Å</dd>
+                </>
+              )}
+            </dl>
+          </section>
         )}
-      </footer>
+
+        <section className="panel">
+          <h2>Display</h2>
+          <SegmentedControl<Representation>
+            label="Representation"
+            options={REPRESENTATIONS}
+            value={options.representation}
+            onChange={(representation) => setOptions((o) => ({ ...o, representation }))}
+          />
+          <SegmentedControl<ColorMode>
+            label="Color"
+            options={COLOR_MODES}
+            value={options.colorMode}
+            onChange={(colorMode) => setOptions((o) => ({ ...o, colorMode }))}
+          />
+        </section>
+      </aside>
+
+      <section className="viewport">
+        <Viewer structure={active?.structure ?? null} options={options} />
+      </section>
     </div>
   )
 }
