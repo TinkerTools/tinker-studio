@@ -22,7 +22,9 @@ import {
 } from './core/transform'
 import { AtomBrowser } from './AtomBrowser'
 import { CommandsModal } from './CommandsModal'
+import { JobsModal } from './JobsModal'
 import { KeywordsModal } from './KeywordsModal'
+import type { JobRecord } from './core/job'
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -56,7 +58,8 @@ export default function App() {
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
   const [pickLevel, setPickLevel] = useState<PickLevel>('atom')
   const [picks, setPicks] = useState<PickResult[]>([])
-  const [modal, setModal] = useState<'commands' | 'keywords' | null>(null)
+  const [modal, setModal] = useState<'commands' | 'keywords' | 'jobs' | null>(null)
+  const [jobs, setJobs] = useState<JobRecord[]>([])
   const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
   const [keyText, setKeyText] = useState('')
   const [moveMode, setMoveMode] = useState(false)
@@ -205,6 +208,75 @@ export default function App() {
     }
   }
 
+  // Tinker jobs are owned here (not in the Commands modal) so their output is
+  // retained after the modal closes and can be reviewed in the Job Output window.
+  useEffect(() => {
+    const offOut = window.ffe.job.onOutput((o) =>
+      setJobs((prev) =>
+        prev.map((j) => (j.id === o.jobId ? { ...j, output: j.output + o.chunk } : j))
+      )
+    )
+    const offExit = window.ffe.job.onExit((e) =>
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === e.jobId
+            ? {
+                ...j,
+                status: e.error ? 'failed' : 'exited',
+                exitCode: e.code,
+                output:
+                  j.output +
+                  `\n[exited${e.code != null ? ` code ${e.code}` : ''}${e.error ? `: ${e.error}` : ''}]\n`
+              }
+            : j
+        )
+      )
+    )
+    return () => {
+      offOut()
+      offExit()
+    }
+  }, [])
+
+  // Launch a Tinker program and register it as a retained job. Returns the job id
+  // so the launcher can reflect live status from the shared job list.
+  async function startJob(program: string, system: MolecularSystem, stdin: string): Promise<string> {
+    const id = `job-${Date.now()}`
+    setJobs((prev) => [
+      ...prev,
+      {
+        id,
+        program,
+        systemName: system.name,
+        startedAt: Date.now(),
+        status: 'running',
+        output: ''
+      }
+    ])
+    const res = await window.ffe.job.run({
+      jobId: id,
+      program,
+      structurePath: system.path!,
+      stdin
+    })
+    setJobs((prev) =>
+      prev.map((j) => {
+        if (j.id !== id) return j
+        if (!res.ok) {
+          return { ...j, status: 'failed', output: `Failed to start: ${res.error ?? 'unknown error'}\n` }
+        }
+        return res.commandLine
+          ? { ...j, commandLine: res.commandLine, output: `$ ${res.commandLine}\n` + j.output }
+          : j
+      })
+    )
+    return id
+  }
+
+  function clearJob(id: string): void {
+    setJobs((prev) => prev.filter((j) => j.id !== id))
+  }
+
   // The displayed position of a picked atom — tracks the current trajectory frame
   // for the active animating system, then applies that system's rigid-body
   // placement, so highlights/measurements follow both animation and moves.
@@ -341,6 +413,7 @@ export default function App() {
     else if (action === 'download:nci') setDownloadSource('nci')
     else if (action === 'download:pdb') setDownloadSource('pdb')
     else if (action === 'commands') setModal('commands')
+    else if (action === 'jobs') setModal('jobs')
     else if (action === 'keywords') {
       setKeyText('')
       setModal('keywords')
@@ -722,7 +795,21 @@ export default function App() {
       )}
 
       {modal === 'commands' && (
-        <CommandsModal system={active} tinkerDir={tinkerDir} onClose={() => setModal(null)} />
+        <CommandsModal
+          system={active}
+          tinkerDir={tinkerDir}
+          jobs={jobs}
+          onRunJob={startJob}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === 'jobs' && (
+        <JobsModal
+          jobs={jobs}
+          onCancel={(id) => void window.ffe.job.cancel(id)}
+          onClear={clearJob}
+          onClose={() => setModal(null)}
+        />
       )}
       {modal === 'keywords' && (
         <KeywordsModal initialText={keyText} onClose={() => setModal(null)} />

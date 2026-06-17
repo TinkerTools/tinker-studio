@@ -41,6 +41,7 @@ function buildApplicationMenu(): void {
       label: 'Tinker',
       submenu: [
         { label: 'Modeling Commands…', click: () => sendMenu('commands') },
+        { label: 'Job Output…', click: () => sendMenu('jobs') },
         { label: 'Keyword Reference…', click: () => sendMenu('keywords') },
         { label: 'Open Key File…', click: () => sendMenu('openKey') },
         { label: 'Apply Force Field (.prm)…', click: () => sendMenu('applyFF') },

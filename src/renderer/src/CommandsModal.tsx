@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { tinkerCommands, type TinkerCommand, type TinkerOption } from './data/tinkerCatalog'
 import type { MolecularSystem } from './core/system'
+import type { JobRecord } from './core/job'
+
+type RunJob = (program: string, system: MolecularSystem, stdin: string) => Promise<string>
 
 /**
  * Data-driven Tinker command browser + launcher. Lists the programs applicable
@@ -12,10 +15,14 @@ import type { MolecularSystem } from './core/system'
 export function CommandsModal({
   system,
   tinkerDir,
+  jobs,
+  onRunJob,
   onClose
 }: {
   system: MolecularSystem | null
   tinkerDir?: string
+  jobs: JobRecord[]
+  onRunJob: RunJob
   onClose: () => void
 }) {
   const ft = system?.fileType.toUpperCase()
@@ -53,7 +60,14 @@ export function CommandsModal({
           </ul>
           <div className="cmd-detail">
             {command && (
-              <CommandDetail key={command.name} command={command} system={system} tinkerDir={tinkerDir} />
+              <CommandDetail
+                key={command.name}
+                command={command}
+                system={system}
+                tinkerDir={tinkerDir}
+                jobs={jobs}
+                onRunJob={onRunJob}
+              />
             )}
           </div>
         </div>
@@ -65,11 +79,15 @@ export function CommandsModal({
 function CommandDetail({
   command,
   system,
-  tinkerDir
+  tinkerDir,
+  jobs,
+  onRunJob
 }: {
   command: TinkerCommand
   system: MolecularSystem | null
   tinkerDir?: string
+  jobs: JobRecord[]
+  onRunJob: RunJob
 }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const valueOf = (o: TinkerOption): string => values[o.name] ?? o.default
@@ -95,7 +113,14 @@ function CommandDetail({
           ))}
         </div>
       )}
-      <RunSection command={command} system={system} tinkerDir={tinkerDir} buildStdin={buildStdin} />
+      <RunSection
+        command={command}
+        system={system}
+        tinkerDir={tinkerDir}
+        jobs={jobs}
+        onRunJob={onRunJob}
+        buildStdin={buildStdin}
+      />
     </>
   )
 }
@@ -177,54 +202,28 @@ function RunSection({
   command,
   system,
   tinkerDir,
+  jobs,
+  onRunJob,
   buildStdin
 }: {
   command: TinkerCommand
   system: MolecularSystem | null
   tinkerDir?: string
+  jobs: JobRecord[]
+  onRunJob: RunJob
   buildStdin: () => string
 }) {
-  const [output, setOutput] = useState('')
-  const [running, setRunning] = useState(false)
-  const jobRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    const offOut = window.ffe.job.onOutput((o) => {
-      if (o.jobId === jobRef.current) setOutput((s) => s + o.chunk)
-    })
-    const offExit = window.ffe.job.onExit((e) => {
-      if (e.jobId !== jobRef.current) return
-      setRunning(false)
-      setOutput(
-        (s) => s + `\n[exited${e.code != null ? ` code ${e.code}` : ''}${e.error ? `: ${e.error}` : ''}]\n`
-      )
-    })
-    return () => {
-      offOut()
-      offExit()
-    }
-  }, [])
-
+  // The job started from this panel; its output/status are read from the shared
+  // App-level job list so they survive the modal closing.
+  const [jobId, setJobId] = useState<string | null>(null)
+  const job = jobs.find((j) => j.id === jobId) ?? null
+  const running = job?.status === 'running'
   const canRun = Boolean(system?.path)
 
   async function run(): Promise<void> {
-    if (!system?.path) return
-    const id = `job-${Date.now()}`
-    jobRef.current = id
-    setRunning(true)
-    setOutput('')
-    const res = await window.ffe.job.run({
-      jobId: id,
-      program: command.name.toLowerCase(),
-      structurePath: system.path,
-      stdin: buildStdin()
-    })
-    if (!res.ok) {
-      setRunning(false)
-      setOutput(`Failed to start: ${res.error ?? 'unknown error'}`)
-    } else if (res.commandLine) {
-      setOutput((s) => `$ ${res.commandLine}\n` + s)
-    }
+    if (!system) return
+    const id = await onRunJob(command.name.toLowerCase(), system, buildStdin())
+    setJobId(id)
   }
 
   return (
@@ -247,16 +246,16 @@ function RunSection({
         <button className="modal-btn primary" onClick={run} disabled={!canRun || running}>
           {running ? 'Running…' : 'Run'}
         </button>
-        {running && (
-          <button
-            className="modal-btn ghost"
-            onClick={() => jobRef.current && window.ffe.job.cancel(jobRef.current)}
-          >
+        {running && job && (
+          <button className="modal-btn ghost" onClick={() => window.ffe.job.cancel(job.id)}>
             Cancel
           </button>
         )}
+        {job && (
+          <span className="run-hint">Output is kept in Tinker ▸ Job Output…</span>
+        )}
       </div>
-      {output && <pre className="run-log">{output}</pre>}
+      {job?.output && <pre className="run-log">{job.output}</pre>}
     </div>
   )
 }

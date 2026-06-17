@@ -656,8 +656,110 @@ body {
 
 .run-buttons {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.6rem;
+}
+
+.run-hint {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+/* Job Output window */
+.jobs-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.6rem;
+}
+
+.jobs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.job-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+}
+
+.job-tab.active {
+  color: var(--text);
+  border-color: var(--accent, #5b8def);
+  background: color-mix(in srgb, var(--accent, #5b8def) 16%, var(--panel-2));
+}
+
+.job-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.job-dot.running {
+  background: #f2c14e;
+}
+
+.job-dot.exited {
+  background: #5cc97a;
+}
+
+.job-dot.failed {
+  background: #e0605a;
+}
+
+.job-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+}
+
+.job-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.job-meta-main code {
+  color: var(--text);
+}
+
+.job-status {
+  font-size: 0.74rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--panel-2);
+}
+
+.job-status.running {
+  color: #f2c14e;
+}
+
+.job-status.exited {
+  color: #5cc97a;
+}
+
+.job-status.failed {
+  color: #e0605a;
+}
+
+.job-log {
+  max-height: 50vh;
 }
 
 .run-log {
