@@ -9,7 +9,7 @@ import type { Structure } from '../core/types'
 import { applyTransform, type Transform } from '../core/transform'
 import { elementInfo } from '../core/elements'
 import { type RenderOptions, type Representation, type ColorMode } from './renderOptions'
-import { createImpostorSpheres } from './impostorSpheres'
+import { createImpostorSpheres, updateImpostorLighting } from './impostorSpheres'
 
 /**
  * The Three.js viewport core. Renders one or more systems at once (setScene),
@@ -218,13 +218,27 @@ export function createScene(container: HTMLElement): SceneHandle {
   controls.staticMoving = false
   controls.dynamicDampingFactor = 0.15
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55))
+  const ambientIntensity = 0.55
+  scene.add(new THREE.AmbientLight(0xffffff, ambientIntensity))
   const key = new THREE.DirectionalLight(0xffffff, 1.3)
   key.position.set(5, 10, 7)
   scene.add(key)
   const fill = new THREE.DirectionalLight(0x9bb0ff, 0.35)
   fill.position.set(-6, -3, -4)
   scene.add(fill)
+
+  // Scratch for syncing the impostor shader's lighting to these lights each frame.
+  const _keyView = new THREE.Vector3()
+  const _fillView = new THREE.Vector3()
+  const _keyCol = new THREE.Color()
+  const _fillCol = new THREE.Color()
+  function syncImpostorLighting(): void {
+    _keyView.copy(key.position).normalize().transformDirection(camera.matrixWorldInverse)
+    _fillView.copy(fill.position).normalize().transformDirection(camera.matrixWorldInverse)
+    _keyCol.copy(key.color).multiplyScalar(key.intensity)
+    _fillCol.copy(fill.color).multiplyScalar(fill.intensity)
+    updateImpostorLighting(_keyView, _keyCol, _fillView, _fillCol, ambientIntensity)
+  }
 
   const composer = new EffectComposer(renderer)
   composer.addPass(new RenderPass(scene, camera))
@@ -578,6 +592,9 @@ export function createScene(container: HTMLElement): SceneHandle {
   let raf = 0
   const tick = (): void => {
     controls.update()
+    camera.updateMatrixWorld()
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
+    syncImpostorLighting()
     composer.render()
     raf = requestAnimationFrame(tick)
   }
@@ -651,24 +668,30 @@ function buildBackboneTube(
   coords: Float32Array | null,
   transform?: Transform
 ): THREE.Group | null {
-  const byChain = new Map<string, Array<{ seq: number; pos: THREE.Vector3 }>>()
+  // Trace the protein backbone (alpha carbons, "CA") or the nucleic-acid backbone
+  // (phosphates, "P") per chain — whichever the chain has.
+  type Pt = { seq: number; pos: THREE.Vector3 }
+  const byChain = new Map<string, { ca: Pt[]; p: Pt[] }>()
   structure.atoms.forEach((a, i) => {
-    if (a.name !== 'CA') return
+    const isCA = a.name === 'CA'
+    const isP = a.name === 'P'
+    if (!isCA && !isP) return
     const base = atomPos(structure, coords, i)
     const [x, y, z] = transform ? applyTransform(base, transform) : base
     const chain = a.chain ?? ''
-    const list = byChain.get(chain) ?? []
-    list.push({ seq: a.residueSeq ?? i, pos: new THREE.Vector3(x, y, z) })
-    byChain.set(chain, list)
+    const entry = byChain.get(chain) ?? { ca: [], p: [] }
+    entry[isCA ? 'ca' : 'p'].push({ seq: a.residueSeq ?? i, pos: new THREE.Vector3(x, y, z) })
+    byChain.set(chain, entry)
   })
   if (byChain.size === 0) return null
 
   const group = new THREE.Group()
-  for (const [chain, cas] of byChain) {
-    if (cas.length < 2) continue
-    cas.sort((p, q) => p.seq - q.seq)
-    const curve = new THREE.CatmullRomCurve3(cas.map((c) => c.pos))
-    const geometry = new THREE.TubeGeometry(curve, Math.max(cas.length * 4, 8), 0.35, 10, false)
+  for (const [chain, { ca, p }] of byChain) {
+    const pts = ca.length >= 2 ? ca : p
+    if (pts.length < 2) continue
+    pts.sort((u, v) => u.seq - v.seq)
+    const curve = new THREE.CatmullRomCurve3(pts.map((c) => c.pos))
+    const geometry = new THREE.TubeGeometry(curve, Math.max(pts.length * 4, 8), 0.35, 10, false)
     const material = new THREE.MeshStandardMaterial({
       color: paletteColor(`chain:${chain}`),
       roughness: 0.4,
@@ -819,7 +842,8 @@ function disposeGroup(group: THREE.Group): void {
     }
     if (o.geometry) o.geometry.dispose()
     const material = o.material
+    // The impostor ShaderMaterial is shared across all atom meshes — never dispose it.
     if (Array.isArray(material)) material.forEach((m) => m.dispose())
-    else if (material) material.dispose()
+    else if (material && !(material as THREE.ShaderMaterial).isShaderMaterial) material.dispose()
   })
 }

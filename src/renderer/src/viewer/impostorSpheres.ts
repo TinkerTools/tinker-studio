@@ -47,6 +47,14 @@ void main() {
 const FRAGMENT = /* glsl */ `
 uniform mat4 projectionMatrix;
 
+// View-space light directions + colors (intensity baked in) + ambient, kept in
+// sync with the scene's lights so atoms shade like the cylinder bonds.
+uniform vec3 uKeyDir;
+uniform vec3 uKeyColor;
+uniform vec3 uFillDir;
+uniform vec3 uFillColor;
+uniform float uAmbient;
+
 in vec3 vColor;
 in vec3 vViewCenter;
 in float vRadius;
@@ -71,19 +79,56 @@ void main() {
   vec4 clip = projectionMatrix * vec4(hit, 1.0);
   gl_FragDepth = 0.5 + 0.5 * (clip.z / clip.w);
 
-  // Simple two-light view-space shading + a soft specular highlight.
-  vec3 viewDir = normalize(-hit);
-  vec3 key = normalize(vec3(0.5, 0.7, 0.9));
-  vec3 fill = normalize(vec3(-0.6, -0.3, -0.4));
-  float diffuse = max(dot(normal, key), 0.0) * 0.9 + max(dot(normal, fill), 0.0) * 0.22;
-  vec3 half0 = normalize(key + viewDir);
-  float specular = pow(max(dot(normal, half0), 0.0), 40.0) * 0.3;
-  float ambient = 0.45;
-
-  vec3 color = vColor * (ambient + diffuse) + vec3(specular);
+  float kd = max(dot(normal, uKeyDir), 0.0);
+  float fd = max(dot(normal, uFillDir), 0.0);
+  vec3 color = vColor * (uAmbient + uKeyColor * kd + uFillColor * fd);
+  // A faint highlight (the cylinders' PBR has a little), kept subtle.
+  vec3 h = normalize(uKeyDir + normalize(-hit));
+  color += uKeyColor * pow(max(dot(normal, h), 0.0), 30.0) * 0.12;
   fragColor = vec4(color, 1.0);
 }
 `
+
+// One shared material (stateless except the lighting uniforms, which the scene
+// keeps in sync each frame). Never disposed — disposeGroup skips ShaderMaterials.
+let sharedMaterial: THREE.ShaderMaterial | null = null
+function impostorMaterial(): THREE.ShaderMaterial {
+  if (!sharedMaterial) {
+    sharedMaterial = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: VERTEX,
+      fragmentShader: FRAGMENT,
+      uniforms: {
+        uKeyDir: { value: new THREE.Vector3(0, 0, 1) },
+        uKeyColor: { value: new THREE.Color(1, 1, 1) },
+        uFillDir: { value: new THREE.Vector3(0, 0, -1) },
+        uFillColor: { value: new THREE.Color(0.2, 0.2, 0.3) },
+        uAmbient: { value: 0.55 }
+      }
+    })
+  }
+  return sharedMaterial
+}
+
+/**
+ * Keep the impostor lighting in sync with the scene's directional lights (passed
+ * as view-space directions) so atoms shade like the standard-material bonds.
+ */
+export function updateImpostorLighting(
+  keyDir: THREE.Vector3,
+  keyColor: THREE.Color,
+  fillDir: THREE.Vector3,
+  fillColor: THREE.Color,
+  ambient: number
+): void {
+  if (!sharedMaterial) return
+  const u = sharedMaterial.uniforms
+  ;(u.uKeyDir.value as THREE.Vector3).copy(keyDir)
+  ;(u.uKeyColor.value as THREE.Color).copy(keyColor)
+  ;(u.uFillDir.value as THREE.Vector3).copy(fillDir)
+  ;(u.uFillColor.value as THREE.Color).copy(fillColor)
+  u.uAmbient.value = ambient
+}
 
 export function createImpostorSpheres(data: SphereInstances): THREE.Mesh {
   const geometry = new THREE.InstancedBufferGeometry()
@@ -96,14 +141,7 @@ export function createImpostorSpheres(data: SphereInstances): THREE.Mesh {
   geometry.setAttribute('aRadius', new THREE.InstancedBufferAttribute(data.radii, 1))
   geometry.setAttribute('aColor', new THREE.InstancedBufferAttribute(data.colors, 3))
 
-  const material = new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    vertexShader: VERTEX,
-    fragmentShader: FRAGMENT,
-    uniforms: {}
-  })
-
-  const mesh = new THREE.Mesh(geometry, material)
+  const mesh = new THREE.Mesh(geometry, impostorMaterial())
   // Per-instance billboards make the geometry's bounding sphere meaningless.
   mesh.frustumCulled = false
   return mesh
