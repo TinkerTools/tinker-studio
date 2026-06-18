@@ -711,6 +711,64 @@ body {
   background: rgba(30, 33, 44, 0.9);
 }
 
+.viewer-graphics {
+  position: absolute;
+  top: 0.6rem;
+  right: 6.2rem;
+  z-index: 5;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--text-dim);
+  background: rgba(20, 22, 30, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+
+.viewer-graphics:hover {
+  color: var(--text);
+  background: rgba(30, 33, 44, 0.9);
+}
+
+.color-pick {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.color-pick input[type='color'] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.gfx-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.6rem 0;
+  font-size: 0.85rem;
+}
+
+.gfx-row label {
+  color: var(--text-dim);
+}
+
+.gfx-val {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
 .display-hint {
   font-size: 0.74rem;
   color: var(--text-dim);

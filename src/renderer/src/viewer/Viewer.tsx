@@ -106,6 +106,10 @@ export function Viewer({
     handleRef.current?.setFov(options.fov)
   }, [options.fov])
 
+  useEffect(() => {
+    handleRef.current?.setBackground(options.backgroundColor)
+  }, [options.backgroundColor])
+
   // Coordinate-only changes (trajectory frame, gizmo/center transforms) update
   // the merged mesh in place instead of triggering a full rebuild.
   useEffect(() => {

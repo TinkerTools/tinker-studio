@@ -62,6 +62,8 @@ export interface SceneHandle {
   ): void
   /** Set the camera field of view (degrees), holding the subject's apparent size. */
   setFov(fov: number): void
+  /** Set the viewport background color. */
+  setBackground(color: number): void
   /** Re-frame the camera to fit the current scene. */
   recenter(): void
   /** Update one system's coordinates in place (trajectory frame); no rebuild. */
@@ -116,9 +118,10 @@ function repSpec(rep: Representation): RepSpec {
     case 'spacefill':
       return { atomRadius: (vdw) => vdw, bond: 'none', bondRadius: 0 }
     case 'sticks':
-      return { atomRadius: () => 0.2, bond: 'cylinder', bondRadius: 0.2 }
+      return { atomRadius: () => 0.18, bond: 'cylinder', bondRadius: 0.18 }
     case 'wireframe':
-      return { atomRadius: () => 0.12, bond: 'line', bondRadius: 0 }
+      // No atom spheres in wireframe — just the bond lines.
+      return { atomRadius: () => 0, bond: 'line', bondRadius: 0 }
     case 'ball-and-stick':
     case 'tube': // tube falls back to ball-and-stick until the backbone tracer lands
     default:
@@ -315,6 +318,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     clearGroups()
     pickables = []
     lastRenderables = renderables
+    ;(scene.background as THREE.Color).set(options.backgroundColor)
     const merged = new THREE.Group()
 
     // World-space accumulators for the single merged meshes.
@@ -353,7 +357,8 @@ export function createScene(container: HTMLElement): SceneHandle {
         const atom = r.structure.atoms[i]
         const base = atomPos(r.structure, r.coords, i)
         const w = r.transform ? applyTransform(base, r.transform) : base
-        const radius = atomRepSpec(reps[i]).atomRadius(elementInfo(atom.element).vdwRadius)
+        const radius =
+          atomRepSpec(reps[i]).atomRadius(elementInfo(atom.element).vdwRadius) * options.ballScale
         built.atomSlots.push(i)
         centers.push(w[0], w[1], w[2])
         radii.push(radius)
@@ -386,10 +391,11 @@ export function createScene(container: HTMLElement): SceneHandle {
         const ca = colors[b.a - 1]
         const cb = colors[b.b - 1]
         if (sa.bond === 'cylinder' || sb.bond === 'cylinder') {
-          const radius = Math.min(
-            sa.bond === 'cylinder' ? sa.bondRadius : Infinity,
-            sb.bond === 'cylinder' ? sb.bondRadius : Infinity
-          )
+          const radius =
+            Math.min(
+              sa.bond === 'cylinder' ? sa.bondRadius : Infinity,
+              sb.bond === 'cylinder' ? sb.bondRadius : Infinity
+            ) * options.bondScale
           built.cylBonds.push({ a: b.a - 1, b: b.b - 1, radius })
           cyl.push({ wa, wb, radius, ca, cb })
         } else if (sa.bond === 'line' || sb.bond === 'line') {
@@ -479,7 +485,8 @@ export function createScene(container: HTMLElement): SceneHandle {
       built.lineBonds.forEach((bd, k) => {
         const wa = worldOf(bd.a)
         const wb = worldOf(bd.b)
-        arr.set([wa[0], wa[1], wa[2], wb[0], wb[1], wb[2]], (built.lineStart + k) * 6)
+        const m: Vec3 = [(wa[0] + wb[0]) / 2, (wa[1] + wb[1]) / 2, (wa[2] + wb[2]) / 2]
+        arr.set([...wa, ...m, ...m, ...wb], (built.lineStart + k) * 12)
       })
       pos.needsUpdate = true
     }
@@ -604,6 +611,9 @@ export function createScene(container: HTMLElement): SceneHandle {
     recenter(): void {
       frameCameraToRenderables(lastRenderables, camera, controls)
     },
+    setBackground(color): void {
+      ;(scene.background as THREE.Color).set(color)
+    },
     updateSystem,
     dispose(): void {
       cancelAnimationFrame(raf)
@@ -713,16 +723,20 @@ function buildCylinderBonds(drawn: WorldBond[]): THREE.InstancedMesh {
   return mesh
 }
 
+// Each bond is two line segments meeting at the midpoint, each a solid color
+// (no gradient) so it reads like the half-cylinder bonds. 12 floats per bond.
 function buildLineBonds(drawn: WorldBond[]): THREE.LineSegments {
-  const positions = new Float32Array(drawn.length * 6)
-  const colors = new Float32Array(drawn.length * 6)
+  const positions = new Float32Array(drawn.length * 12)
+  const colors = new Float32Array(drawn.length * 12)
   const color = new THREE.Color()
   drawn.forEach((b, k) => {
-    positions.set([b.wa[0], b.wa[1], b.wa[2], b.wb[0], b.wb[1], b.wb[2]], k * 6)
+    const m: Vec3 = [(b.wa[0] + b.wb[0]) / 2, (b.wa[1] + b.wb[1]) / 2, (b.wa[2] + b.wb[2]) / 2]
+    positions.set([...b.wa, ...m, ...m, ...b.wb], k * 12)
     color.set(b.ca)
-    colors.set([color.r, color.g, color.b], k * 6)
+    const ca = [color.r, color.g, color.b]
     color.set(b.cb)
-    colors.set([color.r, color.g, color.b], k * 6 + 3)
+    const cb = [color.r, color.g, color.b]
+    colors.set([...ca, ...ca, ...cb, ...cb], k * 12)
   })
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))

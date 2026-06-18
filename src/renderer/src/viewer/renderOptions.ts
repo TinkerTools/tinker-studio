@@ -24,12 +24,20 @@ export interface RenderOptions {
    * constant as this changes; only the perspective distortion varies.
    */
   fov: number
+  /** Atom radius multiplier (application-level graphics setting). */
+  ballScale: number
+  /** Bond cylinder radius multiplier (application-level graphics setting). */
+  bondScale: number
+  /** Viewport background color. */
+  backgroundColor: number
 }
 
 /** Field-of-view range for the perspective control (degrees). */
-export const FOV_MIN = 15
+export const FOV_MIN = 5
 export const FOV_MAX = 90
 export const FOV_DEFAULT = 50
+
+export const DEFAULT_BACKGROUND = 0x12141a
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   representation: 'ball-and-stick',
@@ -38,7 +46,10 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   showHydrogens: true,
   showLabels: false,
   restrictToSelection: false,
-  fov: FOV_DEFAULT
+  fov: FOV_DEFAULT,
+  ballScale: 1,
+  bondScale: 1,
+  backgroundColor: DEFAULT_BACKGROUND
 }
 
 export const REPRESENTATIONS: ReadonlyArray<{ value: Representation; label: string }> = [
@@ -51,7 +62,7 @@ export const REPRESENTATIONS: ReadonlyArray<{ value: Representation; label: stri
 
 export const COLOR_MODES: ReadonlyArray<{ value: ColorMode; label: string }> = [
   { value: 'element', label: 'Element' },
-  { value: 'uniform', label: 'Uniform' },
+  { value: 'uniform', label: 'Custom' },
   { value: 'residue', label: 'Residue' },
   { value: 'chain', label: 'Chain' },
   { value: 'charge', label: 'Charge' }

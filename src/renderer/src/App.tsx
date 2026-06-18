@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Viewer } from './viewer/Viewer'
 import type { Renderable, PickResult } from './viewer/scene'
 import { distance, angle, dihedral } from './core/measure'
@@ -34,6 +34,7 @@ import {
   COLOR_MODES,
   FOV_MIN,
   FOV_MAX,
+  DEFAULT_BACKGROUND,
   type RenderOptions,
   type Representation,
   type ColorMode
@@ -63,7 +64,7 @@ export default function App() {
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
   const [pickLevel, setPickLevel] = useState<PickLevel>('atom')
   const [picks, setPicks] = useState<PickResult[]>([])
-  const [modal, setModal] = useState<'commands' | 'keywords' | 'jobs' | null>(null)
+  const [modal, setModal] = useState<'commands' | 'keywords' | 'jobs' | 'graphics' | null>(null)
   const [jobs, setJobs] = useState<JobRecord[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -707,6 +708,9 @@ export default function App() {
     activeId ?? '',
     options.representation,
     options.colorMode,
+    options.colorMode === 'uniform' ? options.uniformColor : '',
+    options.ballScale,
+    options.bondScale,
     options.showHydrogens ? 'h' : '',
     options.restrictToSelection ? 'r' : '',
     options.restrictToSelection ? [...selectedInActive].sort((a, b) => a - b).join(',') : ''
@@ -960,8 +964,6 @@ export default function App() {
           <section className="panel">
             <h2>Active System</h2>
             <dl className="info">
-              <dt>Name</dt>
-              <dd>{active.name}</dd>
               {active.structure.title && (
                 <>
                   <dt>Title</dt>
@@ -1166,6 +1168,18 @@ export default function App() {
               value={options.colorMode}
               onChange={applyColorMode}
             />
+            {options.colorMode === 'uniform' && (
+              <label className="color-pick">
+                <span>Custom color</span>
+                <input
+                  type="color"
+                  value={hexColor(options.uniformColor)}
+                  onChange={(e) =>
+                    setOptions((o) => ({ ...o, uniformColor: parseHexColor(e.target.value) }))
+                  }
+                />
+              </label>
+            )}
             <p className="display-hint">
               {selectedInActive.size > 0
                 ? `Applies to ${selectedInActive.size} selected atom${selectedInActive.size > 1 ? 's' : ''}.`
@@ -1285,6 +1299,13 @@ export default function App() {
           liveUpdate={liveUpdate}
           coordKey={coordKey}
         />
+        <button
+          className="viewer-graphics"
+          title="Graphics settings"
+          onClick={() => setModal('graphics')}
+        >
+          ⚙
+        </button>
       </section>
 
       {downloadSource && (
@@ -1332,6 +1353,9 @@ export default function App() {
             setModal(null)
           }}
         />
+      )}
+      {modal === 'graphics' && (
+        <GraphicsModal options={options} setOptions={setOptions} onClose={() => setModal(null)} />
       )}
     </div>
   )
@@ -1449,6 +1473,80 @@ function DownloadModal({
   )
 }
 
+function GraphicsModal({
+  options,
+  setOptions,
+  onClose
+}: {
+  options: RenderOptions
+  setOptions: Dispatch<SetStateAction<RenderOptions>>
+  onClose: () => void
+}) {
+  const set = (patch: Partial<RenderOptions>): void => setOptions((o) => ({ ...o, ...patch }))
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>Graphics</h3>
+          <button className="modal-x" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="gfx-row">
+          <label>Ball size</label>
+          <input
+            type="range"
+            min={0.2}
+            max={3}
+            step={0.05}
+            value={options.ballScale}
+            onChange={(e) => set({ ballScale: Number(e.target.value) })}
+          />
+          <span className="gfx-val">{options.ballScale.toFixed(2)}×</span>
+        </div>
+        <div className="gfx-row">
+          <label>Bond thickness</label>
+          <input
+            type="range"
+            min={0.2}
+            max={3}
+            step={0.05}
+            value={options.bondScale}
+            onChange={(e) => set({ bondScale: Number(e.target.value) })}
+          />
+          <span className="gfx-val">{options.bondScale.toFixed(2)}×</span>
+        </div>
+        <div className="gfx-row">
+          <label>Background</label>
+          <input
+            type="color"
+            value={hexColor(options.backgroundColor)}
+            onChange={(e) => set({ backgroundColor: parseHexColor(e.target.value) })}
+          />
+        </div>
+        <div className="modal-buttons">
+          <button
+            className="modal-btn ghost"
+            onClick={() =>
+              set({ ballScale: 1, bondScale: 1, backgroundColor: DEFAULT_BACKGROUND })
+            }
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+function hexColor(n: number): string {
+  return '#' + (n & 0xffffff).toString(16).padStart(6, '0')
+}
+
+function parseHexColor(s: string): number {
+  return parseInt(s.replace('#', ''), 16) || 0
 }
