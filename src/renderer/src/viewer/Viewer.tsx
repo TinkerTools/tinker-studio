@@ -24,7 +24,9 @@ export function Viewer({
   highlights,
   onPick,
   manipulation = null,
-  onTransform
+  onTransform,
+  liveUpdate = null,
+  coordKey = ''
 }: {
   renderables: Renderable[]
   options: RenderOptions
@@ -34,6 +36,9 @@ export function Viewer({
   onPick?: (result: PickResult | null, additive: boolean) => void
   manipulation?: ManipTarget | null
   onTransform?: (systemId: string, transform: Transform) => void
+  /** Coordinate-only update for one system (no rebuild); applied when coordKey changes. */
+  liveUpdate?: { systemId: string; coords: Float32Array | null; transform?: Transform } | null
+  coordKey?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<SceneHandle | null>(null)
@@ -43,12 +48,14 @@ export function Viewer({
   const onPickRef = useRef(onPick)
   const manipulationRef = useRef(manipulation)
   const onTransformRef = useRef(onTransform)
+  const liveUpdateRef = useRef(liveUpdate)
   renderablesRef.current = renderables
   optionsRef.current = options
   pickingRef.current = pickingEnabled
   onPickRef.current = onPick
   manipulationRef.current = manipulation
   onTransformRef.current = onTransform
+  liveUpdateRef.current = liveUpdate
 
   useEffect(() => {
     const container = containerRef.current
@@ -98,6 +105,13 @@ export function Viewer({
   useEffect(() => {
     handleRef.current?.setFov(options.fov)
   }, [options.fov])
+
+  // Coordinate-only changes (trajectory frame, gizmo/center transforms) update
+  // the merged mesh in place instead of triggering a full rebuild.
+  useEffect(() => {
+    const u = liveUpdateRef.current
+    if (u) handleRef.current?.updateSystem(u.systemId, u.coords, u.transform)
+  }, [coordKey])
 
   return (
     <div className={pickingEnabled ? 'viewer picking' : 'viewer'} ref={containerRef}>

@@ -695,19 +695,27 @@ export default function App() {
   const transformSig = (t?: Transform): string =>
     isIdentityTransform(t) ? '' : [...t!.position, ...t!.quaternion].map((v) => v.toFixed(4)).join(' ')
 
+  // sceneKey triggers a full rebuild (membership / representation / color /
+  // visibility / selection). Frame and transform changes are NOT here — they go
+  // through coordKey, which updates the merged mesh in place (cheap).
   const sceneKey = [
     visibleSystems.map((s) => s.id).join(','),
     visibleSystems.map((s) => s.rev ?? 0).join(','),
-    visibleSystems.map((s) => transformSig(s.transform)).join(';'),
     activeId ?? '',
-    frameIndex,
-    frameTick,
     options.representation,
     options.colorMode,
     options.showHydrogens ? 'h' : '',
     options.restrictToSelection ? 'r' : '',
     options.restrictToSelection ? [...selectedInActive].sort((a, b) => a - b).join(',') : ''
   ].join('|')
+
+  // The active system's coordinates (trajectory frame) + transform, applied in
+  // place when they change.
+  const activeCoords = active?.trajectory ? frameAt(active.trajectory, frameIndex) : null
+  const liveUpdate = active
+    ? { systemId: active.id, coords: activeCoords, transform: active.transform }
+    : null
+  const coordKey = `${activeId ?? ''}|${frameIndex}|${frameTick}|${transformSig(active?.transform)}`
 
   let measureResult: string | null = null
   if (picks.length > 0) {
@@ -1263,6 +1271,8 @@ export default function App() {
           onPick={applySelection}
           manipulation={moveMode && active ? { systemId: active.id, mode: moveTransform } : null}
           onTransform={setSystemTransform}
+          liveUpdate={liveUpdate}
+          coordKey={coordKey}
         />
       </section>
 

@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import type { Structure, BondRecord } from '../core/types'
+import type { Structure } from '../core/types'
 import { applyTransform, type Transform } from '../core/transform'
 import { elementInfo } from '../core/elements'
 import { type RenderOptions, type Representation, type ColorMode } from './renderOptions'
@@ -64,7 +64,29 @@ export interface SceneHandle {
   setFov(fov: number): void
   /** Re-frame the camera to fit the current scene. */
   recenter(): void
+  /** Update one system's coordinates in place (trajectory frame); no rebuild. */
+  updateSystem(systemId: string, coords: Float32Array | null, transform?: Transform): void
   dispose(): void
+}
+
+type Vec3 = [number, number, number]
+
+interface WorldBond {
+  wa: Vec3
+  wb: Vec3
+  radius: number
+  ca: number
+  cb: number
+}
+
+// Per-system slot bookkeeping in the merged meshes, for in-place updates.
+interface BuiltSystem {
+  atomStart: number
+  atomSlots: number[] // atom index per atom slot, in order
+  cylStart: number // first cylinder bond (each is 2 instances)
+  cylBonds: Array<{ a: number; b: number; radius: number }>
+  lineStart: number // first line bond (each is 2 vertices)
+  lineBonds: Array<{ a: number; b: number }>
 }
 
 interface RepSpec {
@@ -208,34 +230,54 @@ export function createScene(container: HTMLElement): SceneHandle {
   composer.setPixelRatio(pixelRatio)
   composer.setSize(container.clientWidth, container.clientHeight)
 
+  // All visible systems are rendered as ONE merged set of meshes (impostor atoms,
+  // instanced cylinder bonds, line bonds). Rendering each system as its own
+  // impostor mesh balloons GPU memory and stalls on macOS; one merged mesh that
+  // we update in place avoids both that and per-frame rebuild churn.
   let groups: THREE.Group[] = []
-  const groupById = new Map<string, THREE.Group>()
   let highlightGroup: THREE.Group | null = null
   let pickables: Pickable[] = []
   let lastKey = ''
   let lastRenderables: Renderable[] = []
   const raycaster = new THREE.Raycaster()
 
-  // Interactive move/rotate gizmo. Attached to the active system's group while in
-  // move mode; persists the resulting transform back to React on drag-end.
+  let atomMesh: THREE.Mesh | null = null
+  let atomCenters: Float32Array | null = null
+  let cylMesh: THREE.InstancedMesh | null = null
+  let lineMesh: THREE.LineSegments | null = null
+  const builtById = new Map<string, BuiltSystem>()
+
+  // Move/rotate gizmo. It drives a proxy object (not a render group); dragging it
+  // updates the active system's atoms/bonds in place and persists on drag-end.
   let manipTarget: ManipTarget | null = null
   let manipCallback: ((systemId: string, transform: Transform) => void) | null = null
+  const gizmoProxy = new THREE.Object3D()
+  scene.add(gizmoProxy)
   const gizmo = new TransformControls(camera, renderer.domElement)
   gizmo.setSize(0.9)
   const gizmoHelper = gizmo.getHelper()
   scene.add(gizmoHelper)
-  gizmo.addEventListener('dragging-changed', (e) => {
-    // Suspend camera trackball while a handle is being dragged.
-    controls.enabled = !e.value
-    if (!e.value && manipTarget && manipCallback) {
-      const obj = gizmo.object
-      if (obj) {
-        manipCallback(manipTarget.systemId, {
-          position: [obj.position.x, obj.position.y, obj.position.z],
-          quaternion: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w]
-        })
-      }
+
+  function proxyTransform(): Transform {
+    return {
+      position: [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
+      quaternion: [
+        gizmoProxy.quaternion.x,
+        gizmoProxy.quaternion.y,
+        gizmoProxy.quaternion.z,
+        gizmoProxy.quaternion.w
+      ]
     }
+  }
+
+  gizmo.addEventListener('objectChange', () => {
+    if (!manipTarget) return
+    const r = lastRenderables.find((x) => x.id === manipTarget!.systemId)
+    if (r) updateSystem(manipTarget.systemId, r.coords, proxyTransform())
+  })
+  gizmo.addEventListener('dragging-changed', (e) => {
+    controls.enabled = !e.value
+    if (!e.value && manipTarget && manipCallback) manipCallback(manipTarget.systemId, proxyTransform())
   })
 
   function applyManipulation(): void {
@@ -243,10 +285,16 @@ export function createScene(container: HTMLElement): SceneHandle {
       gizmo.detach()
       return
     }
+    const t = lastRenderables.find((x) => x.id === manipTarget!.systemId)?.transform
+    gizmoProxy.position.set(t ? t.position[0] : 0, t ? t.position[1] : 0, t ? t.position[2] : 0)
+    gizmoProxy.quaternion.set(
+      t ? t.quaternion[0] : 0,
+      t ? t.quaternion[1] : 0,
+      t ? t.quaternion[2] : 0,
+      t ? t.quaternion[3] : 1
+    )
     gizmo.setMode(manipTarget.mode)
-    const group = groupById.get(manipTarget.systemId)
-    if (group) gizmo.attach(group)
-    else gizmo.detach()
+    gizmo.attach(gizmoProxy)
   }
 
   function clearGroups(): void {
@@ -256,53 +304,189 @@ export function createScene(container: HTMLElement): SceneHandle {
       disposeGroup(g)
     }
     groups = []
-    groupById.clear()
+    builtById.clear()
+    atomMesh = null
+    atomCenters = null
+    cylMesh = null
+    lineMesh = null
   }
 
   function setScene(renderables: Renderable[], options: RenderOptions): void {
     clearGroups()
     pickables = []
     lastRenderables = renderables
+    const merged = new THREE.Group()
+
+    // World-space accumulators for the single merged meshes.
+    const centers: number[] = []
+    const radii: number[] = []
+    const cols: number[] = []
+    const cyl: WorldBond[] = []
+    const lin: WorldBond[] = []
+    const col = new THREE.Color()
+
     for (const r of renderables) {
-      // Effective per-atom representation (override else global).
       const reps = r.structure.atoms.map((_a, i) => r.repByAtom?.[i] ?? options.representation)
       const colors = computeAtomColors(r.structure, options, r.colorByAtom)
       const visible = computeVisibility(r.structure, options, r.selected)
-      const group = buildMolecule(r.structure, r.coords, colors, visible, reps, options.representation)
-      if (r.transform) {
-        group.position.set(...r.transform.position)
-        group.quaternion.set(...r.transform.quaternion)
+
+      // Tube is a whole-structure representation — its own group, coords baked.
+      if (options.representation === 'tube' && reps.every((x) => x === 'tube')) {
+        const tube = buildBackboneTube(r.structure, r.coords, r.transform)
+        if (tube) {
+          merged.add(tube)
+          continue
+        }
       }
-      scene.add(group)
-      groups.push(group)
-      groupById.set(r.id, group)
-      r.structure.atoms.forEach((atom, i) => {
-        if (!visible[i]) return
-        // Base coords (in the system's own frame) are returned by picks; world
-        // coords (transform applied) are what the camera ray actually tests.
+
+      const built: BuiltSystem = {
+        atomStart: centers.length / 3,
+        atomSlots: [],
+        cylStart: cyl.length,
+        cylBonds: [],
+        lineStart: lin.length,
+        lineBonds: []
+      }
+
+      for (let i = 0; i < r.structure.atoms.length; i++) {
+        if (!visible[i]) continue
+        const atom = r.structure.atoms[i]
         const base = atomPos(r.structure, r.coords, i)
-        const [x, y, z] = r.transform ? applyTransform(base, r.transform) : base
+        const w = r.transform ? applyTransform(base, r.transform) : base
+        const radius = atomRepSpec(reps[i]).atomRadius(elementInfo(atom.element).vdwRadius)
+        built.atomSlots.push(i)
+        centers.push(w[0], w[1], w[2])
+        radii.push(radius)
+        col.set(colors[i])
+        cols.push(col.r, col.g, col.b)
+        // Pickables are pushed in the same order as atom slots (1:1 with centers).
         pickables.push({
           systemId: r.id,
           atomIndex: i,
           name: atom.name,
           element: atom.element,
-          x,
-          y,
-          z,
+          x: w[0],
+          y: w[1],
+          z: w[2],
           bx: base[0],
           by: base[1],
           bz: base[2],
-          radius: Math.max(atomRepSpec(reps[i]).atomRadius(elementInfo(atom.element).vdwRadius), 0.4)
+          radius: Math.max(radius, 0.4)
         })
-      })
+      }
+
+      for (const b of r.structure.bonds) {
+        if (!visible[b.a - 1] || !visible[b.b - 1]) continue
+        const sa = atomRepSpec(reps[b.a - 1])
+        const sb = atomRepSpec(reps[b.b - 1])
+        const baseA = atomPos(r.structure, r.coords, b.a - 1)
+        const baseB = atomPos(r.structure, r.coords, b.b - 1)
+        const wa = r.transform ? applyTransform(baseA, r.transform) : baseA
+        const wb = r.transform ? applyTransform(baseB, r.transform) : baseB
+        const ca = colors[b.a - 1]
+        const cb = colors[b.b - 1]
+        if (sa.bond === 'cylinder' || sb.bond === 'cylinder') {
+          const radius = Math.min(
+            sa.bond === 'cylinder' ? sa.bondRadius : Infinity,
+            sb.bond === 'cylinder' ? sb.bondRadius : Infinity
+          )
+          built.cylBonds.push({ a: b.a - 1, b: b.b - 1, radius })
+          cyl.push({ wa, wb, radius, ca, cb })
+        } else if (sa.bond === 'line' || sb.bond === 'line') {
+          built.lineBonds.push({ a: b.a - 1, b: b.b - 1 })
+          lin.push({ wa, wb, radius: 0, ca, cb })
+        }
+      }
+
+      builtById.set(r.id, built)
     }
+
+    if (centers.length > 0) {
+      atomCenters = Float32Array.from(centers)
+      atomMesh = createImpostorSpheres({
+        centers: atomCenters,
+        radii: Float32Array.from(radii),
+        colors: Float32Array.from(cols),
+        count: centers.length / 3
+      })
+      merged.add(atomMesh)
+    }
+    if (cyl.length > 0) {
+      cylMesh = buildCylinderBonds(cyl)
+      merged.add(cylMesh)
+    }
+    if (lin.length > 0) {
+      lineMesh = buildLineBonds(lin)
+      merged.add(lineMesh)
+    }
+
+    scene.add(merged)
+    groups.push(merged)
     applyManipulation()
     const k = renderables.map((r) => r.id).join(',')
     if (k !== lastKey) {
       frameCameraToRenderables(renderables, camera, controls)
       lastKey = k
     }
+  }
+
+  // In-place coordinate update for one system (trajectory frame or gizmo drag):
+  // rewrite its atom positions, bond instances, and pickables without rebuilding.
+  function updateSystem(
+    systemId: string,
+    coords: Float32Array | null,
+    transform?: Transform
+  ): void {
+    const built = builtById.get(systemId)
+    const r = lastRenderables.find((x) => x.id === systemId)
+    if (!built || !r || !atomMesh || !atomCenters) return
+    const atoms = r.structure.atoms
+
+    const baseOf = (i: number): [number, number, number] =>
+      coords ? [coords[i * 3], coords[i * 3 + 1], coords[i * 3 + 2]] : [atoms[i].x, atoms[i].y, atoms[i].z]
+    const worldOf = (i: number): [number, number, number] => {
+      const b = baseOf(i)
+      return transform ? applyTransform(b, transform) : b
+    }
+
+    built.atomSlots.forEach((atomIndex, j) => {
+      const slot = built.atomStart + j
+      const w = worldOf(atomIndex)
+      atomCenters![slot * 3] = w[0]
+      atomCenters![slot * 3 + 1] = w[1]
+      atomCenters![slot * 3 + 2] = w[2]
+      const pk = pickables[slot]
+      pk.x = w[0]
+      pk.y = w[1]
+      pk.z = w[2]
+      const base = baseOf(atomIndex)
+      pk.bx = base[0]
+      pk.by = base[1]
+      pk.bz = base[2]
+    })
+    ;(atomMesh.geometry.getAttribute('aCenter') as THREE.BufferAttribute).needsUpdate = true
+
+    if (cylMesh && built.cylBonds.length > 0) {
+      built.cylBonds.forEach((bd, k) => {
+        placeBondCylinders(cylMesh!, built.cylStart + k, worldOf(bd.a), worldOf(bd.b), bd.radius)
+      })
+      cylMesh.instanceMatrix.needsUpdate = true
+    }
+
+    if (lineMesh && built.lineBonds.length > 0) {
+      const pos = lineMesh.geometry.getAttribute('position') as THREE.BufferAttribute
+      const arr = pos.array as Float32Array
+      built.lineBonds.forEach((bd, k) => {
+        const wa = worldOf(bd.a)
+        const wb = worldOf(bd.b)
+        arr.set([wa[0], wa[1], wa[2], wb[0], wb[1], wb[2]], (built.lineStart + k) * 6)
+      })
+      pos.needsUpdate = true
+    }
+
+    // Keep the stored renderable in sync so recenter / gizmo use fresh positions.
+    r.coords = coords
+    if (transform) r.transform = transform
   }
 
   function pick(clientX: number, clientY: number): PickResult | null {
@@ -420,6 +604,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     recenter(): void {
       frameCameraToRenderables(lastRenderables, camera, controls)
     },
+    updateSystem,
     dispose(): void {
       cancelAnimationFrame(raf)
       resizeObserver.disconnect()
@@ -448,57 +633,19 @@ function atomPos(structure: Structure, coords: Float32Array | null, i: number): 
   return [a.x, a.y, a.z]
 }
 
-function buildMolecule(
+// A smooth tube through the backbone (CA atoms) of each chain — a simple protein
+// cartoon stand-in. Returns null if there is no protein backbone. The transform
+// (if any) is baked into the curve points, since tubes aren't in a merged mesh.
+function buildBackboneTube(
   structure: Structure,
   coords: Float32Array | null,
-  atomColors: number[],
-  visible: boolean[],
-  reps: Representation[],
-  globalRep: Representation
-): THREE.Group {
-  const group = new THREE.Group()
-
-  // Whole-structure tube only when every atom is tube (no per-atom overrides).
-  if (globalRep === 'tube' && reps.every((r) => r === 'tube')) {
-    const tube = buildBackboneTube(structure, coords)
-    if (tube) {
-      group.add(tube)
-      return group
-    }
-    // No protein backbone (no CA atoms) — fall through to ball-and-stick.
-  }
-
-  group.add(buildAtoms(structure, coords, reps, atomColors, visible))
-
-  // Sort bonds into cylinder vs line by the styles of their two atoms.
-  const cyl: Array<{ bond: BondRecord; radius: number }> = []
-  const lines: BondRecord[] = []
-  for (const b of structure.bonds) {
-    if (!visible[b.a - 1] || !visible[b.b - 1]) continue
-    const sa = atomRepSpec(reps[b.a - 1])
-    const sb = atomRepSpec(reps[b.b - 1])
-    if (sa.bond === 'cylinder' || sb.bond === 'cylinder') {
-      const radii = [
-        sa.bond === 'cylinder' ? sa.bondRadius : Infinity,
-        sb.bond === 'cylinder' ? sb.bondRadius : Infinity
-      ]
-      cyl.push({ bond: b, radius: Math.min(...radii) })
-    } else if (sa.bond === 'line' || sb.bond === 'line') {
-      lines.push(b)
-    }
-  }
-  if (cyl.length) group.add(buildCylinderBonds(structure, coords, cyl, atomColors))
-  if (lines.length) group.add(buildLineBonds(structure, coords, lines, atomColors))
-  return group
-}
-
-// A smooth tube through the backbone (CA atoms) of each chain — a simple protein
-// cartoon stand-in. Returns null if there is no protein backbone.
-function buildBackboneTube(structure: Structure, coords: Float32Array | null): THREE.Group | null {
+  transform?: Transform
+): THREE.Group | null {
   const byChain = new Map<string, Array<{ seq: number; pos: THREE.Vector3 }>>()
   structure.atoms.forEach((a, i) => {
     if (a.name !== 'CA') return
-    const [x, y, z] = atomPos(structure, coords, i)
+    const base = atomPos(structure, coords, i)
+    const [x, y, z] = transform ? applyTransform(base, transform) : base
     const chain = a.chain ?? ''
     const list = byChain.get(chain) ?? []
     list.push({ seq: a.residueSeq ?? i, pos: new THREE.Vector3(x, y, z) })
@@ -522,107 +669,61 @@ function buildBackboneTube(structure: Structure, coords: Float32Array | null): T
   return group.children.length ? group : null
 }
 
-function buildAtoms(
-  structure: Structure,
-  coords: Float32Array | null,
-  reps: Representation[],
-  atomColors: number[],
-  visible: boolean[]
-): THREE.Mesh {
-  const shown: number[] = []
-  for (let i = 0; i < structure.atoms.length; i++) if (visible[i]) shown.push(i)
+// Shared scratch for placing cylinder instance matrices (single-threaded).
+const _dummy = new THREE.Object3D()
+const _dir = new THREE.Vector3()
+const _up = new THREE.Vector3(0, 1, 0)
 
-  const centers = new Float32Array(shown.length * 3)
-  const radii = new Float32Array(shown.length)
-  const colors = new Float32Array(shown.length * 3)
-  const color = new THREE.Color()
-
-  shown.forEach((atomIndex, k) => {
-    const atom = structure.atoms[atomIndex]
-    const [x, y, z] = atomPos(structure, coords, atomIndex)
-    centers[k * 3] = x
-    centers[k * 3 + 1] = y
-    centers[k * 3 + 2] = z
-    radii[k] = atomRepSpec(reps[atomIndex]).atomRadius(elementInfo(atom.element).vdwRadius)
-    color.set(atomColors[atomIndex])
-    colors[k * 3] = color.r
-    colors[k * 3 + 1] = color.g
-    colors[k * 3 + 2] = color.b
-  })
-
-  return createImpostorSpheres({ centers, radii, colors, count: shown.length })
+function placeCylinder(mesh: THREE.InstancedMesh, slot: number, from: Vec3, to: Vec3, radius: number): void {
+  _dir.set(to[0] - from[0], to[1] - from[1], to[2] - from[2])
+  const length = _dir.length() || 1e-6
+  _dummy.position.set(from[0] + _dir.x * 0.5, from[1] + _dir.y * 0.5, from[2] + _dir.z * 0.5)
+  _dummy.quaternion.setFromUnitVectors(_up, _dir.normalize())
+  _dummy.scale.set(radius, length, radius)
+  _dummy.updateMatrix()
+  mesh.setMatrixAt(slot, _dummy.matrix)
 }
 
-// Each bond is two half-cylinders so it takes the color of the nearer atom.
-function buildCylinderBonds(
-  structure: Structure,
-  coords: Float32Array | null,
-  drawn: Array<{ bond: BondRecord; radius: number }>,
-  atomColors: number[]
-): THREE.InstancedMesh {
+// Each bond is two half-cylinders (slots bondSlot*2 and +1) meeting at the
+// midpoint, so each half takes the color of its own atom.
+function placeBondCylinders(
+  mesh: THREE.InstancedMesh,
+  bondSlot: number,
+  wa: Vec3,
+  wb: Vec3,
+  radius: number
+): void {
+  const mid: Vec3 = [(wa[0] + wb[0]) / 2, (wa[1] + wb[1]) / 2, (wa[2] + wb[2]) / 2]
+  placeCylinder(mesh, bondSlot * 2, wa, mid, radius)
+  placeCylinder(mesh, bondSlot * 2 + 1, wb, mid, radius)
+}
+
+function buildCylinderBonds(drawn: WorldBond[]): THREE.InstancedMesh {
   const geometry = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true)
   const material = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.0 })
   const mesh = new THREE.InstancedMesh(geometry, material, drawn.length * 2)
-
-  const dummy = new THREE.Object3D()
   const color = new THREE.Color()
-  const start = new THREE.Vector3()
-  const end = new THREE.Vector3()
-  const mid = new THREE.Vector3()
-  const up = new THREE.Vector3(0, 1, 0)
-
-  const placeHalf = (
-    slot: number,
-    from: THREE.Vector3,
-    to: THREE.Vector3,
-    radius: number,
-    colorHex: number
-  ): void => {
-    const dir = new THREE.Vector3().subVectors(to, from)
-    const length = dir.length() || 1e-6
-    dummy.position.copy(from).addScaledVector(dir, 0.5)
-    dummy.quaternion.setFromUnitVectors(up, dir.normalize())
-    dummy.scale.set(radius, length, radius)
-    dummy.updateMatrix()
-    mesh.setMatrixAt(slot, dummy.matrix)
-    mesh.setColorAt(slot, color.set(colorHex))
-  }
-
-  drawn.forEach(({ bond, radius }, k) => {
-    const [ax, ay, az] = atomPos(structure, coords, bond.a - 1)
-    const [bx, by, bz] = atomPos(structure, coords, bond.b - 1)
-    start.set(ax, ay, az)
-    end.set(bx, by, bz)
-    mid.addVectors(start, end).multiplyScalar(0.5)
-    placeHalf(k * 2, start, mid, radius, atomColors[bond.a - 1])
-    placeHalf(k * 2 + 1, end, mid, radius, atomColors[bond.b - 1])
+  drawn.forEach((b, k) => {
+    placeBondCylinders(mesh, k, b.wa, b.wb, b.radius)
+    mesh.setColorAt(k * 2, color.set(b.ca))
+    mesh.setColorAt(k * 2 + 1, color.set(b.cb))
   })
-
   mesh.instanceMatrix.needsUpdate = true
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   return mesh
 }
 
-function buildLineBonds(
-  structure: Structure,
-  coords: Float32Array | null,
-  drawn: BondRecord[],
-  atomColors: number[]
-): THREE.LineSegments {
+function buildLineBonds(drawn: WorldBond[]): THREE.LineSegments {
   const positions = new Float32Array(drawn.length * 6)
   const colors = new Float32Array(drawn.length * 6)
   const color = new THREE.Color()
-
-  drawn.forEach((bond, k) => {
-    const [ax, ay, az] = atomPos(structure, coords, bond.a - 1)
-    const [bx, by, bz] = atomPos(structure, coords, bond.b - 1)
-    positions.set([ax, ay, az, bx, by, bz], k * 6)
-    color.set(atomColors[bond.a - 1])
+  drawn.forEach((b, k) => {
+    positions.set([b.wa[0], b.wa[1], b.wa[2], b.wb[0], b.wb[1], b.wb[2]], k * 6)
+    color.set(b.ca)
     colors.set([color.r, color.g, color.b], k * 6)
-    color.set(atomColors[bond.b - 1])
+    color.set(b.cb)
     colors.set([color.r, color.g, color.b], k * 6 + 3)
   })
-
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))

@@ -301,6 +301,13 @@ body {
   list-style: none;
 }
 
+.atom-more {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 .atom-row {
   display: flex;
   align-items: center;

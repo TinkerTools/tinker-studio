@@ -67,17 +67,32 @@ export function AtomBrowser({
     [atoms, system]
   )
 
+  // Rendering thousands of rows/nodes at once stalls the DOM (a water box has
+  // thousands of molecules), so the list is capped — use the 3D view + selection
+  // tools for very large systems.
+  const CAP = 800
+
   return (
     <div className="atom-scroll">
       {groups ? (
-        groups.map((g) => (
-          <GroupNode key={g.key} group={g} atoms={atoms} selected={selected} onPick={onPick} />
-        ))
+        <>
+          {groups.slice(0, CAP).map((g) => (
+            <GroupNode key={g.key} group={g} atoms={atoms} selected={selected} onPick={onPick} />
+          ))}
+          {groups.length > CAP && (
+            <div className="atom-more">
+              + {groups.length - CAP} more groups (use the 3D view to select)
+            </div>
+          )}
+        </>
       ) : (
         <ul className="atom-list">
-          {atoms.map((a, i) => (
+          {atoms.slice(0, CAP).map((a, i) => (
             <AtomRow key={i} index={i} name={a.name} element={a.element} selected={selected.has(i)} onPick={onPick} />
           ))}
+          {atoms.length > CAP && (
+            <li className="atom-more">+ {atoms.length - CAP} more atoms (use the 3D view to select)</li>
+          )}
         </ul>
       )}
     </div>
