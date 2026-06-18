@@ -152,6 +152,12 @@ const api = {
   openTextFile: (
     filters?: Array<{ name: string; extensions: string[] }>
   ): Promise<OpenedFile | null> => ipcRenderer.invoke('file:openText', filters),
+  /** Resolve the force-field .prm referenced by a key's PARAMETERS line. */
+  resolveForceFieldFromKey: (
+    keyText: string,
+    keyPath?: string
+  ): Promise<{ prmText?: string; prmName?: string }> =>
+    ipcRenderer.invoke('forcefield:fromKey', keyText, keyPath),
   /** Lazy access to a large .arc: index it once, then fetch frames on demand. */
   trajectory: {
     open: (path: string): Promise<TrajectoryOpened> => ipcRenderer.invoke('trajectory:open', path),

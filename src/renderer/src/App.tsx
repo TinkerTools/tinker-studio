@@ -345,14 +345,45 @@ export default function App() {
     setSystems((prev) => prev.map((s) => (s.id === id ? { ...s, keyName, keyText } : s)))
   }
 
-  // Pick a .key file from disk and attach it to the active system.
-  async function handleAttachKey(): Promise<void> {
+  function applyFFToSystem(id: string, prmText: string, prmName: string): void {
+    setSystems((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              structure: applyForceField(s.structure, parsePrm(prmText)),
+              rev: (s.rev ?? 0) + 1,
+              ffName: prmName
+            }
+          : s
+      )
+    )
+  }
+
+  // Attach a .key, .seq, or .prm to the active system (routed by extension).
+  // Attaching a key also pulls in its referenced force field; a .prm applies
+  // directly.
+  async function handleAttach(): Promise<void> {
     if (!active) return
     setError(null)
     try {
-      const file = await window.ffe.openTextFile(KEY_FILE_FILTERS)
+      const file = await window.ffe.openTextFile(ATTACH_FILTERS)
       if (!file) return
-      setSystemKey(active.id, file.name, file.text)
+      const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+      if (ext === 'seq') {
+        setSystems((prev) =>
+          prev.map((s) =>
+            s.id === active.id ? { ...s, seqName: file.name, seqText: file.text } : s
+          )
+        )
+      } else if (ext === 'prm') {
+        applyFFToSystem(active.id, file.text, file.name)
+      } else {
+        // .key (default)
+        setSystemKey(active.id, file.name, file.text)
+        const ff = await window.ffe.resolveForceFieldFromKey(file.text, file.path)
+        if (ff.prmText && ff.prmName) applyFFToSystem(active.id, ff.prmText, ff.prmName)
+      }
     } catch (e) {
       setError(messageOf(e))
     }
@@ -997,20 +1028,28 @@ export default function App() {
               )}
             </dl>
             {active.fileType !== 'arc' && active.fileType !== 'pdb' && (
-              <div className="key-row">
-                <span className="key-row-label">Key file</span>
-                <span className={active.keyName ? 'key-row-name' : 'key-row-name none'}>
-                  {active.keyName ?? '(none)'}
-                </span>
-                <div className="key-row-actions">
-                  <button className="mini-btn" onClick={() => void handleAttachKey()}>
-                    Attach…
-                  </button>
-                  <button className="mini-btn" onClick={handleEditKey}>
-                    Edit…
-                  </button>
+              <>
+                <div className="key-row">
+                  <span className="key-row-label">Key file</span>
+                  <span className={active.keyName ? 'key-row-name' : 'key-row-name none'}>
+                    {active.keyName ?? '(none)'}
+                  </span>
+                  <div className="key-row-actions">
+                    <button className="mini-btn" onClick={() => void handleAttach()} title="Attach .key, .seq, or .prm">
+                      Attach…
+                    </button>
+                    <button className="mini-btn" onClick={handleEditKey}>
+                      Edit…
+                    </button>
+                  </div>
                 </div>
-              </div>
+                <div className="key-row">
+                  <span className="key-row-label">Seq file</span>
+                  <span className={active.seqName ? 'key-row-name' : 'key-row-name none'}>
+                    {active.seqName ?? '(none)'}
+                  </span>
+                </div>
+              </>
             )}
             <details
               className="atoms-disclosure"
@@ -1407,6 +1446,7 @@ const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
 ]
 
 const KEY_FILE_FILTERS = [{ name: 'Tinker Key Files', extensions: ['key'] }]
+const ATTACH_FILTERS = [{ name: 'Tinker Files', extensions: ['key', 'seq', 'prm'] }]
 
 const MOVE_MODES: ReadonlyArray<{ value: 'translate' | 'rotate'; label: string }> = [
   { value: 'translate', label: 'Translate' },

@@ -3,6 +3,7 @@ import type { Transform } from './transform'
 import type { Representation, ColorMode } from '../viewer/renderOptions'
 import { parseTinkerXyz, parseTinkerArc } from './parseXyz'
 import { parsePdb } from './parsePdb'
+import { parseSdf } from './parseSdf'
 import { parseTinkerInt } from './parseInt'
 
 /**
@@ -44,6 +45,10 @@ export interface MolecularSystem {
   keyName?: string
   /** Attached Tinker .key file contents (may be empty). */
   keyText?: string
+  /** Attached Tinker .seq (sequence) file name, if any. */
+  seqName?: string
+  /** Attached Tinker .seq file contents. */
+  seqText?: string
   /** Rigid-body placement of this system in the scene (default: identity). */
   transform?: Transform
   /** Per-atom representation overrides (atom index -> representation). */
@@ -94,6 +99,9 @@ export function parseStructureFile(
   switch (ext) {
     case 'pdb':
       return { structure: parsePdb(text), fileType: 'pdb' }
+    case 'sdf':
+    case 'mol':
+      return { structure: parseSdf(text), fileType: ext }
     case 'int':
       return { structure: parseTinkerInt(text), fileType: 'int' }
     case 'arc': {

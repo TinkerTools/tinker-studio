@@ -326,19 +326,28 @@ async function findAssociatedForceField(
     if (keyText != null) keyName = 'tinker.key'
   }
   if (keyText == null) return {}
-  const key = { keyName, keyText }
+  return { keyName, keyText, ...(await resolveForceFieldFromKey(keyText, dir)) }
+}
 
+/**
+ * Read a key's PARAMETERS line and locate + read the referenced .prm (relative
+ * to `dir` or the Tinker params directory). Returns {} if there is none.
+ */
+async function resolveForceFieldFromKey(
+  keyText: string,
+  dir: string
+): Promise<{ prmText?: string; prmName?: string }> {
   const paramLine = keyText
     .split(/\r?\n/)
     .map((l) => l.trim())
     .find((l) => /^parameters\b/i.test(l))
-  if (!paramLine) return key
+  if (!paramLine) return {}
 
   let param = paramLine
     .replace(/^parameters\s+/i, '')
     .replace(/^"(.*)"$/, '$1')
     .trim()
-  if (!param || param.toLowerCase() === 'none') return key
+  if (!param || param.toLowerCase() === 'none') return {}
   if (!param.toLowerCase().endsWith('.prm')) param += '.prm'
 
   const fileName = basename(param)
@@ -356,20 +365,25 @@ async function findAssociatedForceField(
   ]
   for (const c of candidates) {
     const prmText = await readIfExists(c)
-    if (prmText) return { prmText, prmName: fileName, ...key }
+    if (prmText) return { prmText, prmName: fileName }
   }
-  return key
+  return {}
 }
 
 /** Privileged operations exposed to the renderer over IPC. */
 function registerIpcHandlers(): void {
+  // Resolve a .prm referenced by an attached key's PARAMETERS line.
+  ipcMain.handle('forcefield:fromKey', (_e, keyText: string, keyPath?: string) =>
+    resolveForceFieldFromKey(keyText, keyPath ? dirname(keyPath) : '.')
+  )
+
   // Show an open dialog and return the chosen file's path + text contents.
   ipcMain.handle('structure:open', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Open Tinker Structure',
       properties: ['openFile'],
       filters: [
-        { name: 'Tinker Coordinates', extensions: ['xyz', 'arc', 'txyz'] },
+        { name: 'Structures', extensions: ['xyz', 'arc', 'txyz', 'pdb', 'int', 'sdf', 'mol'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     })
