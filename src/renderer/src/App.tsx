@@ -3,6 +3,7 @@ import { Viewer } from './viewer/Viewer'
 import type { Renderable, PickResult } from './viewer/scene'
 import { distance, angle, dihedral } from './core/measure'
 import { expandSelection, type PickLevel } from './core/select'
+import { atomicMass } from './core/elements'
 import {
   parseStructureFile,
   nextSystemId,
@@ -529,6 +530,76 @@ export default function App() {
     setJobs((prev) => prev.filter((j) => j.id !== id))
   }
 
+  // Representation/color from the Display panel apply to the current selection;
+  // with nothing selected they become the global default (and clear per-atom
+  // overrides, so everything reverts). 'tube' is whole-structure only.
+  function applyRepresentation(rep: Representation): void {
+    if (active && rep !== 'tube' && selectedInActive.size > 0) {
+      setSystems((prev) =>
+        prev.map((s) => {
+          if (s.id !== active.id) return s
+          const repByAtom = { ...(s.repByAtom ?? {}) }
+          for (const i of selectedInActive) repByAtom[i] = rep
+          return { ...s, repByAtom, rev: (s.rev ?? 0) + 1 }
+        })
+      )
+    } else {
+      setOptions((o) => ({ ...o, representation: rep }))
+      if (active) {
+        setSystems((prev) =>
+          prev.map((s) => (s.id === active.id ? { ...s, repByAtom: undefined, rev: (s.rev ?? 0) + 1 } : s))
+        )
+      }
+    }
+  }
+
+  function applyColorMode(mode: ColorMode): void {
+    if (active && selectedInActive.size > 0) {
+      setSystems((prev) =>
+        prev.map((s) => {
+          if (s.id !== active.id) return s
+          const colorByAtom = { ...(s.colorByAtom ?? {}) }
+          for (const i of selectedInActive) colorByAtom[i] = mode
+          return { ...s, colorByAtom, rev: (s.rev ?? 0) + 1 }
+        })
+      )
+    } else {
+      setOptions((o) => ({ ...o, colorMode: mode }))
+      if (active) {
+        setSystems((prev) =>
+          prev.map((s) => (s.id === active.id ? { ...s, colorByAtom: undefined, rev: (s.rev ?? 0) + 1 } : s))
+        )
+      }
+    }
+  }
+
+  // Translate the active system so its center of mass sits at the origin
+  // (keeping any current rotation).
+  function centerActiveSystem(): void {
+    if (!active) return
+    const atoms = active.structure.atoms
+    if (atoms.length === 0) return
+    let mx = 0
+    let my = 0
+    let mz = 0
+    let total = 0
+    for (const a of atoms) {
+      const m = atomicMass(a.element)
+      mx += a.x * m
+      my += a.y * m
+      mz += a.z * m
+      total += m
+    }
+    const com: [number, number, number] = [mx / total, my / total, mz / total]
+    const q = active.transform?.quaternion ?? IDENTITY_TRANSFORM.quaternion
+    // position = -R(com): puts the rotated COM at the origin.
+    const r = applyTransform(com, { position: [0, 0, 0], quaternion: q })
+    setSystemTransform(active.id, {
+      position: [-r[0], -r[1], -r[2]],
+      quaternion: [q[0], q[1], q[2], q[3]]
+    })
+  }
+
   // The displayed position of a picked atom — tracks the current trajectory frame
   // for the active animating system, then applies that system's rigid-body
   // placement, so highlights/measurements follow both animation and moves.
@@ -616,7 +687,9 @@ export default function App() {
     structure: s.structure,
     coords: s.id === activeId && s.trajectory ? frameAt(s.trajectory, frameIndex) : null,
     selected: s.id === activeId ? selectedInActive : undefined,
-    transform: s.transform
+    transform: s.transform,
+    repByAtom: s.repByAtom,
+    colorByAtom: s.colorByAtom
   }))
 
   const transformSig = (t?: Transform): string =>
@@ -1066,14 +1139,19 @@ export default function App() {
               label="Representation"
               options={REPRESENTATIONS}
               value={options.representation}
-              onChange={(representation) => setOptions((o) => ({ ...o, representation }))}
+              onChange={applyRepresentation}
             />
             <SegmentedControl<ColorMode>
               label="Color"
               options={COLOR_MODES}
               value={options.colorMode}
-              onChange={(colorMode) => setOptions((o) => ({ ...o, colorMode }))}
+              onChange={applyColorMode}
             />
+            <p className="display-hint">
+              {selectedInActive.size > 0
+                ? `Applies to ${selectedInActive.size} selected atom${selectedInActive.size > 1 ? 's' : ''}.`
+                : 'Applies to all atoms (select atoms first to target a subset).'}
+            </p>
             <div className="display-toggles">
               <label>
                 <input
@@ -1165,6 +1243,11 @@ export default function App() {
                   </button>
                 </>
               )}
+              <div className="move-center">
+                <button className="mini-btn" onClick={centerActiveSystem}>
+                  Center (move center of mass to origin)
+                </button>
+              </div>
             </details>
           </section>
         )}

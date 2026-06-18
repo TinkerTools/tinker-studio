@@ -5,10 +5,10 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import type { Structure } from '../core/types'
+import type { Structure, BondRecord } from '../core/types'
 import { applyTransform, type Transform } from '../core/transform'
 import { elementInfo } from '../core/elements'
-import { type RenderOptions, type Representation } from './renderOptions'
+import { type RenderOptions, type Representation, type ColorMode } from './renderOptions'
 import { createImpostorSpheres } from './impostorSpheres'
 
 /**
@@ -27,6 +27,10 @@ export interface Renderable {
   selected?: Set<number>
   /** Rigid-body placement of this system in the scene. */
   transform?: Transform
+  /** Per-atom representation overrides (atom index -> representation). */
+  repByAtom?: Record<number, Representation>
+  /** Per-atom color-mode overrides (atom index -> color mode). */
+  colorByAtom?: Record<number, ColorMode>
 }
 
 export interface ManipTarget {
@@ -58,6 +62,8 @@ export interface SceneHandle {
   ): void
   /** Set the camera field of view (degrees), holding the subject's apparent size. */
   setFov(fov: number): void
+  /** Re-frame the camera to fit the current scene. */
+  recenter(): void
   dispose(): void
 }
 
@@ -98,6 +104,12 @@ function repSpec(rep: Representation): RepSpec {
   }
 }
 
+// Per-atom rep spec. 'tube' is a whole-structure representation, so an atom
+// tagged tube in a mixed scene falls back to ball-and-stick.
+function atomRepSpec(rep: Representation): RepSpec {
+  return repSpec(rep === 'tube' ? 'ball-and-stick' : rep)
+}
+
 // Distinct cycling palette for residue / chain coloring; stable per key.
 const PALETTE = [
   0x4e79a7, 0xf28e2b, 0xe15759, 0x76b7b2, 0x59a14f, 0xedc948, 0xb07aa1, 0xff9da7,
@@ -113,23 +125,32 @@ function paletteColor(key: string): number {
   return c
 }
 
-function computeAtomColors(structure: Structure, options: RenderOptions): number[] {
-  switch (options.colorMode) {
+type AtomRecord = Structure['atoms'][number]
+
+function colorForAtom(a: AtomRecord, mode: ColorMode, options: RenderOptions): number {
+  switch (mode) {
     case 'uniform':
-      return structure.atoms.map(() => options.uniformColor)
+      return options.uniformColor
     case 'residue':
-      return structure.atoms.map((a) =>
-        a.residueSeq !== undefined ? paletteColor(`${a.chain ?? ''}:${a.residueSeq}`) : elementInfo(a.element).color
-      )
+      return a.residueSeq !== undefined
+        ? paletteColor(`${a.chain ?? ''}:${a.residueSeq}`)
+        : elementInfo(a.element).color
     case 'chain':
-      return structure.atoms.map((a) =>
-        a.chain ? paletteColor(`chain:${a.chain}`) : elementInfo(a.element).color
-      )
+      return a.chain ? paletteColor(`chain:${a.chain}`) : elementInfo(a.element).color
     case 'charge':
-      return structure.atoms.map((a) => (a.charge !== undefined ? chargeColor(a.charge) : 0x808080))
+      return a.charge !== undefined ? chargeColor(a.charge) : 0x808080
     default:
-      return structure.atoms.map((a) => elementInfo(a.element).color)
+      return elementInfo(a.element).color
   }
+}
+
+// Per-atom color: the atom's color-mode override (if any) else the global mode.
+function computeAtomColors(
+  structure: Structure,
+  options: RenderOptions,
+  colorByAtom?: Record<number, ColorMode>
+): number[] {
+  return structure.atoms.map((a, i) => colorForAtom(a, colorByAtom?.[i] ?? options.colorMode, options))
 }
 
 // Diverging blue (negative) → white (0) → red (positive), clamped to ±1.
@@ -192,6 +213,7 @@ export function createScene(container: HTMLElement): SceneHandle {
   let highlightGroup: THREE.Group | null = null
   let pickables: Pickable[] = []
   let lastKey = ''
+  let lastRenderables: Renderable[] = []
   const raycaster = new THREE.Raycaster()
 
   // Interactive move/rotate gizmo. Attached to the active system's group while in
@@ -240,11 +262,13 @@ export function createScene(container: HTMLElement): SceneHandle {
   function setScene(renderables: Renderable[], options: RenderOptions): void {
     clearGroups()
     pickables = []
-    const spec = repSpec(options.representation)
+    lastRenderables = renderables
     for (const r of renderables) {
-      const colors = computeAtomColors(r.structure, options)
+      // Effective per-atom representation (override else global).
+      const reps = r.structure.atoms.map((_a, i) => r.repByAtom?.[i] ?? options.representation)
+      const colors = computeAtomColors(r.structure, options, r.colorByAtom)
       const visible = computeVisibility(r.structure, options, r.selected)
-      const group = buildMolecule(r.structure, r.coords, spec, colors, visible, options.representation)
+      const group = buildMolecule(r.structure, r.coords, colors, visible, reps, options.representation)
       if (r.transform) {
         group.position.set(...r.transform.position)
         group.quaternion.set(...r.transform.quaternion)
@@ -269,7 +293,7 @@ export function createScene(container: HTMLElement): SceneHandle {
           bx: base[0],
           by: base[1],
           bz: base[2],
-          radius: Math.max(spec.atomRadius(elementInfo(atom.element).vdwRadius), 0.4)
+          radius: Math.max(atomRepSpec(reps[i]).atomRadius(elementInfo(atom.element).vdwRadius), 0.4)
         })
       })
     }
@@ -393,6 +417,9 @@ export function createScene(container: HTMLElement): SceneHandle {
       camera.updateProjectionMatrix()
       controls.update()
     },
+    recenter(): void {
+      frameCameraToRenderables(lastRenderables, camera, controls)
+    },
     dispose(): void {
       cancelAnimationFrame(raf)
       resizeObserver.disconnect()
@@ -424,14 +451,15 @@ function atomPos(structure: Structure, coords: Float32Array | null, i: number): 
 function buildMolecule(
   structure: Structure,
   coords: Float32Array | null,
-  spec: RepSpec,
   atomColors: number[],
   visible: boolean[],
-  representation: Representation
+  reps: Representation[],
+  globalRep: Representation
 ): THREE.Group {
   const group = new THREE.Group()
 
-  if (representation === 'tube') {
+  // Whole-structure tube only when every atom is tube (no per-atom overrides).
+  if (globalRep === 'tube' && reps.every((r) => r === 'tube')) {
     const tube = buildBackboneTube(structure, coords)
     if (tube) {
       group.add(tube)
@@ -440,14 +468,27 @@ function buildMolecule(
     // No protein backbone (no CA atoms) — fall through to ball-and-stick.
   }
 
-  group.add(buildAtoms(structure, coords, spec, atomColors, visible))
-  if (structure.bonds.length > 0) {
-    if (spec.bond === 'cylinder') {
-      group.add(buildCylinderBonds(structure, coords, spec.bondRadius, atomColors, visible))
-    } else if (spec.bond === 'line') {
-      group.add(buildLineBonds(structure, coords, atomColors, visible))
+  group.add(buildAtoms(structure, coords, reps, atomColors, visible))
+
+  // Sort bonds into cylinder vs line by the styles of their two atoms.
+  const cyl: Array<{ bond: BondRecord; radius: number }> = []
+  const lines: BondRecord[] = []
+  for (const b of structure.bonds) {
+    if (!visible[b.a - 1] || !visible[b.b - 1]) continue
+    const sa = atomRepSpec(reps[b.a - 1])
+    const sb = atomRepSpec(reps[b.b - 1])
+    if (sa.bond === 'cylinder' || sb.bond === 'cylinder') {
+      const radii = [
+        sa.bond === 'cylinder' ? sa.bondRadius : Infinity,
+        sb.bond === 'cylinder' ? sb.bondRadius : Infinity
+      ]
+      cyl.push({ bond: b, radius: Math.min(...radii) })
+    } else if (sa.bond === 'line' || sb.bond === 'line') {
+      lines.push(b)
     }
   }
+  if (cyl.length) group.add(buildCylinderBonds(structure, coords, cyl, atomColors))
+  if (lines.length) group.add(buildLineBonds(structure, coords, lines, atomColors))
   return group
 }
 
@@ -484,7 +525,7 @@ function buildBackboneTube(structure: Structure, coords: Float32Array | null): T
 function buildAtoms(
   structure: Structure,
   coords: Float32Array | null,
-  spec: RepSpec,
+  reps: Representation[],
   atomColors: number[],
   visible: boolean[]
 ): THREE.Mesh {
@@ -502,7 +543,7 @@ function buildAtoms(
     centers[k * 3] = x
     centers[k * 3 + 1] = y
     centers[k * 3 + 2] = z
-    radii[k] = spec.atomRadius(elementInfo(atom.element).vdwRadius)
+    radii[k] = atomRepSpec(reps[atomIndex]).atomRadius(elementInfo(atom.element).vdwRadius)
     color.set(atomColors[atomIndex])
     colors[k * 3] = color.r
     colors[k * 3 + 1] = color.g
@@ -516,11 +557,9 @@ function buildAtoms(
 function buildCylinderBonds(
   structure: Structure,
   coords: Float32Array | null,
-  radius: number,
-  atomColors: number[],
-  visible: boolean[]
+  drawn: Array<{ bond: BondRecord; radius: number }>,
+  atomColors: number[]
 ): THREE.InstancedMesh {
-  const drawn = structure.bonds.filter((b) => visible[b.a - 1] && visible[b.b - 1])
   const geometry = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true)
   const material = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.0 })
   const mesh = new THREE.InstancedMesh(geometry, material, drawn.length * 2)
@@ -532,7 +571,13 @@ function buildCylinderBonds(
   const mid = new THREE.Vector3()
   const up = new THREE.Vector3(0, 1, 0)
 
-  const placeHalf = (slot: number, from: THREE.Vector3, to: THREE.Vector3, colorHex: number): void => {
+  const placeHalf = (
+    slot: number,
+    from: THREE.Vector3,
+    to: THREE.Vector3,
+    radius: number,
+    colorHex: number
+  ): void => {
     const dir = new THREE.Vector3().subVectors(to, from)
     const length = dir.length() || 1e-6
     dummy.position.copy(from).addScaledVector(dir, 0.5)
@@ -543,14 +588,14 @@ function buildCylinderBonds(
     mesh.setColorAt(slot, color.set(colorHex))
   }
 
-  drawn.forEach((bond, k) => {
+  drawn.forEach(({ bond, radius }, k) => {
     const [ax, ay, az] = atomPos(structure, coords, bond.a - 1)
     const [bx, by, bz] = atomPos(structure, coords, bond.b - 1)
     start.set(ax, ay, az)
     end.set(bx, by, bz)
     mid.addVectors(start, end).multiplyScalar(0.5)
-    placeHalf(k * 2, start, mid, atomColors[bond.a - 1])
-    placeHalf(k * 2 + 1, end, mid, atomColors[bond.b - 1])
+    placeHalf(k * 2, start, mid, radius, atomColors[bond.a - 1])
+    placeHalf(k * 2 + 1, end, mid, radius, atomColors[bond.b - 1])
   })
 
   mesh.instanceMatrix.needsUpdate = true
@@ -561,10 +606,9 @@ function buildCylinderBonds(
 function buildLineBonds(
   structure: Structure,
   coords: Float32Array | null,
-  atomColors: number[],
-  visible: boolean[]
+  drawn: BondRecord[],
+  atomColors: number[]
 ): THREE.LineSegments {
-  const drawn = structure.bonds.filter((b) => visible[b.a - 1] && visible[b.b - 1])
   const positions = new Float32Array(drawn.length * 6)
   const colors = new Float32Array(drawn.length * 6)
   const color = new THREE.Color()

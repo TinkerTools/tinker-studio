@@ -684,6 +684,36 @@ body {
   color: var(--text-dim);
 }
 
+.viewer-recenter {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 5;
+  font: inherit;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  background: rgba(20, 22, 30, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+}
+
+.viewer-recenter:hover {
+  color: var(--text);
+  background: rgba(30, 33, 44, 0.9);
+}
+
+.display-hint {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  margin: 0.1rem 0 0.6rem;
+}
+
+.move-center {
+  margin-top: 0.6rem;
+}
+
 .watch-live {
   display: flex;
   align-items: center;

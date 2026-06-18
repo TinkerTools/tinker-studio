@@ -1,5 +1,6 @@
 import type { Structure, AtomRecord, BondRecord } from './types'
 import type { Transform } from './transform'
+import type { Representation, ColorMode } from '../viewer/renderOptions'
 import { parseTinkerXyz, parseTinkerArc } from './parseXyz'
 import { parsePdb } from './parsePdb'
 import { parseTinkerInt } from './parseInt'
@@ -45,6 +46,10 @@ export interface MolecularSystem {
   keyText?: string
   /** Rigid-body placement of this system in the scene (default: identity). */
   transform?: Transform
+  /** Per-atom representation overrides (atom index -> representation). */
+  repByAtom?: Record<number, Representation>
+  /** Per-atom color-mode overrides (atom index -> color mode). */
+  colorByAtom?: Record<number, ColorMode>
 }
 
 let counter = 0

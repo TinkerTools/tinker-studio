@@ -99,5 +99,17 @@ export function Viewer({
     handleRef.current?.setFov(options.fov)
   }, [options.fov])
 
-  return <div className={pickingEnabled ? 'viewer picking' : 'viewer'} ref={containerRef} />
+  return (
+    <div className={pickingEnabled ? 'viewer picking' : 'viewer'} ref={containerRef}>
+      <button
+        className="viewer-recenter"
+        title="Recenter view"
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onClick={() => handleRef.current?.recenter()}
+      >
+        Recenter
+      </button>
+    </div>
+  )
 }

@@ -55,6 +55,17 @@ export function elementInfo(symbol: string): ElementInfo {
   return { symbol, ...(TABLE[symbol] ?? DEFAULT) }
 }
 
+// Standard atomic weights for common elements (u). Unknowns default to carbon's,
+// which is good enough for centering a structure on its center of mass.
+const MASS: Record<string, number> = {
+  H: 1.008, C: 12.011, N: 14.007, O: 15.999, F: 18.998, Na: 22.99, Mg: 24.305,
+  P: 30.974, S: 32.06, Cl: 35.45, K: 39.098, Ca: 40.078, Fe: 55.845, Zn: 65.38,
+  Br: 79.904, I: 126.904
+}
+export function atomicMass(symbol: string): number {
+  return MASS[symbol] ?? 12.011
+}
+
 // Symbol by atomic number (index 0 unused). Used by the .prm parser to turn an
 // atom type's atomic number into an element symbol.
 const ATOMIC_SYMBOLS = [
