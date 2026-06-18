@@ -67,6 +67,7 @@ export default function App() {
   const [jobs, setJobs] = useState<JobRecord[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [atomsOpen, setAtomsOpen] = useState(false)
   const [keyEditTarget, setKeyEditTarget] = useState<string | null>(null)
   const [tinkerDir, setTinkerDir] = useState<string | undefined>(undefined)
   const [keyText, setKeyText] = useState('')
@@ -425,7 +426,9 @@ export default function App() {
               ...s,
               structure: isFirst ? struct : s.structure,
               trajectory: { frameCount: frames.length, frames },
-              rev: (s.rev ?? 0) + 1
+              // Only the first frame establishes topology (needs a rebuild); later
+              // frames just move atoms, handled in place via coordKey/updateSystem.
+              rev: isFirst ? (s.rev ?? 0) + 1 : s.rev
             }
           })
         )
@@ -1007,9 +1010,17 @@ export default function App() {
                 </div>
               </div>
             )}
-            <details className="atoms-disclosure">
+            <details
+              className="atoms-disclosure"
+              open={atomsOpen}
+              onToggle={(e) => setAtomsOpen(e.currentTarget.open)}
+            >
               <summary>Atoms ({active.structure.atoms.length})</summary>
-              <AtomBrowser system={active} selected={selectedInActive} onPick={pickFromList} />
+              {/* Render the (potentially large) list only while expanded, so changing
+                  the active system / live frames don't pay for it when collapsed. */}
+              {atomsOpen && (
+                <AtomBrowser system={active} selected={selectedInActive} onPick={pickFromList} />
+              )}
             </details>
           </section>
         )}
