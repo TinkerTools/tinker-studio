@@ -115,6 +115,9 @@ const api = {
   job: {
     run: (req: JobRunRequest): Promise<JobRunResult> => ipcRenderer.invoke('job:run', req),
     cancel: (jobId: string): Promise<boolean> => ipcRenderer.invoke('job:cancel', jobId),
+    /** Write a path-less system to a scratch .xyz (+ .key); resolves to the path. */
+    prepareStructure: (name: string, xyzText: string, keyText?: string): Promise<string> =>
+      ipcRenderer.invoke('job:prepareStructure', name, xyzText, keyText),
     /** After a job finishes, fetch the coordinate file Tinker produced (or null). */
     collectResult: (
       structurePath: string,

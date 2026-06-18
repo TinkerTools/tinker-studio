@@ -5,10 +5,17 @@ import { liveKind, type JobRecord } from './core/job'
 
 type RunJob = (
   program: string,
-  system: MolecularSystem,
+  system: MolecularSystem | null,
   stdin: string,
-  watch: boolean
+  watch: boolean,
+  requiresStructure: boolean
 ) => Promise<string>
+
+// fileTypes ['ANY'] are sequence builders (protein/nucleic) that take no
+// coordinate file; everything else operates on a loaded structure.
+function needsStructure(command: TinkerCommand): boolean {
+  return !command.fileTypes.includes('ANY')
+}
 
 /**
  * Data-driven Tinker command browser + launcher. Lists the programs applicable
@@ -224,12 +231,13 @@ function RunSection({
   const [watchLive, setWatchLive] = useState(true)
   const job = jobs.find((j) => j.id === jobId) ?? null
   const running = job?.status === 'running'
-  const canRun = Boolean(system?.path)
+  const requires = needsStructure(command)
+  const canRun = requires ? Boolean(system) : true
   const kind = liveKind(command.name.toLowerCase())
+  const noKeyWarning = requires && system != null && !system.keyText
 
   async function run(): Promise<void> {
-    if (!system) return
-    const id = await onRunJob(command.name.toLowerCase(), system, buildStdin(), watchLive)
+    const id = await onRunJob(command.name.toLowerCase(), system, buildStdin(), watchLive, requires)
     setJobId(id)
   }
 
@@ -237,6 +245,12 @@ function RunSection({
     <div className="run-section">
       <div className="run-status">
         Program <code>{command.name.toLowerCase()}</code>
+        {requires && (
+          <>
+            {' · '}
+            System: <code>{system?.name ?? '(none)'}</code>
+          </>
+        )}
         {tinkerDir ? (
           <>
             {' · '}
@@ -246,8 +260,14 @@ function RunSection({
           <span className="run-warn"> · Tinker directory not set (Tinker ▸ Set Tinker Directory…)</span>
         )}
       </div>
-      {!canRun && (
-        <div className="run-warn">Open this system from a file on disk to run Tinker on it.</div>
+      {requires && !system && (
+        <div className="run-warn">Load a system to run this command on.</div>
+      )}
+      {noKeyWarning && (
+        <div className="run-warn">
+          No key file attached — attempting with a minimal default key; the run may need a force
+          field (.prm) to succeed.
+        </div>
       )}
       {kind && (
         <label className="watch-live">

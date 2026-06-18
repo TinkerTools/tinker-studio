@@ -15,6 +15,7 @@ import { parseTinkerXyz, parseTinkerArc } from './core/parseXyz'
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
 import { SAVE_FORMATS, type SaveFormat } from './core/writers'
+import { writeTinkerXyz } from './core/writeXyz'
 import { parsePrm, applyForceField } from './core/parsePrm'
 import {
   applyTransform,
@@ -497,26 +498,51 @@ export default function App() {
   // simulation animates into it.
   async function startJob(
     program: string,
-    system: MolecularSystem,
+    system: MolecularSystem | null,
     stdin: string,
-    watch: boolean
+    watch: boolean,
+    requiresStructure: boolean
   ): Promise<string> {
     const id = `job-${Date.now()}`
+    const sysName = system?.name ?? program
     setJobs((prev) => [
       ...prev,
       {
         id,
         program,
-        systemName: system.name,
-        structurePath: system.path,
+        systemName: sysName,
+        structurePath: system?.path,
         startedAt: Date.now(),
         status: 'running',
         output: ''
       }
     ])
 
-    const kind = watch ? liveKind(program) : null
-    if (kind) {
+    // Resolve the coordinate file: builders (no structure) run with none; a
+    // system without a file on disk is written to a scratch .xyz first (with its
+    // key, or a minimal default key so the run can be attempted).
+    let structurePath = ''
+    if (requiresStructure && system) {
+      if (system.path) {
+        structurePath = system.path
+      } else {
+        try {
+          structurePath = await window.ffe.job.prepareStructure(
+            system.name,
+            writeTinkerXyz(bakeTransform(system.structure, system.transform)),
+            system.keyText ?? DEFAULT_KEY
+          )
+        } catch (e) {
+          setJobs((prev) =>
+            prev.map((j) => (j.id === id ? { ...j, status: 'failed', output: messageOf(e) } : j))
+          )
+          return id
+        }
+      }
+    }
+
+    const kind = watch && system && structurePath ? liveKind(program) : null
+    if (kind && system) {
       const liveId = nextSystemId()
       const liveSystem: MolecularSystem = {
         id: liveId,
@@ -542,10 +568,10 @@ export default function App() {
     const res = await window.ffe.job.run({
       jobId: id,
       program,
-      structurePath: system.path!,
+      structurePath,
       stdin,
       watch: kind,
-      keyText: system.keyText
+      keyText: system?.keyText
     })
     setJobs((prev) =>
       prev.map((j) => {
@@ -1447,6 +1473,8 @@ const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
 
 const KEY_FILE_FILTERS = [{ name: 'Tinker Key Files', extensions: ['key'] }]
 const ATTACH_FILTERS = [{ name: 'Tinker Files', extensions: ['key', 'seq', 'prm'] }]
+// Used when running a command on a system that has no key attached.
+const DEFAULT_KEY = '# Force Field Explorer: no key file attached\n'
 
 const MOVE_MODES: ReadonlyArray<{ value: 'translate' | 'rotate'; label: string }> = [
   { value: 'translate', label: 'Translate' },

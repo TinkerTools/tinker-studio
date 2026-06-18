@@ -12,7 +12,8 @@ import {
   unlinkSync,
   openSync,
   readSync,
-  closeSync
+  closeSync,
+  mkdirSync
 } from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 import {
@@ -175,6 +176,13 @@ function saveSettings(s: Settings): void {
 
 // Running Tinker jobs, keyed by an id chosen by the renderer.
 const jobs = new Map<string, ChildProcess>()
+
+/** Scratch directory for jobs on systems that aren't backed by a file on disk. */
+function workDir(): string {
+  const d = join(app.getPath('temp'), 'force-field-explorer')
+  mkdirSync(d, { recursive: true })
+  return d
+}
 
 /** Per-job state for streaming a live simulation's coordinate files. */
 interface LiveWatch {
@@ -377,6 +385,20 @@ function registerIpcHandlers(): void {
     resolveForceFieldFromKey(keyText, keyPath ? dirname(keyPath) : '.')
   )
 
+  // Write an in-memory system to a scratch .xyz (+ .key) so a Tinker job can run
+  // on a system that wasn't loaded from a file on disk. Returns the .xyz path.
+  ipcMain.handle(
+    'job:prepareStructure',
+    (_e, name: string, xyzText: string, keyText?: string): string => {
+      const dir = workDir()
+      const stem = (name.replace(/\.[^.]*$/, '') || 'structure').replace(/[^A-Za-z0-9._-]/g, '_')
+      const path = join(dir, `${stem}.xyz`)
+      writeFileSync(path, xyzText, 'utf8')
+      if (keyText != null) writeFileSync(join(dir, `${stem}.key`), keyText, 'utf8')
+      return path
+    }
+  )
+
   // Show an open dialog and return the chosen file's path + text contents.
   ipcMain.handle('structure:open', async () => {
     const result = await dialog.showOpenDialog({
@@ -509,8 +531,10 @@ function registerIpcHandlers(): void {
       const { jobId, program, structurePath, extraArgs = [], stdin, watch, keyText } = req
       const { tinkerDir } = loadSettings()
       const exe = tinkerDir ? join(tinkerDir, program) : program
-      const dir = dirname(structurePath)
-      const inputName = basename(structurePath)
+      // Commands with no coordinate input (e.g. protein/nucleic builders) run in
+      // a scratch directory.
+      const dir = structurePath ? dirname(structurePath) : workDir()
+      const inputName = structurePath ? basename(structurePath) : ''
       const stem = inputName.replace(/\.[^.]*$/, '')
 
       // For minimizers without SAVE-CYCLE in their key, run on a throwaway copy
