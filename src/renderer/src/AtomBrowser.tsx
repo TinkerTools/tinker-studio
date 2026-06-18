@@ -68,20 +68,36 @@ export function AtomBrowser({
   )
 
   // Rendering thousands of rows/nodes at once stalls the DOM (a water box has
-  // thousands of molecules), so the list is capped — use the 3D view + selection
-  // tools for very large systems.
-  const CAP = 800
+  // thousands of molecules), so the list is capped at ~CAP atoms — whole groups,
+  // never cut mid-molecule. Use the 3D view + selection tools for big systems.
+  const CAP = 1000
+
+  // How many leading groups fit within the atom cap (always completing the group
+  // that crosses it).
+  const shownGroups = useMemo(() => {
+    if (!groups) return null
+    let acc = 0
+    let cut = groups.length
+    for (let i = 0; i < groups.length; i++) {
+      acc += groups[i].atomIndices.length
+      if (acc >= CAP) {
+        cut = i + 1
+        break
+      }
+    }
+    return groups.slice(0, cut)
+  }, [groups])
 
   return (
     <div className="atom-scroll">
-      {groups ? (
+      {groups && shownGroups ? (
         <>
-          {groups.slice(0, CAP).map((g) => (
+          {shownGroups.map((g) => (
             <GroupNode key={g.key} group={g} atoms={atoms} selected={selected} onPick={onPick} />
           ))}
-          {groups.length > CAP && (
+          {shownGroups.length < groups.length && (
             <div className="atom-more">
-              + {groups.length - CAP} more groups (use the 3D view to select)
+              + {groups.length - shownGroups.length} more groups (use the 3D view to select)
             </div>
           )}
         </>
