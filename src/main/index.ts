@@ -23,6 +23,7 @@ import {
   nextVersionName,
   splitArcFrames
 } from './liveJob'
+import { indexArc, readFrameText, readFrameCoords, type TrajectoryIndex } from './trajectory'
 
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
@@ -369,9 +370,38 @@ function registerIpcHandlers(): void {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     const path = result.filePaths[0]
+    // .arc files can be huge — don't read them whole. Flag them so the renderer
+    // opens them lazily via the streamed-trajectory API instead.
+    if (path.toLowerCase().endsWith('.arc')) {
+      return { path, name: basename(path), text: '', arc: true }
+    }
     const text = await readFile(path, 'utf8')
     const ff = await findAssociatedForceField(path)
     return { path, name: basename(path), text, ...ff }
+  })
+
+  // Lazy streamed-trajectory API for large .arc files: index once, then read
+  // individual frames on demand (see trajectory.ts).
+  const trajectories = new Map<string, TrajectoryIndex>()
+  let trajCounter = 0
+  ipcMain.handle('trajectory:open', (_e, path: string) => {
+    const index = indexArc(path)
+    const trajId = `traj-${++trajCounter}`
+    trajectories.set(trajId, index)
+    return {
+      trajId,
+      frameCount: index.frameCount,
+      firstFrameText: index.frameCount > 0 ? readFrameText(index, 0) : ''
+    }
+  })
+  ipcMain.handle('trajectory:frame', (_e, trajId: string, frame: number): Float32Array | null => {
+    const index = trajectories.get(trajId)
+    if (!index || frame < 0 || frame >= index.frameCount) return null
+    return readFrameCoords(index, frame)
+  })
+  ipcMain.handle('trajectory:close', (_e, trajId: string) => {
+    trajectories.delete(trajId)
+    return true
   })
 
   // Fetch a structure from an online database (done in main to avoid CORS).

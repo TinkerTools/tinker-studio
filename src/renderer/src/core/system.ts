@@ -4,9 +4,17 @@ import { parseTinkerXyz, parseTinkerArc } from './parseXyz'
 import { parsePdb } from './parsePdb'
 import { parseTinkerInt } from './parseInt'
 
-/** A trajectory: per-frame coordinate sets (each numAtoms*3) over one topology. */
+/**
+ * A trajectory over one topology. Frames are either held in memory (small files,
+ * live-streamed runs) or fetched lazily by index from a large indexed .arc on
+ * disk (`source`), so gigabyte archives never load whole.
+ */
 export interface Trajectory {
-  frames: Float32Array[]
+  frameCount: number
+  /** In-memory frames (each numAtoms*3), when not streamed lazily. */
+  frames?: Float32Array[]
+  /** Lazy source for large .arc files; frames are fetched on demand. */
+  source?: { trajId: string }
 }
 
 /**
@@ -84,7 +92,7 @@ export function parseStructureFile(
       return {
         structure,
         fileType: 'arc',
-        trajectory: frames.length > 1 ? { frames } : undefined
+        trajectory: frames.length > 1 ? { frameCount: frames.length, frames } : undefined
       }
     }
     case 'xyz':

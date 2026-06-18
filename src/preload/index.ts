@@ -16,6 +16,15 @@ export interface OpenedFile {
   /** Sibling Tinker .key file auto-located on open (name + contents). */
   keyName?: string
   keyText?: string
+  /** True for a .arc file: text is empty; open it lazily via the trajectory API. */
+  arc?: boolean
+}
+
+export interface TrajectoryOpened {
+  trajId: string
+  frameCount: number
+  /** First frame's text, for parsing the shared topology. */
+  firstFrameText: string
 }
 
 export interface AppSettings {
@@ -131,7 +140,14 @@ const api = {
   /** Open a text file (optionally restricted by extension filters); resolves to its path/name/contents, or null. */
   openTextFile: (
     filters?: Array<{ name: string; extensions: string[] }>
-  ): Promise<OpenedFile | null> => ipcRenderer.invoke('file:openText', filters)
+  ): Promise<OpenedFile | null> => ipcRenderer.invoke('file:openText', filters),
+  /** Lazy access to a large .arc: index it once, then fetch frames on demand. */
+  trajectory: {
+    open: (path: string): Promise<TrajectoryOpened> => ipcRenderer.invoke('trajectory:open', path),
+    frame: (trajId: string, frame: number): Promise<Float32Array | null> =>
+      ipcRenderer.invoke('trajectory:frame', trajId, frame),
+    close: (trajId: string): Promise<boolean> => ipcRenderer.invoke('trajectory:close', trajId)
+  }
 }
 
 export type FFEApi = typeof api

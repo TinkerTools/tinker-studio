@@ -7,7 +7,8 @@ import {
   parseStructureFile,
   nextSystemId,
   mergeStructures,
-  type MolecularSystem
+  type MolecularSystem,
+  type Trajectory
 } from './core/system'
 import { parseTinkerXyz, parseTinkerArc } from './core/parseXyz'
 import { parsePdb } from './core/parsePdb'
@@ -73,7 +74,7 @@ export default function App() {
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
-  const frameCount = trajectory?.frames.length ?? 0
+  const frameCount = trajectory?.frameCount ?? 0
   const visibleSystems = systems.filter((s) => visibleIds.has(s.id))
   const mergeable = visibleSystems.filter((s) => !s.trajectory)
   const need = MEASURE_NEED[measureMode]
@@ -133,6 +134,26 @@ export default function App() {
     try {
       const file = await window.ffe.openStructure()
       if (!file) return
+      // .arc files are opened lazily: index on disk, fetch frames on demand.
+      if (file.arc) {
+        const t = await window.ffe.trajectory.open(file.path)
+        const structure = parseTinkerXyz(t.firstFrameText)
+        if (t.frameCount > 1) {
+          addSystem(
+            {
+              structure,
+              fileType: 'arc',
+              trajectory: { frameCount: t.frameCount, source: { trajId: t.trajId } }
+            },
+            file.name,
+            { path: file.path }
+          )
+        } else {
+          void window.ffe.trajectory.close(t.trajId)
+          addSystem({ structure, fileType: 'arc' }, file.name, { path: file.path })
+        }
+        return
+      }
       const parsed = parseStructureFile(file.text, file.name)
       const key = { keyName: file.keyName, keyText: file.keyText }
       // Auto-apply the force field found via a sibling .key's PARAMETERS line.
@@ -176,6 +197,9 @@ export default function App() {
   }
 
   function closeSystem(id: string): void {
+    // Release any streamed-trajectory index held in the main process.
+    const trajId = systems.find((s) => s.id === id)?.trajectory?.source?.trajId
+    if (trajId) void window.ffe.trajectory.close(trajId)
     setSystems((prev) => prev.filter((s) => s.id !== id))
     setVisibleIds((prev) => {
       const next = new Set(prev)
@@ -288,6 +312,20 @@ export default function App() {
   const liveRef = useRef<LiveState | null>(null)
   const liveJobIdsRef = useRef<Set<string>>(new Set())
 
+  // Lazily-fetched frames for streamed (large) trajectories, keyed "trajId:index".
+  // frameTick bumps to re-render when a requested frame arrives.
+  const frameCacheRef = useRef<Map<string, Float32Array>>(new Map())
+  const [frameTick, setFrameTick] = useState(0)
+
+  // The coordinates for a trajectory frame: in-memory directly, or from the lazy
+  // cache (null until the streamed frame has been fetched).
+  function frameAt(traj: Trajectory | null | undefined, index: number): Float32Array | null {
+    if (!traj) return null
+    if (traj.frames) return traj.frames[Math.min(index, traj.frames.length - 1)] ?? null
+    if (traj.source) return frameCacheRef.current.get(`${traj.source.trajId}:${index}`) ?? null
+    return null
+  }
+
   function coordsOf(atoms: ReadonlyArray<{ x: number; y: number; z: number }>): Float32Array {
     const c = new Float32Array(atoms.length * 3)
     atoms.forEach((a, i) => {
@@ -366,7 +404,7 @@ export default function App() {
         setSystems((prev) =>
           prev.map((s) =>
             s.id === live.systemId
-              ? { ...s, structure, trajectory: { frames }, rev: (s.rev ?? 0) + 1 }
+              ? { ...s, structure, trajectory: { frameCount: frames.length, frames }, rev: (s.rev ?? 0) + 1 }
               : s
           )
         )
@@ -383,7 +421,7 @@ export default function App() {
             return {
               ...s,
               structure: isFirst ? struct : s.structure,
-              trajectory: { frames },
+              trajectory: { frameCount: frames.length, frames },
               rev: (s.rev ?? 0) + 1
             }
           })
@@ -447,7 +485,7 @@ export default function App() {
         name: `${program} · ${system.name} (live)`,
         fileType: kind === 'dynamics' ? 'arc' : system.fileType,
         structure: system.structure,
-        trajectory: { frames: [] }
+        trajectory: { frameCount: 0, frames: [] }
       }
       setSystems((prev) => [...prev, liveSystem])
       setActiveId(liveId)
@@ -495,8 +533,8 @@ export default function App() {
   function livePosition(p: PickResult): [number, number, number] {
     const sys = systems.find((s) => s.id === p.systemId)
     let base: [number, number, number]
-    if (sys?.trajectory && p.systemId === active?.id) {
-      const c = sys.trajectory.frames[Math.min(frameIndex, frameCount - 1)]
+    const c = sys?.trajectory && p.systemId === active?.id ? frameAt(sys.trajectory, frameIndex) : null
+    if (c) {
       base = [c[p.atomIndex * 3], c[p.atomIndex * 3 + 1], c[p.atomIndex * 3 + 2]]
     } else {
       base = p.position
@@ -568,16 +606,13 @@ export default function App() {
         label: options.showLabels ? `${p.name}${p.atomIndex + 1}` : undefined
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [picks, activeId, frameIndex, frameCount, options.showLabels]
+    [picks, activeId, frameIndex, frameCount, frameTick, options.showLabels]
   )
 
   const renderables: Renderable[] = visibleSystems.map((s) => ({
     id: s.id,
     structure: s.structure,
-    coords:
-      s.id === activeId && s.trajectory
-        ? s.trajectory.frames[Math.min(frameIndex, s.trajectory.frames.length - 1)] ?? null
-        : null,
+    coords: s.id === activeId && s.trajectory ? frameAt(s.trajectory, frameIndex) : null,
     selected: s.id === activeId ? selectedInActive : undefined,
     transform: s.transform
   }))
@@ -591,6 +626,7 @@ export default function App() {
     visibleSystems.map((s) => transformSig(s.transform)).join(';'),
     activeId ?? '',
     frameIndex,
+    frameTick,
     options.representation,
     options.colorMode,
     options.showHydrogens ? 'h' : '',
@@ -680,6 +716,42 @@ export default function App() {
     }, 1000 / Math.max(1, speed))
     return () => window.clearInterval(id)
   }, [playing, frameCount, oscillate, speed, skip])
+
+  // For a streamed (lazy) trajectory, fetch the current frame and a few ahead,
+  // caching them with a simple size cap so huge archives never load whole.
+  useEffect(() => {
+    const traj = active?.trajectory
+    if (!traj?.source) return
+    const trajId = traj.source.trajId
+    const cache = frameCacheRef.current
+    const PREFETCH = 5
+    const CACHE_CAP = 1000
+    const want: number[] = []
+    for (let d = 0; d <= PREFETCH; d++) {
+      const idx = frameIndex + d
+      if (idx < traj.frameCount && !cache.has(`${trajId}:${idx}`)) want.push(idx)
+    }
+    if (want.length === 0) return
+    let cancelled = false
+    void (async () => {
+      let added = false
+      for (const idx of want) {
+        const coords = await window.ffe.trajectory.frame(trajId, idx)
+        if (cancelled || !coords) continue
+        cache.set(`${trajId}:${idx}`, coords)
+        added = true
+        while (cache.size > CACHE_CAP) {
+          const oldest = cache.keys().next().value
+          if (oldest === undefined) break
+          cache.delete(oldest)
+        }
+      }
+      if (!cancelled && added) setFrameTick((t) => t + 1)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [active?.id, active?.trajectory, frameIndex])
 
   // Under the headless screenshot harness, load the example automatically (once).
   const autoLoadedRef = useRef(false)
