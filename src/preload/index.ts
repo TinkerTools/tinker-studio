@@ -22,9 +22,15 @@ export interface OpenedFile {
 
 export interface TrajectoryOpened {
   trajId: string
+  /** 0 while the background index is still being built. */
   frameCount: number
   /** First frame's text, for parsing the shared topology. */
   firstFrameText: string
+}
+
+export interface TrajectoryReady {
+  trajId: string
+  frameCount: number
 }
 
 export interface AppSettings {
@@ -146,7 +152,13 @@ const api = {
     open: (path: string): Promise<TrajectoryOpened> => ipcRenderer.invoke('trajectory:open', path),
     frame: (trajId: string, frame: number): Promise<Float32Array | null> =>
       ipcRenderer.invoke('trajectory:frame', trajId, frame),
-    close: (trajId: string): Promise<boolean> => ipcRenderer.invoke('trajectory:close', trajId)
+    close: (trajId: string): Promise<boolean> => ipcRenderer.invoke('trajectory:close', trajId),
+    /** Fires when a trajectory's background index finishes (final frame count). */
+    onReady: (cb: (r: TrajectoryReady) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, r: TrajectoryReady): void => cb(r)
+      ipcRenderer.on('trajectory:ready', listener)
+      return () => ipcRenderer.removeListener('trajectory:ready', listener)
+    }
   }
 }
 

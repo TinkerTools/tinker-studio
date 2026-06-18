@@ -136,22 +136,19 @@ export default function App() {
       if (!file) return
       // .arc files are opened lazily: index on disk, fetch frames on demand.
       if (file.arc) {
+        // First frame shows immediately; the frame count + full scrubbing unlock
+        // when the background index finishes (trajectory:ready).
         const t = await window.ffe.trajectory.open(file.path)
         const structure = parseTinkerXyz(t.firstFrameText)
-        if (t.frameCount > 1) {
-          addSystem(
-            {
-              structure,
-              fileType: 'arc',
-              trajectory: { frameCount: t.frameCount, source: { trajId: t.trajId } }
-            },
-            file.name,
-            { path: file.path }
-          )
-        } else {
-          void window.ffe.trajectory.close(t.trajId)
-          addSystem({ structure, fileType: 'arc' }, file.name, { path: file.path })
-        }
+        addSystem(
+          {
+            structure,
+            fileType: 'arc',
+            trajectory: { frameCount: 1, source: { trajId: t.trajId }, indexing: true }
+          },
+          file.name,
+          { path: file.path }
+        )
         return
       }
       const parsed = parseStructureFile(file.text, file.name)
@@ -680,6 +677,24 @@ export default function App() {
     void window.ffe?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
 
+  // When a streamed trajectory's background index completes, record the real
+  // frame count (unlocking full scrubbing) or drop the trajectory if it had only
+  // one frame.
+  useEffect(() => {
+    return window.ffe?.trajectory.onReady(({ trajId, frameCount }) => {
+      setSystems((prev) =>
+        prev.map((s) => {
+          if (s.trajectory?.source?.trajId !== trajId) return s
+          if (frameCount <= 1) {
+            void window.ffe.trajectory.close(trajId)
+            return { ...s, trajectory: undefined }
+          }
+          return { ...s, trajectory: { ...s.trajectory, frameCount, indexing: false } }
+        })
+      )
+    })
+  }, [])
+
   // Only PDB-derived systems carry the residue/chain data PDB needs, so gate
   // the "Save as PDB" menu item on the active system's format.
   useEffect(() => {
@@ -876,11 +891,18 @@ export default function App() {
                   <dd>{active.ffName}</dd>
                 </>
               )}
-              {frameCount > 0 && (
+              {trajectory?.indexing ? (
                 <>
                   <dt>Frames</dt>
-                  <dd>{frameCount}</dd>
+                  <dd>indexing…</dd>
                 </>
+              ) : (
+                frameCount > 1 && (
+                  <>
+                    <dt>Frames</dt>
+                    <dd>{frameCount}</dd>
+                  </>
+                )
               )}
             </dl>
             {active.fileType !== 'arc' && active.fileType !== 'pdb' && (
@@ -906,7 +928,14 @@ export default function App() {
           </section>
         )}
 
-        {trajectory && (
+        {trajectory?.indexing && (
+          <section className="panel">
+            <h2>Trajectory</h2>
+            <div className="traj-counter">Indexing trajectory… (showing first frame)</div>
+          </section>
+        )}
+
+        {trajectory && !trajectory.indexing && frameCount > 1 && (
           <section className="panel">
             <h2>Trajectory</h2>
             <div className="traj-counter">

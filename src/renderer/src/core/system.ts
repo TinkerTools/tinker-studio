@@ -15,6 +15,8 @@ export interface Trajectory {
   frames?: Float32Array[]
   /** Lazy source for large .arc files; frames are fetched on demand. */
   source?: { trajId: string }
+  /** True while a streamed source's byte-offset index is still being built. */
+  indexing?: boolean
 }
 
 /**

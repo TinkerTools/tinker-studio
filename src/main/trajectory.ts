@@ -1,4 +1,5 @@
 import { openSync, readSync, closeSync, fstatSync } from 'fs'
+import { open as openAsync } from 'fs/promises'
 
 /**
  * Lazy, memory-bounded access to large Tinker .arc trajectories.
@@ -50,7 +51,98 @@ export function parseFrameCoords(text: string, natoms: number, hasBox: boolean):
   return coords
 }
 
-/** Stream the archive once to build its frame-offset index. */
+/**
+ * Read just the first frame (for immediate display) without scanning the file.
+ * Returns its text plus the topology shape needed to index the rest.
+ */
+export function readFirstFrame(path: string): {
+  firstFrameText: string
+  natoms: number
+  hasBox: boolean
+  stride: number
+} {
+  const fd = openSync(path, 'r')
+  try {
+    const size = fstatSync(fd).size
+    const CHUNK = 1 << 16
+    let text = ''
+    let pos = 0
+    let stride = 0
+    let natoms = 0
+    let hasBox = false
+    while (pos < size) {
+      const want = Math.min(CHUNK, size - pos)
+      const buf = Buffer.allocUnsafe(want)
+      const n = readSync(fd, buf, 0, want, pos)
+      if (n <= 0) break
+      pos += n
+      text += buf.toString('utf8', 0, n)
+      if (stride === 0) {
+        const nl1 = text.indexOf('\n')
+        const nl2 = nl1 >= 0 ? text.indexOf('\n', nl1 + 1) : -1
+        if (nl2 >= 0) {
+          const d = detectStride(text.slice(0, nl1), text.slice(nl1 + 1, nl2))
+          stride = d.stride
+          natoms = d.natoms
+          hasBox = d.hasBox
+        }
+      }
+      if (stride > 0) {
+        let idx = -1
+        let count = 0
+        for (let k = 0; k < stride; k++) {
+          idx = text.indexOf('\n', idx + 1)
+          if (idx < 0) break
+          count++
+        }
+        if (count === stride) {
+          return { firstFrameText: text.slice(0, idx + 1), natoms, hasBox, stride }
+        }
+      }
+    }
+    if (stride > 0) return { firstFrameText: text, natoms, hasBox, stride }
+    throw new Error('Trajectory has no complete frame')
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * Build the frame-offset index without blocking the event loop, by reading the
+ * file in chunks and awaiting between them. Use this at runtime; the sync
+ * indexArc below is for tests.
+ */
+export async function indexArcAsync(path: string): Promise<TrajectoryIndex> {
+  const head = readFirstFrame(path)
+  const stride = head.stride
+  const fh = await openAsync(path, 'r')
+  try {
+    const size = (await fh.stat()).size
+    const CHUNK = 1 << 20
+    const buf = Buffer.allocUnsafe(CHUNK)
+    const offsets = [0]
+    let lines = 0
+    let pos = 0
+    while (pos < size) {
+      const { bytesRead } = await fh.read(buf, 0, Math.min(CHUNK, size - pos), pos)
+      if (bytesRead <= 0) break
+      for (let k = 0; k < bytesRead; k++) {
+        if (buf[k] === 0x0a) {
+          lines++
+          if (lines % stride === 0) offsets.push(pos + k + 1)
+        }
+      }
+      pos += bytesRead
+    }
+    const frameCount = Math.floor(lines / stride)
+    offsets.length = frameCount + 1
+    return { path, offsets, natoms: head.natoms, hasBox: head.hasBox, frameCount }
+  } finally {
+    await fh.close()
+  }
+}
+
+/** Stream the archive once to build its frame-offset index (synchronous). */
 export function indexArc(path: string): TrajectoryIndex {
   const fd = openSync(path, 'r')
   try {

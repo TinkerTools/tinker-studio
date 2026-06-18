@@ -23,7 +23,12 @@ import {
   nextVersionName,
   splitArcFrames
 } from './liveJob'
-import { indexArc, readFrameText, readFrameCoords, type TrajectoryIndex } from './trajectory'
+import {
+  readFirstFrame,
+  indexArcAsync,
+  readFrameCoords,
+  type TrajectoryIndex
+} from './trajectory'
 
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
@@ -384,15 +389,28 @@ function registerIpcHandlers(): void {
   // individual frames on demand (see trajectory.ts).
   const trajectories = new Map<string, TrajectoryIndex>()
   let trajCounter = 0
-  ipcMain.handle('trajectory:open', (_e, path: string) => {
-    const index = indexArc(path)
+  ipcMain.handle('trajectory:open', (e, path: string) => {
+    // Return the first frame immediately so it renders without waiting for the
+    // full byte-offset index, which is built in the background (non-blocking).
+    const head = readFirstFrame(path)
     const trajId = `traj-${++trajCounter}`
-    trajectories.set(trajId, index)
-    return {
-      trajId,
-      frameCount: index.frameCount,
-      firstFrameText: index.frameCount > 0 ? readFrameText(index, 0) : ''
-    }
+    trajectories.set(trajId, {
+      path,
+      offsets: [0],
+      natoms: head.natoms,
+      hasBox: head.hasBox,
+      frameCount: 0 // 0 = still indexing
+    })
+    void indexArcAsync(path)
+      .then((index) => {
+        if (!trajectories.has(trajId)) return // closed before indexing finished
+        trajectories.set(trajId, index)
+        if (!e.sender.isDestroyed()) {
+          e.sender.send('trajectory:ready', { trajId, frameCount: index.frameCount })
+        }
+      })
+      .catch(() => {})
+    return { trajId, frameCount: 0, firstFrameText: head.firstFrameText }
   })
   ipcMain.handle('trajectory:frame', (_e, trajId: string, frame: number): Float32Array | null => {
     const index = trajectories.get(trajId)
