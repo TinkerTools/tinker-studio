@@ -9,10 +9,20 @@ import {
   statSync,
   existsSync,
   copyFileSync,
-  unlinkSync
+  unlinkSync,
+  openSync,
+  readSync,
+  closeSync
 } from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
-import { LIVE_SUFFIX, hasSaveCycle, buildLiveKey, cycleFilesFor, nextVersionName } from './liveJob'
+import {
+  LIVE_SUFFIX,
+  hasSaveCycle,
+  buildLiveKey,
+  cycleFilesFor,
+  nextVersionName,
+  splitArcFrames
+} from './liveJob'
 
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
@@ -168,7 +178,9 @@ interface LiveWatch {
   watchStem: string // stem whose cycle files we watch (mol or mol_ffelive)
   temp: boolean // did we create throwaway _ffelive files
   sent: Set<string> // cycle file names already sent (minimize)
-  lastArcSize: number // last .arc size sent (dynamics)
+  arcOffset: number // bytes of the .arc already read (dynamics)
+  arcBuffer: string // read-but-not-yet-framed .arc tail (dynamics)
+  arcStride: number // lines per .arc frame, 0 until known (dynamics)
   interval?: ReturnType<typeof setInterval>
   poll?: () => void
 }
@@ -181,7 +193,17 @@ function makeLiveWatch(
   watchStem: string,
   temp: boolean
 ): LiveWatch {
-  return { kind, dir, inputName, watchStem, temp, sent: new Set(), lastArcSize: 0 }
+  return {
+    kind,
+    dir,
+    inputName,
+    watchStem,
+    temp,
+    sent: new Set(),
+    arcOffset: 0,
+    arcBuffer: '',
+    arcStride: 0
+  }
 }
 
 /** Read any new coordinate data the running program has written and send it. */
@@ -195,14 +217,26 @@ function pollLive(event: IpcMainInvokeEvent, jobId: string, w: LiveWatch): void 
         event.sender.send('job:live', { jobId, mode: 'append', text })
       }
     } else {
+      // Read only the bytes appended since last poll, frame the complete ones,
+      // and send each as one coordinate set — never re-reading the whole file.
       const arc = join(w.dir, `${w.watchStem}.arc`)
-      if (existsSync(arc)) {
-        const size = statSync(arc).size
-        if (size > w.lastArcSize) {
-          w.lastArcSize = size
-          event.sender.send('job:live', { jobId, mode: 'replace', text: readFileSync(arc, 'utf8') })
-        }
+      if (!existsSync(arc)) return
+      const size = statSync(arc).size
+      if (size <= w.arcOffset) return
+      const len = size - w.arcOffset
+      const buf = Buffer.allocUnsafe(len)
+      const fd = openSync(arc, 'r')
+      try {
+        readSync(fd, buf, 0, len, w.arcOffset)
+      } finally {
+        closeSync(fd)
       }
+      w.arcOffset = size
+      w.arcBuffer += buf.toString('utf8')
+      const { frames, rest, stride } = splitArcFrames(w.arcBuffer, w.arcStride)
+      w.arcStride = stride
+      w.arcBuffer = rest
+      for (const text of frames) event.sender.send('job:live', { jobId, mode: 'append', text })
     }
   } catch {
     // The directory may be mid-write; just try again next tick.

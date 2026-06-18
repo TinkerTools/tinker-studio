@@ -27,6 +27,48 @@ export function buildLiveKey(realKeyText?: string): string {
   return base + 'SAVE-CYCLE\n'
 }
 
+/** A Tinker box line is exactly six numeric tokens (atom lines have a name). */
+function isBoxLine(tokens: string[]): boolean {
+  if (tokens.length < 6) return false
+  for (let k = 0; k < 6; k++) {
+    if (tokens[k] === '' || !Number.isFinite(Number(tokens[k]))) return false
+  }
+  return tokens.length === 6
+}
+
+/**
+ * Split accumulated .arc text into complete per-frame blocks without re-reading
+ * the whole file. `stride` is the (constant) number of lines per frame; pass 0
+ * the first time and it is derived from the first frame's header (+ optional box
+ * line). Returns the complete frame blocks, the leftover (partial) text to carry
+ * forward, and the resolved stride.
+ */
+export function splitArcFrames(
+  buffer: string,
+  stride: number
+): { frames: string[]; rest: string; stride: number } {
+  const segments = buffer.split('\n')
+  const partial = segments[segments.length - 1] // text after the last newline
+  const complete = segments.slice(0, -1)
+
+  if (stride === 0) {
+    if (complete.length < 2) return { frames: [], rest: buffer, stride: 0 }
+    const natoms = Number.parseInt(complete[0].trim().split(/\s+/)[0], 10)
+    if (!Number.isInteger(natoms) || natoms < 1) return { frames: [], rest: buffer, stride: 0 }
+    const hasBox = isBoxLine(complete[1].trim().split(/\s+/))
+    stride = 1 + (hasBox ? 1 : 0) + natoms
+  }
+
+  const numFrames = Math.floor(complete.length / stride)
+  const frames: string[] = []
+  for (let f = 0; f < numFrames; f++) {
+    frames.push(complete.slice(f * stride, (f + 1) * stride).join('\n') + '\n')
+  }
+  const leftover = complete.slice(numFrames * stride)
+  const rest = (leftover.length ? leftover.join('\n') + '\n' : '') + partial
+  return { frames, rest, stride }
+}
+
 /** Numbered Tinker cycle files (`<stem>.NNN`) for a stem, sorted by number. */
 export function cycleFilesFor(names: string[], stem: string): Array<{ name: string; n: number }> {
   const prefix = `${stem}.`
