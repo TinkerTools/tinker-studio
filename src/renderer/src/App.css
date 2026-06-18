@@ -680,6 +680,10 @@ body {
   color: var(--text-dim);
 }
 
+.traj-indexing {
+  color: var(--text-dim);
+}
+
 .watch-live {
   display: flex;
   align-items: center;

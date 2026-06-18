@@ -17,6 +17,8 @@ export interface Trajectory {
   source?: { trajId: string }
   /** True while a streamed source's byte-offset index is still being built. */
   indexing?: boolean
+  /** Rough total frame count shown while indexing (exact when done). */
+  estimate?: number
 }
 
 /**

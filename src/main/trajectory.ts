@@ -108,11 +108,16 @@ export function readFirstFrame(path: string): {
 }
 
 /**
- * Build the frame-offset index without blocking the event loop, by reading the
- * file in chunks and awaiting between them. Use this at runtime; the sync
- * indexArc below is for tests.
+ * Build the frame-offset index without blocking the event loop, reading the file
+ * in chunks and awaiting between them. `onProgress` is called after each chunk
+ * (and once at the end with done=true) with the frames indexed so far and the
+ * live offsets array, enabling scrubbing of the already-indexed prefix. Return
+ * false from it to stop early (e.g. the trajectory was closed).
  */
-export async function indexArcAsync(path: string): Promise<TrajectoryIndex> {
+export async function indexArcProgressive(
+  path: string,
+  onProgress: (frameCount: number, offsets: number[], done: boolean) => boolean | void
+): Promise<void> {
   const head = readFirstFrame(path)
   const stride = head.stride
   const fh = await openAsync(path, 'r')
@@ -133,10 +138,11 @@ export async function indexArcAsync(path: string): Promise<TrajectoryIndex> {
         }
       }
       pos += bytesRead
+      if (onProgress(offsets.length - 1, offsets, false) === false) return
     }
     const frameCount = Math.floor(lines / stride)
     offsets.length = frameCount + 1
-    return { path, offsets, natoms: head.natoms, hasBox: head.hasBox, frameCount }
+    onProgress(frameCount, offsets, true)
   } finally {
     await fh.close()
   }

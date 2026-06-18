@@ -24,13 +24,18 @@ export interface TrajectoryOpened {
   trajId: string
   /** 0 while the background index is still being built. */
   frameCount: number
+  /** Instant rough total frame count from file size (refined by indexing). */
+  estimate: number
   /** First frame's text, for parsing the shared topology. */
   firstFrameText: string
 }
 
-export interface TrajectoryReady {
+export interface TrajectoryProgress {
   trajId: string
+  /** Frames indexed (and scrubbable) so far. */
   frameCount: number
+  /** True on the final update — frameCount is now exact. */
+  done: boolean
 }
 
 export interface AppSettings {
@@ -153,11 +158,11 @@ const api = {
     frame: (trajId: string, frame: number): Promise<Float32Array | null> =>
       ipcRenderer.invoke('trajectory:frame', trajId, frame),
     close: (trajId: string): Promise<boolean> => ipcRenderer.invoke('trajectory:close', trajId),
-    /** Fires when a trajectory's background index finishes (final frame count). */
-    onReady: (cb: (r: TrajectoryReady) => void): (() => void) => {
-      const listener = (_e: IpcRendererEvent, r: TrajectoryReady): void => cb(r)
-      ipcRenderer.on('trajectory:ready', listener)
-      return () => ipcRenderer.removeListener('trajectory:ready', listener)
+    /** Fires as a trajectory's background index grows (and once when done). */
+    onProgress: (cb: (p: TrajectoryProgress) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, p: TrajectoryProgress): void => cb(p)
+      ipcRenderer.on('trajectory:progress', listener)
+      return () => ipcRenderer.removeListener('trajectory:progress', listener)
     }
   }
 }

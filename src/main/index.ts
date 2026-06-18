@@ -25,7 +25,7 @@ import {
 } from './liveJob'
 import {
   readFirstFrame,
-  indexArcAsync,
+  indexArcProgressive,
   readFrameCoords,
   type TrajectoryIndex
 } from './trajectory'
@@ -391,26 +391,38 @@ function registerIpcHandlers(): void {
   let trajCounter = 0
   ipcMain.handle('trajectory:open', (e, path: string) => {
     // Return the first frame immediately so it renders without waiting for the
-    // full byte-offset index, which is built in the background (non-blocking).
+    // full byte-offset index, which is built in the background (non-blocking) and
+    // streamed back via trajectory:progress so already-indexed frames are
+    // scrubbable as the scan proceeds.
     const head = readFirstFrame(path)
     const trajId = `traj-${++trajCounter}`
-    trajectories.set(trajId, {
+    const entry: TrajectoryIndex = {
       path,
       offsets: [0],
       natoms: head.natoms,
       hasBox: head.hasBox,
-      frameCount: 0 // 0 = still indexing
-    })
-    void indexArcAsync(path)
-      .then((index) => {
-        if (!trajectories.has(trajId)) return // closed before indexing finished
-        trajectories.set(trajId, index)
-        if (!e.sender.isDestroyed()) {
-          e.sender.send('trajectory:ready', { trajId, frameCount: index.frameCount })
-        }
-      })
-      .catch(() => {})
-    return { trajId, frameCount: 0, firstFrameText: head.firstFrameText }
+      frameCount: 0
+    }
+    trajectories.set(trajId, entry)
+    // Instant rough total from file size / first-frame size (frames vary in byte
+    // length, so this is an estimate; the scan yields the exact count).
+    const size = statSync(path).size
+    const estimate = Math.max(1, Math.round(size / Math.max(1, Buffer.byteLength(head.firstFrameText))))
+
+    let lastSent = 0
+    void indexArcProgressive(path, (frameCount, offsets, done) => {
+      if (!trajectories.has(trajId)) return false // closed; stop scanning
+      entry.offsets = offsets
+      entry.frameCount = frameCount
+      const now = Date.now()
+      if ((done || now - lastSent > 200) && !e.sender.isDestroyed()) {
+        lastSent = now
+        e.sender.send('trajectory:progress', { trajId, frameCount, done })
+      }
+      return true
+    }).catch(() => {})
+
+    return { trajId, frameCount: 0, estimate, firstFrameText: head.firstFrameText }
   })
   ipcMain.handle('trajectory:frame', (_e, trajId: string, frame: number): Float32Array | null => {
     const index = trajectories.get(trajId)

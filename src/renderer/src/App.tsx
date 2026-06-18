@@ -144,7 +144,12 @@ export default function App() {
           {
             structure,
             fileType: 'arc',
-            trajectory: { frameCount: 1, source: { trajId: t.trajId }, indexing: true }
+            trajectory: {
+              frameCount: 0,
+              source: { trajId: t.trajId },
+              indexing: true,
+              estimate: t.estimate
+            }
           },
           file.name,
           { path: file.path }
@@ -677,19 +682,19 @@ export default function App() {
     void window.ffe?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
 
-  // When a streamed trajectory's background index completes, record the real
-  // frame count (unlocking full scrubbing) or drop the trajectory if it had only
-  // one frame.
+  // As a streamed trajectory's background index grows, raise the scrubbable frame
+  // count (so the already-indexed prefix is usable); on the final update mark it
+  // done, or drop the trajectory if it turned out to have only one frame.
   useEffect(() => {
-    return window.ffe?.trajectory.onReady(({ trajId, frameCount }) => {
+    return window.ffe?.trajectory.onProgress(({ trajId, frameCount, done }) => {
       setSystems((prev) =>
         prev.map((s) => {
           if (s.trajectory?.source?.trajId !== trajId) return s
-          if (frameCount <= 1) {
+          if (done && frameCount <= 1) {
             void window.ffe.trajectory.close(trajId)
             return { ...s, trajectory: undefined }
           }
-          return { ...s, trajectory: { ...s.trajectory, frameCount, indexing: false } }
+          return { ...s, trajectory: { ...s.trajectory, frameCount, indexing: !done } }
         })
       )
     })
@@ -894,7 +899,7 @@ export default function App() {
               {trajectory?.indexing ? (
                 <>
                   <dt>Frames</dt>
-                  <dd>indexing…</dd>
+                  <dd>~{trajectory.estimate} (indexing…)</dd>
                 </>
               ) : (
                 frameCount > 1 && (
@@ -928,18 +933,21 @@ export default function App() {
           </section>
         )}
 
-        {trajectory?.indexing && (
+        {trajectory?.indexing && frameCount <= 1 && (
           <section className="panel">
             <h2>Trajectory</h2>
-            <div className="traj-counter">Indexing trajectory… (showing first frame)</div>
+            <div className="traj-counter">Indexing… (showing first frame)</div>
           </section>
         )}
 
-        {trajectory && !trajectory.indexing && frameCount > 1 && (
+        {trajectory && frameCount > 1 && (
           <section className="panel">
             <h2>Trajectory</h2>
             <div className="traj-counter">
               Frame {frameIndex + 1} / {frameCount}
+              {trajectory.indexing && (
+                <span className="traj-indexing"> · indexing… (~{trajectory.estimate})</span>
+              )}
             </div>
             <input
               className="traj-slider"
