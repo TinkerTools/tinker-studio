@@ -20,6 +20,18 @@ export interface JobRecord {
   output: string
 }
 
+/** Kind of live visualization a program supports (null = none). */
+export type LiveKind = 'dynamics' | 'minimize'
+
+const MINIMIZERS = new Set(['minimize', 'optimize', 'newton', 'minirot', 'optirot', 'newtrot'])
+
+export function liveKind(program: string): LiveKind | null {
+  const p = program.toLowerCase()
+  if (p === 'dynamic') return 'dynamics'
+  if (MINIMIZERS.has(p)) return 'minimize'
+  return null
+}
+
 export function jobStatusLabel(j: JobRecord): string {
   if (j.status === 'running') return 'Running'
   if (j.status === 'failed') return 'Failed'

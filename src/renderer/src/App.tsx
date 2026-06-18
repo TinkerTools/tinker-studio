@@ -9,6 +9,7 @@ import {
   mergeStructures,
   type MolecularSystem
 } from './core/system'
+import { parseTinkerXyz, parseTinkerArc } from './core/parseXyz'
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
 import { SAVE_FORMATS, type SaveFormat } from './core/writers'
@@ -24,7 +25,7 @@ import { AtomBrowser } from './AtomBrowser'
 import { CommandsModal } from './CommandsModal'
 import { JobsModal } from './JobsModal'
 import { KeywordsModal } from './KeywordsModal'
-import type { JobRecord } from './core/job'
+import { liveKind, type JobRecord, type LiveKind } from './core/job'
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -273,6 +274,30 @@ export default function App() {
     }
   }
 
+  // Live simulation streaming. While a watched job runs, frames are appended to a
+  // dedicated "(live)" system that follows the latest frame; liveRef remembers
+  // what to restore when it finishes.
+  interface LiveState {
+    jobId: string
+    systemId: string
+    kind: LiveKind
+    prevActiveId: string | null
+    prevVisibleIds: Set<string>
+    frameCount: number
+  }
+  const liveRef = useRef<LiveState | null>(null)
+  const liveJobIdsRef = useRef<Set<string>>(new Set())
+
+  function coordsOf(atoms: ReadonlyArray<{ x: number; y: number; z: number }>): Float32Array {
+    const c = new Float32Array(atoms.length * 3)
+    atoms.forEach((a, i) => {
+      c[i * 3] = a.x
+      c[i * 3 + 1] = a.y
+      c[i * 3 + 2] = a.z
+    })
+    return c
+  }
+
   function setSystemKey(id: string, keyName: string | undefined, keyText: string): void {
     setSystems((prev) => prev.map((s) => (s.id === id ? { ...s, keyName, keyText } : s)))
   }
@@ -322,18 +347,84 @@ export default function App() {
             : j
         )
       )
-      // Only a clean exit produces a usable result (skip failures and cancels).
-      if (!e.error && e.code === 0) onJobFinishedRef.current(e.jobId)
+      // A clean exit of a non-live job loads its result file as a system; live
+      // jobs already built the result as their streamed (live) system.
+      if (!e.error && e.code === 0 && !liveJobIdsRef.current.has(e.jobId)) {
+        onJobFinishedRef.current(e.jobId)
+      }
     })
+
+    // Live-frame stream: append a new frame (minimize) or replace from the full
+    // .arc (dynamics), and follow the latest frame.
+    const offLive = window.ffe.job.onLive((m) => {
+      const live = liveRef.current
+      if (!live || live.jobId !== m.jobId) return
+      if (m.mode === 'replace') {
+        const { structure, frames } = parseTinkerArc(m.text)
+        if (frames.length === 0) return
+        live.frameCount = frames.length
+        setSystems((prev) =>
+          prev.map((s) =>
+            s.id === live.systemId
+              ? { ...s, structure, trajectory: { frames }, rev: (s.rev ?? 0) + 1 }
+              : s
+          )
+        )
+        setFrameIndex(frames.length - 1)
+      } else {
+        const struct = parseTinkerXyz(m.text)
+        const coords = coordsOf(struct.atoms)
+        const isFirst = live.frameCount === 0
+        live.frameCount += 1
+        setSystems((prev) =>
+          prev.map((s) => {
+            if (s.id !== live.systemId) return s
+            const frames = [...(s.trajectory?.frames ?? []), coords]
+            return {
+              ...s,
+              structure: isFirst ? struct : s.structure,
+              trajectory: { frames },
+              rev: (s.rev ?? 0) + 1
+            }
+          })
+        )
+        setFrameIndex(live.frameCount - 1)
+      }
+    })
+
+    const offLiveEnd = window.ffe.job.onLiveEnd((m) => {
+      const live = liveRef.current
+      if (!live || live.jobId !== m.jobId) return
+      setSystems((prev) =>
+        prev.map((s) => (s.id === live.systemId ? { ...s, name: s.name.replace(/ \(live\)$/, '') } : s))
+      )
+      // Dynamics: hide the trajectory and return to the original system. Minimize:
+      // leave the result trajectory open and active for review.
+      if (live.kind === 'dynamics') {
+        setVisibleIds(new Set(live.prevVisibleIds))
+        if (live.prevActiveId) setActiveId(live.prevActiveId)
+      }
+      liveRef.current = null
+    })
+
     return () => {
       offOut()
       offExit()
+      offLive()
+      offLiveEnd()
     }
   }, [])
 
   // Launch a Tinker program and register it as a retained job. Returns the job id
-  // so the launcher can reflect live status from the shared job list.
-  async function startJob(program: string, system: MolecularSystem, stdin: string): Promise<string> {
+  // so the launcher can reflect live status from the shared job list. When `watch`
+  // is on and the program supports it, a live trajectory system is created and the
+  // simulation animates into it.
+  async function startJob(
+    program: string,
+    system: MolecularSystem,
+    stdin: string,
+    watch: boolean
+  ): Promise<string> {
     const id = `job-${Date.now()}`
     setJobs((prev) => [
       ...prev,
@@ -347,11 +438,38 @@ export default function App() {
         output: ''
       }
     ])
+
+    const kind = watch ? liveKind(program) : null
+    if (kind) {
+      const liveId = nextSystemId()
+      const liveSystem: MolecularSystem = {
+        id: liveId,
+        name: `${program} · ${system.name} (live)`,
+        fileType: kind === 'dynamics' ? 'arc' : system.fileType,
+        structure: system.structure,
+        trajectory: { frames: [] }
+      }
+      setSystems((prev) => [...prev, liveSystem])
+      setActiveId(liveId)
+      setVisibleIds(new Set([liveId]))
+      liveRef.current = {
+        jobId: id,
+        systemId: liveId,
+        kind,
+        prevActiveId: activeId,
+        prevVisibleIds: new Set(visibleIds),
+        frameCount: 0
+      }
+      liveJobIdsRef.current.add(id)
+    }
+
     const res = await window.ffe.job.run({
       jobId: id,
       program,
       structurePath: system.path!,
-      stdin
+      stdin,
+      watch: kind,
+      keyText: system.keyText
     })
     setJobs((prev) =>
       prev.map((j) => {

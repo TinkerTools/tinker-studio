@@ -28,6 +28,24 @@ export interface JobRunRequest {
   structurePath: string
   extraArgs?: string[]
   stdin?: string
+  /** When set, stream the coordinate files the program writes for live display. */
+  watch?: 'dynamics' | 'minimize' | null
+  /** The system's attached .key contents, used to build a temp key when watching. */
+  keyText?: string
+}
+
+export interface JobLive {
+  jobId: string
+  /** 'append' = one new frame (text is one coordinate set); 'replace' = full .arc. */
+  mode: 'append' | 'replace'
+  text: string
+}
+
+export interface JobLiveEnd {
+  jobId: string
+  kind: 'dynamics' | 'minimize'
+  /** Name of the final/result file Tinker produced, if any. */
+  resultName?: string
 }
 
 export interface JobRunResult {
@@ -92,6 +110,16 @@ const api = {
       const listener = (_e: IpcRendererEvent, x: JobExit): void => cb(x)
       ipcRenderer.on('job:exit', listener)
       return () => ipcRenderer.removeListener('job:exit', listener)
+    },
+    onLive: (cb: (m: JobLive) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, m: JobLive): void => cb(m)
+      ipcRenderer.on('job:live', listener)
+      return () => ipcRenderer.removeListener('job:live', listener)
+    },
+    onLiveEnd: (cb: (m: JobLiveEnd) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, m: JobLiveEnd): void => cb(m)
+      ipcRenderer.on('job:liveEnd', listener)
+      return () => ipcRenderer.removeListener('job:liveEnd', listener)
     }
   },
   /** Enable/disable the File ▸ Save Structure As ▸ PDB menu item. */

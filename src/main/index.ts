@@ -1,9 +1,18 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, Menu } from 'electron'
-import type { MenuItemConstructorOptions } from 'electron'
+import type { MenuItemConstructorOptions, IpcMainInvokeEvent } from 'electron'
 import { join, basename, dirname } from 'path'
 import { readFile, writeFile } from 'fs/promises'
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs'
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  existsSync,
+  copyFileSync,
+  unlinkSync
+} from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
+import { LIVE_SUFFIX, hasSaveCycle, buildLiveKey, cycleFilesFor, nextVersionName } from './liveJob'
 
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
@@ -151,6 +160,106 @@ function saveSettings(s: Settings): void {
 // Running Tinker jobs, keyed by an id chosen by the renderer.
 const jobs = new Map<string, ChildProcess>()
 
+/** Per-job state for streaming a live simulation's coordinate files. */
+interface LiveWatch {
+  kind: 'dynamics' | 'minimize'
+  dir: string
+  inputName: string // original coordinate file name, e.g. mol.xyz
+  watchStem: string // stem whose cycle files we watch (mol or mol_ffelive)
+  temp: boolean // did we create throwaway _ffelive files
+  sent: Set<string> // cycle file names already sent (minimize)
+  lastArcSize: number // last .arc size sent (dynamics)
+  interval?: ReturnType<typeof setInterval>
+  poll?: () => void
+}
+const liveWatches = new Map<string, LiveWatch>()
+
+function makeLiveWatch(
+  kind: 'dynamics' | 'minimize',
+  dir: string,
+  inputName: string,
+  watchStem: string,
+  temp: boolean
+): LiveWatch {
+  return { kind, dir, inputName, watchStem, temp, sent: new Set(), lastArcSize: 0 }
+}
+
+/** Read any new coordinate data the running program has written and send it. */
+function pollLive(event: IpcMainInvokeEvent, jobId: string, w: LiveWatch): void {
+  try {
+    if (w.kind === 'minimize') {
+      for (const f of cycleFilesFor(readdirSync(w.dir), w.watchStem)) {
+        if (w.sent.has(f.name)) continue
+        w.sent.add(f.name)
+        const text = readFileSync(join(w.dir, f.name), 'utf8')
+        event.sender.send('job:live', { jobId, mode: 'append', text })
+      }
+    } else {
+      const arc = join(w.dir, `${w.watchStem}.arc`)
+      if (existsSync(arc)) {
+        const size = statSync(arc).size
+        if (size > w.lastArcSize) {
+          w.lastArcSize = size
+          event.sender.send('job:live', { jobId, mode: 'replace', text: readFileSync(arc, 'utf8') })
+        }
+      }
+    }
+  } catch {
+    // The directory may be mid-write; just try again next tick.
+  }
+}
+
+/** Stop watching a job and drop its state (without emitting a result). */
+function endLive(jobId: string, _ok: boolean): void {
+  const w = liveWatches.get(jobId)
+  if (!w) return
+  if (w.interval) clearInterval(w.interval)
+  liveWatches.delete(jobId)
+}
+
+/**
+ * Final poll, emit the result name, and clean up throwaway temp files. For a
+ * temp-key minimize run, copy the last cycle file to Tinker's normal versioned
+ * output name (`mol.xyz_2`) and delete all `<stem>_ffelive.*` files.
+ */
+function finalizeLive(event: IpcMainInvokeEvent, jobId: string, ok: boolean): void {
+  const w = liveWatches.get(jobId)
+  if (!w) return
+  if (w.interval) clearInterval(w.interval)
+  try {
+    if (w.poll) w.poll() // flush any remaining frames
+    let resultName: string | undefined
+    if (w.kind === 'minimize') {
+      const cycles = cycleFilesFor(readdirSync(w.dir), w.watchStem)
+      const last = cycles[cycles.length - 1]
+      if (w.temp) {
+        if (ok && last) {
+          resultName = nextVersionName(readdirSync(w.dir), w.inputName)
+          copyFileSync(join(w.dir, last.name), join(w.dir, resultName))
+        }
+        for (const n of readdirSync(w.dir)) {
+          if (n.startsWith(`${w.watchStem}.`)) {
+            try {
+              unlinkSync(join(w.dir, n))
+            } catch {
+              // ignore files that vanished or are locked
+            }
+          }
+        }
+      } else if (last) {
+        resultName = last.name
+      }
+    } else {
+      resultName = `${w.watchStem}.arc`
+    }
+    event.sender.send('job:liveEnd', { jobId, kind: w.kind, resultName })
+  } catch {
+    event.sender.send('job:liveEnd', { jobId, kind: w.kind })
+  } finally {
+    liveWatches.delete(jobId)
+  }
+}
+
 async function readIfExists(p: string): Promise<string | undefined> {
   try {
     return await readFile(p, 'utf8')
@@ -274,6 +383,7 @@ function registerIpcHandlers(): void {
 
   // Launch a Tinker program: spawn `<tinkerDir>/<program> <file> [args]` in the
   // structure's directory, feed option answers to stdin, stream output back.
+  // When `watch` is set, also stream the coordinate files it writes (see below).
   ipcMain.handle(
     'job:run',
     (
@@ -284,28 +394,60 @@ function registerIpcHandlers(): void {
         structurePath: string
         extraArgs?: string[]
         stdin?: string
+        watch?: 'dynamics' | 'minimize' | null
+        keyText?: string
       }
     ) => {
-      const { jobId, program, structurePath, extraArgs = [], stdin } = req
+      const { jobId, program, structurePath, extraArgs = [], stdin, watch, keyText } = req
       const { tinkerDir } = loadSettings()
       const exe = tinkerDir ? join(tinkerDir, program) : program
-      const cwd = structurePath ? dirname(structurePath) : undefined
-      const args = [structurePath ? basename(structurePath) : '', ...extraArgs].filter(
-        (a) => a !== ''
-      )
+      const dir = dirname(structurePath)
+      const inputName = basename(structurePath)
+      const stem = inputName.replace(/\.[^.]*$/, '')
+
+      // For minimizers without SAVE-CYCLE in their key, run on a throwaway copy
+      // with a temp key that adds it, so the real key/dir stay untouched.
+      let runName = inputName
+      let live: LiveWatch | null = null
       try {
-        const child = spawn(exe, args, { cwd })
+        if (watch === 'minimize') {
+          if (hasSaveCycle(keyText)) {
+            live = makeLiveWatch('minimize', dir, inputName, stem, false)
+          } else {
+            const watchStem = `${stem}${LIVE_SUFFIX}`
+            copyFileSync(structurePath, join(dir, `${watchStem}.xyz`))
+            writeFileSync(join(dir, `${watchStem}.key`), buildLiveKey(keyText), 'utf8')
+            runName = `${watchStem}.xyz`
+            live = makeLiveWatch('minimize', dir, inputName, watchStem, true)
+          }
+        } else if (watch === 'dynamics') {
+          live = makeLiveWatch('dynamics', dir, inputName, stem, false)
+        }
+
+        const args = [runName, ...extraArgs].filter((a) => a !== '')
+        const child = spawn(exe, args, { cwd: dir })
         jobs.set(jobId, child)
         const send = (stream: 'stdout' | 'stderr', chunk: Buffer): void => {
           event.sender.send('job:output', { jobId, stream, chunk: chunk.toString() })
         }
         child.stdout?.on('data', (d) => send('stdout', d))
         child.stderr?.on('data', (d) => send('stderr', d))
+
+        if (live) {
+          const w = live
+          w.poll = (): void => pollLive(event, jobId, w)
+          w.interval = setInterval(w.poll, 300)
+          liveWatches.set(jobId, w)
+        }
+
         child.on('error', (e) => {
+          endLive(jobId, false)
           event.sender.send('job:exit', { jobId, code: null, error: e.message })
           jobs.delete(jobId)
         })
         child.on('close', (code) => {
+          // One last poll, then emit the result + clean up any temp files.
+          finalizeLive(event, jobId, code === 0)
           event.sender.send('job:exit', { jobId, code })
           jobs.delete(jobId)
         })
@@ -315,6 +457,7 @@ function registerIpcHandlers(): void {
         }
         return { ok: true, commandLine: `${exe} ${args.join(' ')}` }
       } catch (e) {
+        endLive(jobId, false)
         return { ok: false, error: e instanceof Error ? e.message : String(e) }
       }
     }

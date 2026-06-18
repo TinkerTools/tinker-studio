@@ -1,9 +1,14 @@
 import { useMemo, useState } from 'react'
 import { tinkerCommands, type TinkerCommand, type TinkerOption } from './data/tinkerCatalog'
 import type { MolecularSystem } from './core/system'
-import type { JobRecord } from './core/job'
+import { liveKind, type JobRecord } from './core/job'
 
-type RunJob = (program: string, system: MolecularSystem, stdin: string) => Promise<string>
+type RunJob = (
+  program: string,
+  system: MolecularSystem,
+  stdin: string,
+  watch: boolean
+) => Promise<string>
 
 /**
  * Data-driven Tinker command browser + launcher. Lists the programs applicable
@@ -216,13 +221,15 @@ function RunSection({
   // The job started from this panel; its output/status are read from the shared
   // App-level job list so they survive the modal closing.
   const [jobId, setJobId] = useState<string | null>(null)
+  const [watchLive, setWatchLive] = useState(true)
   const job = jobs.find((j) => j.id === jobId) ?? null
   const running = job?.status === 'running'
   const canRun = Boolean(system?.path)
+  const kind = liveKind(command.name.toLowerCase())
 
   async function run(): Promise<void> {
     if (!system) return
-    const id = await onRunJob(command.name.toLowerCase(), system, buildStdin())
+    const id = await onRunJob(command.name.toLowerCase(), system, buildStdin(), watchLive)
     setJobId(id)
   }
 
@@ -241,6 +248,17 @@ function RunSection({
       </div>
       {!canRun && (
         <div className="run-warn">Open this system from a file on disk to run Tinker on it.</div>
+      )}
+      {kind && (
+        <label className="watch-live">
+          <input
+            type="checkbox"
+            checked={watchLive}
+            disabled={running}
+            onChange={(e) => setWatchLive(e.target.checked)}
+          />
+          Watch live — animate the {kind === 'dynamics' ? 'trajectory' : 'minimization'} as it runs
+        </label>
       )}
       <div className="run-buttons">
         <button className="modal-btn primary" onClick={run} disabled={!canRun || running}>

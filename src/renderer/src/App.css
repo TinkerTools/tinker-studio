@@ -680,6 +680,15 @@ body {
   color: var(--text-dim);
 }
 
+.watch-live {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--text);
+  margin-bottom: 0.6rem;
+}
+
 .perspective-row {
   display: flex;
   align-items: center;
