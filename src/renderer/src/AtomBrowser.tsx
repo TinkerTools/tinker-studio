@@ -67,10 +67,10 @@ export function AtomBrowser({
     [atoms, system]
   )
 
-  // Rendering thousands of rows/nodes at once stalls the DOM (a water box has
-  // thousands of molecules), so the list is capped at ~CAP atoms — whole groups,
-  // never cut mid-molecule. Use the 3D view + selection tools for big systems.
-  const CAP = 1000
+  // Keep the rendered list bounded so a huge system (e.g. a many-thousand-atom
+  // water box) can't create a runaway number of DOM nodes. Capped at ~CAP atoms,
+  // by whole groups (never cut mid-molecule); use the 3D view for bigger systems.
+  const CAP = 3000
 
   // How many leading groups fit within the atom cap (always completing the group
   // that crosses it).
