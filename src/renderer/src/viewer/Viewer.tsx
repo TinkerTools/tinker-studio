@@ -38,6 +38,10 @@ export function Viewer({
   onPick,
   manipulation = null,
   onTransform,
+  moveMode = false,
+  onMoveBegin,
+  onMoveDelta,
+  onMoveEnd,
   coordKey = ''
 }: {
   /** Heavy scene data (structure + coords), passed by ref to keep it out of prop diffing. */
@@ -49,6 +53,13 @@ export function Viewer({
   onPick?: (result: PickResult | null, additive: boolean) => void
   manipulation?: ManipTarget | null
   onTransform?: (systemId: string, transform: Transform) => void
+  /** When set, dragging an atom moves the selection in the screen plane (builder). */
+  moveMode?: boolean
+  /** Pointer-down on an atom in move mode: update selection, snapshot its coords. */
+  onMoveBegin?: (atomIndex: number, additive: boolean) => void
+  /** Cumulative world-space drag delta since move-begin. */
+  onMoveDelta?: (delta: [number, number, number]) => void
+  onMoveEnd?: () => void
   coordKey?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -58,11 +69,19 @@ export function Viewer({
   const onPickRef = useRef(onPick)
   const manipulationRef = useRef(manipulation)
   const onTransformRef = useRef(onTransform)
+  const moveModeRef = useRef(moveMode)
+  const onMoveBeginRef = useRef(onMoveBegin)
+  const onMoveDeltaRef = useRef(onMoveDelta)
+  const onMoveEndRef = useRef(onMoveEnd)
   optionsRef.current = options
   pickingRef.current = pickingEnabled
   onPickRef.current = onPick
   manipulationRef.current = manipulation
   onTransformRef.current = onTransform
+  moveModeRef.current = moveMode
+  onMoveBeginRef.current = onMoveBegin
+  onMoveDeltaRef.current = onMoveDelta
+  onMoveEndRef.current = onMoveEnd
 
   useEffect(() => {
     const container = containerRef.current
@@ -70,23 +89,49 @@ export function Viewer({
     const handle = createScene(container)
     handleRef.current = handle
 
-    // Distinguish a click (pick) from a drag (rotate).
+    // Distinguish a click (pick) from a drag (rotate). In move mode, pressing on an
+    // atom grabs it: drags move the selection in the screen plane (camera locked).
     let downX = 0
     let downY = 0
+    let atomDrag: { anchor: [number, number, number]; start: [number, number, number] } | null = null
     const onDown = (e: PointerEvent): void => {
       downX = e.clientX
       downY = e.clientY
+      atomDrag = null
+      if (!moveModeRef.current) return
+      const hit = handle.pick(e.clientX, e.clientY)
+      if (!hit) return
+      onMoveBeginRef.current?.(hit.atomIndex, e.metaKey || e.ctrlKey)
+      atomDrag = { anchor: hit.position, start: handle.dragPlanePoint(e.clientX, e.clientY, hit.position) }
+      handle.setControlsEnabled(false)
+    }
+    const onMove = (e: PointerEvent): void => {
+      if (!atomDrag) return
+      const cur = handle.dragPlanePoint(e.clientX, e.clientY, atomDrag.anchor)
+      onMoveDeltaRef.current?.([
+        cur[0] - atomDrag.start[0],
+        cur[1] - atomDrag.start[1],
+        cur[2] - atomDrag.start[2]
+      ])
     }
     const onUp = (e: PointerEvent): void => {
+      if (atomDrag) {
+        atomDrag = null
+        handle.setControlsEnabled(true)
+        onMoveEndRef.current?.()
+        return
+      }
       if (!pickingRef.current || !onPickRef.current) return
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
       onPickRef.current(handle.pick(e.clientX, e.clientY), e.metaKey || e.ctrlKey)
     }
     container.addEventListener('pointerdown', onDown)
+    container.addEventListener('pointermove', onMove)
     container.addEventListener('pointerup', onUp)
 
     return () => {
       container.removeEventListener('pointerdown', onDown)
+      container.removeEventListener('pointermove', onMove)
       container.removeEventListener('pointerup', onUp)
       handle.dispose()
       handleRef.current = null

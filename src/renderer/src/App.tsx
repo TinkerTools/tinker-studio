@@ -26,6 +26,7 @@ import {
   type Transform
 } from './core/transform'
 import { AtomBrowser } from './AtomBrowser'
+import { BuilderView } from './BuilderView'
 import { CommandsModal } from './CommandsModal'
 import { JobsModal } from './JobsModal'
 import { KeywordsModal } from './KeywordsModal'
@@ -82,6 +83,7 @@ export default function App() {
   const [keyText, setKeyText] = useState('')
   const [moveMode, setMoveMode] = useState(false)
   const [moveTransform, setMoveTransform] = useState<'translate' | 'rotate'>('translate')
+  const [builderOpen, setBuilderOpen] = useState(false)
 
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
@@ -922,6 +924,7 @@ export default function App() {
   const menuHandlerRef = useRef<(action: string) => void>(() => {})
   menuHandlerRef.current = (action: string): void => {
     if (action === 'open') void handleOpen()
+    else if (action === 'build') setBuilderOpen(true)
     else if (action === 'loadExample') handleExample()
     else if (action === 'close' && activeId) closeSystem(activeId)
     else if (action === 'download:pubchem') setDownloadSource('pubchem')
@@ -1053,10 +1056,26 @@ export default function App() {
   useEffect(() => {
     if (window.ffe?.captureMode && !autoLoadedRef.current) {
       autoLoadedRef.current = true
-      handleExample()
+      if (window.ffe.captureBuilder) setBuilderOpen(true)
+      else handleExample()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // The builder is a separate full-screen mode: blank canvas, its own UI. On Done
+  // its molecule arrives here as a normal new system; on Cancel nothing changes.
+  if (builderOpen) {
+    return (
+      <BuilderView
+        demo={!!window.ffe?.captureBuilder}
+        onDone={(structure) => {
+          addSystem({ structure, fileType: 'xyz' }, 'New molecule')
+          setBuilderOpen(false)
+        }}
+        onCancel={() => setBuilderOpen(false)}
+      />
+    )
+  }
 
   return (
     <div className="app">

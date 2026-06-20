@@ -34,14 +34,35 @@ npm run package    # build + produce a native installer for the current OS
 
 ```
 src/
-  main/        Electron main process (window, and later Tinker job control)
-  preload/     the single, typed bridge exposed to the renderer
+  main/        Electron main process — window, native menu, file I/O, and
+               privileged operations the sandboxed UI can't do directly:
+    index.ts       window, menu, IPC handlers, Tinker job spawning, downloads
+    trajectory.ts  lazy byte-offset indexing of large .arc files (frames on demand)
+    dcd.ts         binary .dcd trajectory reader (fixed-size frames)
+    liveJob.ts     stream a running minimize/dynamics job's growing output
+  preload/     the single, typed bridge (window.ffe) exposed to the renderer
   renderer/    the React UI
     src/
-      App.tsx          root layout shell
+      App.tsx          root layout shell (sidebar + viewport, action dispatch)
+      AtomBrowser.tsx  residue/atom hierarchy + selection
+      CommandsModal.tsx  data-driven Tinker program launcher + live log
+      KeywordsModal.tsx  .key keyword reference + composer
+      JobsModal.tsx    running/finished Tinker jobs
+      core/            framework-free data model (no Three.js / Electron):
+        types.ts, system.ts          molecular model + multi-system state
+        parseXyz/Pdb/Sdf/Int/Prm.ts  Tinker XYZ/ARC, PDB, SDF/MOL, INT, .prm
+        writers.ts, writeXyz.ts      structure export (txyz/xyz/mol/pdb)
+        bondPerception, select,      bond detection, selection, geometry,
+          measure, transform,          rigid-body transforms, frame windowing
+          frameWindow, elements
+      data/            Tinker command/keyword catalogs (generated JSON + types)
       viewer/          the Three.js viewport ("our" renderer)
-        Viewer.tsx     React wrapper owning the scene lifetime
-        scene.ts       camera, controls, lights, render loop, molecule drawing
+        Viewer.tsx          React wrapper owning the scene lifetime
+        scene.ts            camera, controls, lights, render loop, drawing, picking
+        impostorSpheres.ts  GPU ray-traced sphere shader (atoms)
+        postShaders.ts      outline / ambient-occlusion post-processing
+        renderOptions.ts    representations, color modes, graphics settings
+      samples/         bundled example structures (ethanol, crambin, …)
 ```
 
 ## Maintainability principles (non-negotiable)
@@ -61,9 +82,31 @@ pieces (Java3D, install4j, a JNI shim, `sun.misc`). To avoid repeating that:
 
 ## Status
 
-Early scaffold: a running Electron + React window with a Three.js viewport
-showing a placeholder molecule. Next up: load real Tinker `.xyz` files and draw
-them with GPU impostor spheres/cylinders.
+A working application, with most of the original FFE's functionality in place:
+
+- **Open / save** Tinker XYZ & ARC, PDB, MDL SDF/MOL, and INT (z-matrix), with
+  automatic bond perception and force-field (`.prm`) pickup from a sibling
+  `.key`. Export to Tinker XYZ, plain XYZ, MOL, or PDB.
+- **Download** structures from PubChem, NCI, and the RCSB PDB.
+- **Rendering** via our own WebGL2 shaders — GPU impostor spheres and instanced
+  cylinder bonds, with ball-and-stick / spacefill / sticks / wireframe / tube
+  representations, element/residue/chain/charge coloring, depth cueing,
+  outline + ambient-occlusion post-FX, and an adjustable surface finish.
+- **Multiple systems** open at once: list, toggle visibility, merge, and place
+  each with a rigid-body move/rotate gizmo.
+- **Selection & measurement** by atom / residue / molecule / system, from either
+  the 3D view or the atom-hierarchy browser; distance, angle, and dihedral.
+- **Trajectories**: large `.arc` files are indexed lazily and scrubbable while
+  still indexing; binary `.dcd` files attach to a structure and stream the same
+  way; playback has speed / skip / oscillate controls.
+- **Tinker jobs**: launch any Tinker program from a data-driven option form (the
+  catalogs are generated from the original FFE's `commands.xml` / `keywords.xml`),
+  stream its output live, watch a running minimize/dynamics job's coordinates as
+  they're written, and load the result back in as a new system.
+- **Packaging**: native installers for macOS, Windows, and Linux, built in CI.
+
+Still open: per-atom vector display (force/velocity/induced-dipole arrows from
+`.dyn` / `.uind`), molecular surfaces, and real secondary-structure cartoons.
 
 A read-only copy of the original application lives in `../tinker-ffe-original/`
 (a sibling of this project directory) for reference while porting.

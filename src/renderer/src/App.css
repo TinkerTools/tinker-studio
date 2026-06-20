@@ -1178,3 +1178,125 @@ body {
 .viewer canvas {
   display: block;
 }
+
+/* Molecule builder (separate full-screen mode) */
+.builder {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.builder-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.builder-title {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.builder-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.builder-right {
+  margin-left: auto;
+}
+
+.builder-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-right: 4px;
+}
+
+.builder-bar button {
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.builder-bar button:hover:not(:disabled) {
+  background: #262b38;
+  border-color: var(--accent);
+}
+
+.builder-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.builder-bar button.el {
+  min-width: 30px;
+  padding: 5px 8px;
+  font-weight: 600;
+}
+
+.builder-bar button.el.on,
+.builder-bar button.on {
+  border-color: var(--accent);
+  background: rgba(91, 140, 255, 0.18);
+}
+
+.builder-frag {
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.builder-done {
+  color: #fff !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.builder-done:disabled {
+  background: var(--panel-2) !important;
+}
+
+.builder-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.builder-help {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  max-width: 420px;
+  color: var(--text-dim);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.builder-help b {
+  color: var(--text);
+}
+
+.builder-count {
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+.builder-error {
+  margin-top: 6px;
+  color: #ff8585;
+  pointer-events: auto;
+}

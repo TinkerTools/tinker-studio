@@ -39,6 +39,14 @@ export interface Renderable {
   repByAtom?: Record<number, Representation>
   /** Per-atom color-mode overrides (atom index -> color mode). */
   colorByAtom?: Record<number, ColorMode>
+  /**
+   * Bond orders keyed by "a-b" (1-based atom indices, a < b). Only the molecule
+   * builder sets this; when present, double/triple bonds render as parallel
+   * cylinders. The extra cylinders are drawn but not tracked for in-place updates,
+   * so a Renderable carrying bond orders must be redrawn via a full rebuild (the
+   * builder always is) rather than the trajectory/transform update path.
+   */
+  bondOrders?: Record<string, number>
 }
 
 export interface ManipTarget {
@@ -94,6 +102,13 @@ export interface SceneHandle {
   recenter(): void
   /** Update one system's coordinates in place (trajectory frame); no rebuild. */
   updateSystem(systemId: string, coords: Float32Array | null, transform?: Transform): void
+  /** Enable/disable the camera trackball (e.g. while dragging atoms). */
+  setControlsEnabled(enabled: boolean): void
+  /**
+   * World point where the ray through a screen pixel meets the camera-facing plane
+   * through `anchor`. Used to drag atoms in the screen plane.
+   */
+  dragPlanePoint(clientX: number, clientY: number, anchor: [number, number, number]): [number, number, number]
   dispose(): void
 }
 
@@ -494,6 +509,10 @@ export function createScene(container: HTMLElement): SceneHandle {
     const radii: number[] = []
     const cols: number[] = []
     const cyl: WorldBond[] = []
+    // Extra parallel cylinders for double/triple bonds (builder only). Kept out of
+    // `cyl`/`built.cylBonds` so per-system bond indices stay contiguous for the
+    // in-place update path; appended at the tail when the mesh is built.
+    const cylExtra: WorldBond[] = []
     const lin: WorldBond[] = []
     const col = new THREE.Color()
 
@@ -564,8 +583,18 @@ export function createScene(container: HTMLElement): SceneHandle {
               sa.bond === 'cylinder' ? sa.bondRadius : Infinity,
               sb.bond === 'cylinder' ? sb.bondRadius : Infinity
             ) * options.bondScale
-          built.cylBonds.push({ a: b.a - 1, b: b.b - 1, radius })
-          cyl.push({ wa, wb, radius, ca, cb })
+          const order = r.bondOrders?.[`${b.a}-${b.b}`] ?? 1
+          if (order > 1) {
+            // Draw the bond as `order` thinner parallel cylinders. The first is
+            // registered for completeness; the rest are tail extras.
+            const parallels = multiBondCylinders(wa, wb, radius, order, ca, cb)
+            built.cylBonds.push({ a: b.a - 1, b: b.b - 1, radius: parallels[0].radius })
+            cyl.push(parallels[0])
+            for (let p = 1; p < parallels.length; p++) cylExtra.push(parallels[p])
+          } else {
+            built.cylBonds.push({ a: b.a - 1, b: b.b - 1, radius })
+            cyl.push({ wa, wb, radius, ca, cb })
+          }
         } else if (sa.bond === 'line' || sb.bond === 'line') {
           built.lineBonds.push({ a: b.a - 1, b: b.b - 1 })
           lin.push({ wa, wb, radius: 0, ca, cb })
@@ -585,8 +614,8 @@ export function createScene(container: HTMLElement): SceneHandle {
       })
       merged.add(atomMesh)
     }
-    if (cyl.length > 0) {
-      cylMesh = buildCylinderBonds(cyl)
+    if (cyl.length > 0 || cylExtra.length > 0) {
+      cylMesh = buildCylinderBonds(cyl.concat(cylExtra))
       merged.add(cylMesh)
     }
     if (lin.length > 0) {
@@ -840,10 +869,36 @@ export function createScene(container: HTMLElement): SceneHandle {
   }
   tick()
 
+  function setControlsEnabled(enabled: boolean): void {
+    controls.enabled = enabled
+  }
+
+  // Intersect the ray through a screen pixel with the plane through `anchor` whose
+  // normal is the camera's view direction — i.e. drag atoms parallel to the screen.
+  function dragPlanePoint(clientX: number, clientY: number, anchor: Vec3): Vec3 {
+    const rect = renderer.domElement.getBoundingClientRect()
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    )
+    raycaster.setFromCamera(ndc, renderCamera)
+    const ray = raycaster.ray
+    const normal = new THREE.Vector3()
+    renderCamera.getWorldDirection(normal)
+    const anchorV = new THREE.Vector3(anchor[0], anchor[1], anchor[2])
+    const denom = ray.direction.dot(normal)
+    if (Math.abs(denom) < 1e-6) return anchor
+    const t = anchorV.sub(ray.origin).dot(normal) / denom
+    const hit = ray.origin.clone().addScaledVector(ray.direction, t)
+    return [hit.x, hit.y, hit.z]
+  }
+
   return {
     setScene,
     pick,
     setHighlights,
+    setControlsEnabled,
+    dragPlanePoint,
     setManipulation(target, onChange): void {
       manipTarget = target
       manipCallback = onChange
@@ -1001,6 +1056,51 @@ function placeBondCylinders(
   _midScratch[2] = (wa[2] + wb[2]) / 2
   placeCylinder(mesh, bondSlot * 2, wa, _midScratch, radius)
   placeCylinder(mesh, bondSlot * 2 + 1, wb, _midScratch, radius)
+}
+
+/**
+ * Split a double/triple bond into `order` thinner parallel cylinders, offset
+ * perpendicular to the bond by a stable axis (the bond direction crossed with a
+ * world axis). Used by the builder to make multiple bonds visible.
+ */
+function multiBondCylinders(
+  wa: Vec3,
+  wb: Vec3,
+  radius: number,
+  order: number,
+  ca: number,
+  cb: number
+): WorldBond[] {
+  const dx = wb[0] - wa[0]
+  const dy = wb[1] - wa[1]
+  const dz = wb[2] - wa[2]
+  const len = Math.hypot(dx, dy, dz) || 1
+  const ux = dx / len
+  const uy = dy / len
+  const uz = dz / len
+  // A reference axis not parallel to the bond, then perp = bond × ref (normalized).
+  const ref: Vec3 = Math.abs(uy) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+  let px = uy * ref[2] - uz * ref[1]
+  let py = uz * ref[0] - ux * ref[2]
+  let pz = ux * ref[1] - uy * ref[0]
+  const plen = Math.hypot(px, py, pz) || 1
+  px /= plen
+  py /= plen
+  pz /= plen
+
+  const thin = radius * (order === 2 ? 0.55 : 0.45)
+  const gap = radius * 1.3 // spacing between parallel cylinders
+  // Offsets centered on zero: e.g. order 2 -> [-0.5, +0.5]·gap; order 3 -> [-1,0,+1]·gap.
+  const offsets: number[] = []
+  for (let i = 0; i < order; i++) offsets.push((i - (order - 1) / 2) * gap)
+
+  return offsets.map((o) => ({
+    wa: [wa[0] + px * o, wa[1] + py * o, wa[2] + pz * o] as Vec3,
+    wb: [wb[0] + px * o, wb[1] + py * o, wb[2] + pz * o] as Vec3,
+    radius: thin,
+    ca,
+    cb
+  }))
 }
 
 function buildCylinderBonds(drawn: WorldBond[]): THREE.InstancedMesh {

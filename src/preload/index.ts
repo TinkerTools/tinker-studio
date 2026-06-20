@@ -119,6 +119,8 @@ const api = {
   },
   /** True only under the headless screenshot harness (FFE_CAPTURE set). */
   captureMode: Boolean(process.env['FFE_CAPTURE']),
+  /** Capture harness: open the molecule builder with a demo molecule instead of the example. */
+  captureBuilder: Boolean(process.env['FFE_CAPTURE_BUILDER']),
   /** Prompt the user for a Tinker file; resolves to its contents, or null if cancelled. */
   openStructure: (): Promise<OpenedFile | null> => ipcRenderer.invoke('structure:open'),
   /** Download a structure from an online database (pubchem | nci | pdb). */
@@ -192,6 +194,17 @@ const api = {
     ipcRenderer.invoke('file:choosePath', filters),
   /** Read a text file by path. */
   readTextFile: (path: string): Promise<string> => ipcRenderer.invoke('file:readText', path),
+  /** Molecule-builder Tinker helpers. */
+  builder: {
+    /** True when a `minimize` executable is available in the configured Tinker dir. */
+    hasMinimize: (): Promise<boolean> => ipcRenderer.invoke('tinker:hasMinimize'),
+    /** Run Tinker `minimize` on generated input; resolves to optimized .xyz text or an error. */
+    minimize: (input: { xyz: string; prm: string; key: string }): Promise<{
+      ok: boolean
+      xyz?: string
+      error?: string
+    }> => ipcRenderer.invoke('builder:minimize', input)
+  },
   /** Resolve the force-field .prm referenced by a key's PARAMETERS line. */
   resolveForceFieldFromKey: (
     keyText: string,

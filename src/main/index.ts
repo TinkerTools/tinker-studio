@@ -13,7 +13,9 @@ import {
   openSync,
   readSync,
   closeSync,
-  mkdirSync
+  mkdirSync,
+  mkdtempSync,
+  rmSync
 } from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 import {
@@ -48,6 +50,7 @@ function buildApplicationMenu(): void {
       label: 'File',
       submenu: [
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
+        { label: 'New Molecule (Builder)…', accelerator: 'CmdOrCtrl+N', click: () => sendMenu('build') },
         {
           label: 'Save Structure As',
           submenu: [
@@ -815,6 +818,69 @@ function registerIpcHandlers(): void {
     }
   )
   ipcMain.handle('file:readText', (_e, path: string) => readFile(path, 'utf8'))
+
+  // Is a usable `minimize` executable configured? (Gates the builder's optional
+  // Tinker geometry clean-up.)
+  ipcMain.handle('tinker:hasMinimize', () => {
+    const { tinkerDir } = loadSettings()
+    if (!tinkerDir) return false
+    const prog = process.platform === 'win32' ? 'minimize.exe' : 'minimize'
+    return existsSync(join(tinkerDir, prog))
+  })
+
+  // Run Tinker `minimize` on a builder molecule, using the auto-generated minimal
+  // force field. Writes the .xyz/.key/.prm to a throwaway dir, runs to completion,
+  // and returns the optimized coordinates (Tinker's `<stem>.xyz_2`).
+  ipcMain.handle(
+    'builder:minimize',
+    (_e, req: { xyz: string; prm: string; key: string }): Promise<{ ok: boolean; xyz?: string; error?: string }> => {
+      const { tinkerDir } = loadSettings()
+      if (!tinkerDir) return Promise.resolve({ ok: false, error: 'No Tinker directory configured.' })
+      const prog = process.platform === 'win32' ? 'minimize.exe' : 'minimize'
+      const exe = join(tinkerDir, prog)
+      if (!existsSync(exe)) {
+        return Promise.resolve({ ok: false, error: `'${prog}' not found in the Tinker directory.` })
+      }
+      const dir = mkdtempSync(join(app.getPath('temp'), 'ffe-min-'))
+      const stem = 'builder'
+      try {
+        writeFileSync(join(dir, `${stem}.xyz`), req.xyz, 'utf8')
+        writeFileSync(join(dir, `${stem}.key`), req.key, 'utf8')
+        writeFileSync(join(dir, 'builder-generic.prm'), req.prm, 'utf8')
+      } catch (e) {
+        rmSync(dir, { recursive: true, force: true })
+        return Promise.resolve({ ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
+      // `minimize <file> <grdmin>`: pass the RMS-gradient criterion as an argument
+      // (and close stdin so it can't hang waiting for a prompt).
+      return new Promise((resolve) => {
+        let log = ''
+        const child = spawn(exe, [`${stem}.xyz`, '0.5'], { cwd: dir })
+        child.stdout?.on('data', (d) => (log += d.toString()))
+        child.stderr?.on('data', (d) => (log += d.toString()))
+        child.stdin?.end()
+        child.on('error', (err) => {
+          rmSync(dir, { recursive: true, force: true })
+          resolve({ ok: false, error: err.message })
+        })
+        child.on('close', (code) => {
+          let result: { ok: boolean; xyz?: string; error?: string }
+          const outPath = join(dir, `${stem}.xyz_2`)
+          try {
+            if (existsSync(outPath)) {
+              result = { ok: true, xyz: readFileSync(outPath, 'utf8') }
+            } else {
+              result = { ok: false, error: `minimize produced no output (exit ${code}).\n${log.slice(-600)}` }
+            }
+          } catch (e) {
+            result = { ok: false, error: e instanceof Error ? e.message : String(e) }
+          }
+          rmSync(dir, { recursive: true, force: true })
+          resolve(result)
+        })
+      })
+    }
+  )
 }
 
 app.whenReady().then(() => {
