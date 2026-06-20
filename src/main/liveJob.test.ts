@@ -1,5 +1,16 @@
-import { describe, it, expect } from 'vitest'
-import { hasSaveCycle, buildLiveKey, cycleFilesFor, nextVersionName, splitArcFrames } from './liveJob'
+import { describe, it, expect, afterAll } from 'vitest'
+import { writeFileSync, mkdtempSync, rmSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import {
+  hasSaveCycle,
+  hasDcdArchive,
+  buildLiveKey,
+  cycleFilesFor,
+  nextVersionName,
+  splitArcFrames
+} from './liveJob'
+import { indexArc, readFrameCoords, detectStride } from './trajectory'
 
 describe('liveJob helpers', () => {
   it('detects SAVE-CYCLE in a key (case-insensitive, line-anchored)', () => {
@@ -8,6 +19,13 @@ describe('liveJob helpers', () => {
     expect(hasSaveCycle('SAVE-CYCLE')).toBe(true)
     // not matched mid-line
     expect(hasSaveCycle('# do not save-cycle here')).toBe(false)
+  })
+
+  it('detects DCD-ARCHIVE in a key (case-insensitive, line-anchored)', () => {
+    expect(hasDcdArchive(undefined)).toBe(false)
+    expect(hasDcdArchive('parameters amoeba\nDCD-ARCHIVE\n')).toBe(true)
+    expect(hasDcdArchive('  dcd-archive')).toBe(true)
+    expect(hasDcdArchive('# not dcd-archive here')).toBe(false)
   })
 
   it('builds a temp key that appends SAVE-CYCLE', () => {
@@ -55,5 +73,56 @@ describe('splitArcFrames (incremental .arc framing)', () => {
     const r = splitArcFrames(boxed, 0)
     expect(r.stride).toBe(4)
     expect(r.frames).toHaveLength(1)
+  })
+})
+
+describe('live .arc incremental indexing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ffe-live-'))
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+  // Mirror the main-process live watcher: read the file in arbitrary chunks,
+  // frame the completed ones, and build a byte-offset index from the cumulative
+  // byte length of each frame. That index must read back identically to the one
+  // a full indexArc() scan produces (the renderer's trajectory:frame relies on it).
+  it('builds offsets that match a full indexArc scan, across chunk boundaries', () => {
+    const boxed = '2 t\n20.0 20.0 20.0 90.0 90.0 90.0' // box line so stride = 4
+    const frame = (x: number): string => `${boxed}\n1 C ${x}.0 0.0 0.0 1 2\n2 O 1.0 0.0 0.0 2 1\n`
+    const full = frame(0) + frame(1) + frame(2) + frame(3)
+    const path = join(dir, 'live.arc')
+    writeFileSync(path, full)
+
+    // Feed the text in 7-byte chunks to exercise partial-frame carry-over.
+    let buffer = ''
+    let stride = 0
+    const offsets = [0]
+    let natoms = 0
+    let hasBox = false
+    for (let i = 0; i < full.length; i += 7) {
+      buffer += full.slice(i, i + 7)
+      const r = splitArcFrames(buffer, stride)
+      stride = r.stride
+      buffer = r.rest
+      if (r.frames.length && natoms === 0) {
+        const l = r.frames[0].split('\n')
+        const d = detectStride(l[0], l[1] ?? '')
+        natoms = d.natoms
+        hasBox = d.hasBox
+      }
+      for (const t of r.frames) offsets.push(offsets[offsets.length - 1] + Buffer.byteLength(t, 'utf8'))
+    }
+
+    const canonical = indexArc(path)
+    expect({ natoms, hasBox, frameCount: offsets.length - 1 }).toEqual({
+      natoms: canonical.natoms,
+      hasBox: canonical.hasBox,
+      frameCount: canonical.frameCount
+    })
+    expect(offsets).toEqual(canonical.offsets)
+
+    // And the resulting index decodes every frame correctly.
+    const live = { path, offsets, natoms, hasBox, frameCount: offsets.length - 1 }
+    for (let f = 0; f < live.frameCount; f++) {
+      expect(Array.from(readFrameCoords(live, f))).toEqual([f, 0, 0, 1, 0, 0])
+    }
   })
 })

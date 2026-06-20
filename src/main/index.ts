@@ -19,6 +19,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import {
   LIVE_SUFFIX,
   hasSaveCycle,
+  hasDcdArchive,
   buildLiveKey,
   cycleFilesFor,
   nextVersionName,
@@ -28,8 +29,10 @@ import {
   readFirstFrame,
   indexArcProgressive,
   readFrameCoords,
+  detectStride,
   type TrajectoryIndex
 } from './trajectory'
+import { openDcd, readDcdFrame, type DcdIndex } from './dcd'
 
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
@@ -83,7 +86,19 @@ function buildApplicationMenu(): void {
         { label: 'Set Tinker Directory…', click: () => sendMenu('setTinkerDir') }
       ]
     },
-    { role: 'viewMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Graphics Settings…', click: () => sendMenu('graphics') },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        { role: 'toggleDevTools' }
+      ]
+    },
     { role: 'windowMenu' }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -187,6 +202,9 @@ function workDir(): string {
 /** Per-job state for streaming a live simulation's coordinate files. */
 interface LiveWatch {
   kind: 'dynamics' | 'minimize'
+  // Dynamics trajectory output format: Tinker writes a growing .arc, or a .dcd
+  // when the key has DCD-ARCHIVE. Both are streamed to the renderer identically.
+  format: 'arc' | 'dcd'
   dir: string
   inputName: string // original coordinate file name, e.g. mol.xyz
   watchStem: string // stem whose cycle files we watch (mol or mol_ffelive)
@@ -195,20 +213,39 @@ interface LiveWatch {
   arcOffset: number // bytes of the .arc already read (dynamics)
   arcBuffer: string // read-but-not-yet-framed .arc tail (dynamics)
   arcStride: number // lines per .arc frame, 0 until known (dynamics)
+  // Incremental byte-offset index of the growing .arc, so a live dynamics run is
+  // served to the renderer as a normal streamed trajectory (dynamics).
+  arcOffsets: number[] // frame byte boundaries: [0, end0, end1, …]
+  arcNatoms: number // atoms per frame, 0 until known
+  arcHasBox: boolean // does each frame carry a periodic-box line
+  dcdIndex?: DcdIndex // parsed header of the growing .dcd (dynamics, format 'dcd')
+  liveTrajId?: string // trajId under which the index is registered
   interval?: ReturnType<typeof setInterval>
   poll?: () => void
 }
 const liveWatches = new Map<string, LiveWatch>()
+
+// Streamed-trajectory byte-offset indexes, keyed by trajId. Module-scope so the
+// live-dynamics watcher can register/grow an index for a running job's .arc and
+// the trajectory:frame handler can read from it — live playback is just a normal
+// streamed trajectory whose file happens to still be growing.
+const trajectories = new Map<string, TrajectoryIndex>()
+
+// Attached .dcd trajectories (binary, fixed-size frames), keyed by trajId. Kept
+// separate from the .arc/live text indexes; trajectory:frame dispatches to either.
+const dcdTrajectories = new Map<string, DcdIndex>()
 
 function makeLiveWatch(
   kind: 'dynamics' | 'minimize',
   dir: string,
   inputName: string,
   watchStem: string,
-  temp: boolean
+  temp: boolean,
+  format: 'arc' | 'dcd' = 'arc'
 ): LiveWatch {
   return {
     kind,
+    format,
     dir,
     inputName,
     watchStem,
@@ -216,7 +253,10 @@ function makeLiveWatch(
     sent: new Set(),
     arcOffset: 0,
     arcBuffer: '',
-    arcStride: 0
+    arcStride: 0,
+    arcOffsets: [0],
+    arcNatoms: 0,
+    arcHasBox: false
   }
 }
 
@@ -230,6 +270,29 @@ function pollLive(event: IpcMainInvokeEvent, jobId: string, w: LiveWatch): void 
         const text = readFileSync(join(w.dir, f.name), 'utf8')
         event.sender.send('job:live', { jobId, mode: 'append', text })
       }
+    } else if (w.format === 'dcd') {
+      // Live DCD: parse the binary header once (when the first frame exists), then
+      // recompute the frame count from the growing file size. The renderer reads
+      // frames from it on demand via the same streamed-trajectory path.
+      const dcdPath = join(w.dir, `${w.watchStem}.dcd`)
+      if (!existsSync(dcdPath)) return
+      if (!w.dcdIndex) {
+        try {
+          w.dcdIndex = openDcd(dcdPath) // throws until a full first frame is written
+        } catch {
+          return
+        }
+        w.liveTrajId = `live-${jobId}`
+        dcdTrajectories.set(w.liveTrajId, w.dcdIndex)
+      } else {
+        const size = statSync(dcdPath).size
+        w.dcdIndex.frameCount = Math.floor((size - w.dcdIndex.headerSize) / w.dcdIndex.frameSize)
+      }
+      event.sender.send('job:liveArc', {
+        jobId,
+        trajId: w.liveTrajId,
+        frameCount: w.dcdIndex.frameCount
+      })
     } else {
       // Read only the bytes appended since last poll, frame the complete ones,
       // and send each as one coordinate set — never re-reading the whole file.
@@ -250,7 +313,33 @@ function pollLive(event: IpcMainInvokeEvent, jobId: string, w: LiveWatch): void 
       const { frames, rest, stride } = splitArcFrames(w.arcBuffer, w.arcStride)
       w.arcStride = stride
       w.arcBuffer = rest
-      for (const text of frames) event.sender.send('job:live', { jobId, mode: 'append', text })
+      if (frames.length === 0) return
+      // Topology is constant; read it from the first complete frame once.
+      if (w.arcNatoms === 0) {
+        const l = frames[0].split('\n')
+        const d = detectStride(l[0], l[1] ?? '')
+        w.arcNatoms = d.natoms
+        w.arcHasBox = d.hasBox
+      }
+      // Extend the byte-offset index. Each frame's reconstructed text is byte-for-
+      // byte what's in the file (Tinker writes '\n'-terminated lines, no blank
+      // separators), so cumulative byte lengths are the frames' file offsets.
+      for (const text of frames) {
+        const last = w.arcOffsets[w.arcOffsets.length - 1]
+        w.arcOffsets.push(last + Buffer.byteLength(text, 'utf8'))
+      }
+      if (!w.liveTrajId) w.liveTrajId = `live-${jobId}`
+      const frameCount = w.arcOffsets.length - 1
+      trajectories.set(w.liveTrajId, {
+        path: arc,
+        offsets: w.arcOffsets,
+        natoms: w.arcNatoms,
+        hasBox: w.arcHasBox,
+        frameCount
+      })
+      // Tell the renderer the new frame count; it reads frames from the .arc on
+      // demand through the same windowed path as an opened trajectory.
+      event.sender.send('job:liveArc', { jobId, trajId: w.liveTrajId, frameCount })
     }
   } catch {
     // The directory may be mid-write; just try again next tick.
@@ -298,7 +387,7 @@ function finalizeLive(event: IpcMainInvokeEvent, jobId: string, ok: boolean): vo
         resultName = last.name
       }
     } else {
-      resultName = `${w.watchStem}.arc`
+      resultName = `${w.watchStem}.${w.format}`
     }
     event.sender.send('job:liveEnd', { jobId, kind: w.kind, resultName })
   } catch {
@@ -418,12 +507,19 @@ function registerIpcHandlers(): void {
     }
     const text = await readFile(path, 'utf8')
     const ff = await findAssociatedForceField(path)
-    return { path, name: basename(path), text, ...ff }
+    // Pick up a sibling .seq file (same stem) if present.
+    const stem = basename(path).replace(/\.[^.]*$/, '')
+    const seqText = await readIfExists(join(dirname(path), `${stem}.seq`))
+    const seq = seqText != null ? { seqName: `${stem}.seq`, seqText } : {}
+    // For a Tinker .xyz, note a sibling .dcd trajectory (same stem) so the renderer
+    // can offer to attach + play it (the parser validates the atom count).
+    const sibDcd = join(dirname(path), `${stem}.dcd`)
+    const dcd = /\.(xyz|txyz)$/i.test(path) && existsSync(sibDcd) ? { dcdPath: sibDcd } : {}
+    return { path, name: basename(path), text, ...ff, ...seq, ...dcd }
   })
 
   // Lazy streamed-trajectory API for large .arc files: index once, then read
   // individual frames on demand (see trajectory.ts).
-  const trajectories = new Map<string, TrajectoryIndex>()
   let trajCounter = 0
   ipcMain.handle('trajectory:open', (e, path: string) => {
     // Return the first frame immediately so it renders without waiting for the
@@ -461,12 +557,47 @@ function registerIpcHandlers(): void {
     return { trajId, frameCount: 0, estimate, firstFrameText: head.firstFrameText }
   })
   ipcMain.handle('trajectory:frame', (_e, trajId: string, frame: number): Float32Array | null => {
+    const dcd = dcdTrajectories.get(trajId)
+    if (dcd) {
+      if (frame < 0 || frame >= dcd.frameCount) return null
+      return readDcdFrame(dcd, frame)
+    }
     const index = trajectories.get(trajId)
     if (!index || frame < 0 || frame >= index.frameCount) return null
     return readFrameCoords(index, frame)
   })
+  // Attach a .dcd to an .xyz: validate it parses and its atom count matches, then
+  // expose it as a streamed trajectory the renderer plays like an .arc.
+  ipcMain.handle('trajectory:openDcd', (_e, path: string, natoms: number) => {
+    try {
+      const index = openDcd(path)
+      if (index.natoms !== natoms) {
+        return {
+          ok: false as const,
+          reason: `atom count differs (xyz has ${natoms}, dcd has ${index.natoms})`
+        }
+      }
+      const trajId = `dcd-${++trajCounter}`
+      dcdTrajectories.set(trajId, index)
+      return { ok: true as const, trajId, frameCount: index.frameCount, name: basename(path) }
+    } catch (e) {
+      return { ok: false as const, reason: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  ipcMain.handle('dialog:chooseDcd', async () => {
+    const r = await dialog.showOpenDialog({
+      title: 'Attach DCD Trajectory',
+      properties: ['openFile'],
+      filters: [
+        { name: 'DCD Trajectory', extensions: ['dcd'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
+  })
   ipcMain.handle('trajectory:close', (_e, trajId: string) => {
     trajectories.delete(trajId)
+    dcdTrajectories.delete(trajId)
     return true
   })
 
@@ -530,7 +661,9 @@ function registerIpcHandlers(): void {
     ) => {
       const { jobId, program, structurePath, extraArgs = [], stdin, watch, keyText } = req
       const { tinkerDir } = loadSettings()
-      const exe = tinkerDir ? join(tinkerDir, program) : program
+      // Tinker binaries are <program>.exe on Windows; bare <program> elsewhere.
+      const prog = process.platform === 'win32' ? `${program}.exe` : program
+      const exe = tinkerDir ? join(tinkerDir, prog) : prog
       // Commands with no coordinate input (e.g. protein/nucleic builders) run in
       // a scratch directory.
       const dir = structurePath ? dirname(structurePath) : workDir()
@@ -553,7 +686,9 @@ function registerIpcHandlers(): void {
             live = makeLiveWatch('minimize', dir, inputName, watchStem, true)
           }
         } else if (watch === 'dynamics') {
-          live = makeLiveWatch('dynamics', dir, inputName, stem, false)
+          // A DCD-ARCHIVE key makes `dynamic` write <stem>.dcd instead of <stem>.arc.
+          const fmt = hasDcdArchive(keyText) ? 'dcd' : 'arc'
+          live = makeLiveWatch('dynamics', dir, inputName, stem, false, fmt)
         }
 
         const args = [runName, ...extraArgs].filter((a) => a !== '')
@@ -664,6 +799,22 @@ function registerIpcHandlers(): void {
     const text = await readFile(path, 'utf8')
     return { path, name: basename(path), text }
   })
+
+  // Pick a file but don't read it (used by attach, which only reads text for
+  // .key/.seq/.prm and hands a .dcd path straight to the binary trajectory API).
+  ipcMain.handle(
+    'file:choosePath',
+    async (_e, filters?: Array<{ name: string; extensions: string[] }>) => {
+      const r = await dialog.showOpenDialog({
+        title: 'Attach File',
+        properties: ['openFile'],
+        ...(filters ? { filters } : {})
+      })
+      if (r.canceled || r.filePaths.length === 0) return null
+      return { path: r.filePaths[0], name: basename(r.filePaths[0]) }
+    }
+  )
+  ipcMain.handle('file:readText', (_e, path: string) => readFile(path, 'utf8'))
 }
 
 app.whenReady().then(() => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { Viewer } from './viewer/Viewer'
+import { Viewer, type ViewerInputs } from './viewer/Viewer'
+import { FrameWindow, LOCAL_SOURCE } from './core/frameWindow'
 import type { Renderable, PickResult } from './viewer/scene'
 import { distance, angle, dihedral } from './core/measure'
 import { expandSelection, type PickLevel } from './core/select'
@@ -11,7 +12,7 @@ import {
   type MolecularSystem,
   type Trajectory
 } from './core/system'
-import { parseTinkerXyz, parseTinkerArc } from './core/parseXyz'
+import { parseTinkerXyz } from './core/parseXyz'
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
 import { SAVE_FORMATS, type SaveFormat } from './core/writers'
@@ -36,6 +37,10 @@ import {
   FOV_MIN,
   FOV_MAX,
   DEFAULT_BACKGROUND,
+  CONTRAST_DEFAULT,
+  GLOSSINESS_DEFAULT,
+  HIGHLIGHT_COLOR_DEFAULT,
+  LABEL_COLOR_DEFAULT,
   type RenderOptions,
   type Representation,
   type ColorMode
@@ -60,6 +65,8 @@ export default function App() {
   const [speed, setSpeed] = useState(15)
   const [skip, setSkip] = useState(1)
   const playDirRef = useRef(1)
+  // Mirror of frameIndex for the playback timer to read without a stale closure.
+  const frameIndexRef = useRef(0)
   const [downloadSource, setDownloadSource] = useState<DownloadSource | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
@@ -93,10 +100,12 @@ export default function App() {
       ffName?: string
       keyName?: string
       keyText?: string
+      seqName?: string
+      seqText?: string
       select?: boolean
     } = {}
-  ): void {
-    const { path, ffName, keyName, keyText, select = true } = opts
+  ): string {
+    const { path, ffName, keyName, keyText, seqName, seqText, select = true } = opts
     const system: MolecularSystem = {
       id: nextSystemId(),
       name,
@@ -106,7 +115,9 @@ export default function App() {
       path,
       ffName,
       keyName,
-      keyText
+      keyText,
+      seqName,
+      seqText
     }
     setSystems((prev) => [...prev, system])
     // A selected system becomes active and visible; an unselected one (e.g. a
@@ -115,6 +126,37 @@ export default function App() {
       setActiveId(system.id)
       setVisibleIds((prev) => new Set(prev).add(system.id))
     }
+    return system.id
+  }
+
+  // Attach a .dcd trajectory to a system. It only attaches if the .dcd parses and
+  // its atom count matches the structure; otherwise it's left off (silently for an
+  // auto-detected sibling, with an error for an explicit attach).
+  async function attachDcd(
+    systemId: string,
+    structure: Parsed['structure'],
+    dcdPath: string,
+    opts: { silent?: boolean } = {}
+  ): Promise<void> {
+    const prevTrajId = systems.find((s) => s.id === systemId)?.trajectory?.source?.trajId
+    const res = await window.ffe.trajectory.openDcd(dcdPath, structure.atoms.length)
+    if (!res.ok) {
+      if (!opts.silent) setError(`Could not attach DCD — ${res.reason ?? 'unknown error'}.`)
+      return
+    }
+    if (prevTrajId) void window.ffe.trajectory.close(prevTrajId)
+    setSystems((prev) =>
+      prev.map((s) =>
+        s.id === systemId
+          ? {
+              ...s,
+              dcdName: res.name,
+              trajectory: { frameCount: res.frameCount!, source: { trajId: res.trajId! } }
+            }
+          : s
+      )
+    )
+    setFrameIndex(0)
   }
 
   function renameSystem(id: string, name: string): void {
@@ -161,18 +203,27 @@ export default function App() {
         return
       }
       const parsed = parseStructureFile(file.text, file.name)
-      const key = { keyName: file.keyName, keyText: file.keyText }
+      // Auto-pick-up sibling .key and .seq files.
+      const meta = {
+        keyName: file.keyName,
+        keyText: file.keyText,
+        seqName: file.seqName,
+        seqText: file.seqText
+      }
       // Auto-apply the force field found via a sibling .key's PARAMETERS line.
+      let id: string
       if (file.prmText) {
         const structure = applyForceField(parsed.structure, parsePrm(file.prmText))
-        addSystem({ ...parsed, structure }, file.name, {
+        id = addSystem({ ...parsed, structure }, file.name, {
           path: file.path,
           ffName: file.prmName,
-          ...key
+          ...meta
         })
       } else {
-        addSystem(parsed, file.name, { path: file.path, ...key })
+        id = addSystem(parsed, file.name, { path: file.path, ...meta })
       }
+      // Auto-attach a sibling .dcd trajectory if one lines up with this structure.
+      if (file.dcdPath) void attachDcd(id, parsed.structure, file.dcdPath, { silent: true })
     } catch (e) {
       setError(messageOf(e))
     }
@@ -311,8 +362,10 @@ export default function App() {
     jobId: string
     systemId: string
     kind: LiveKind
-    prevActiveId: string | null
-    prevVisibleIds: Set<string>
+    /** True when streaming into an existing system (DCD dynamics) vs a new one. */
+    attached: boolean
+    /** Display name for an attached .dcd, shown once frames start streaming. */
+    dcdName?: string
     frameCount: number
   }
   const liveRef = useRef<LiveState | null>(null)
@@ -320,7 +373,16 @@ export default function App() {
 
   // Lazily-fetched frames for streamed (large) trajectories, keyed "trajId:index".
   // frameTick bumps to re-render when a requested frame arrives.
-  const frameCacheRef = useRef<Map<string, Float32Array>>(new Map())
+  // Streamed-trajectory frames are served by a forward-biased, byte-budgeted
+  // window (one for the active source trajectory) instead of an unbounded cache.
+  const frameWindowRef = useRef<FrameWindow | null>(null)
+  // Last frame shown for the active system, held while the next frame is still
+  // being fetched so a streamed/live trajectory doesn't flicker back to the
+  // structure's rest positions between frames.
+  const lastFrameCoordsRef = useRef<{ id: string; coords: Float32Array } | null>(null)
+  // Heavy scene inputs (structure + coords) handed to the Viewer by ref, never as
+  // props — see ViewerInputs. Assigned fresh each render below.
+  const viewerInputsRef = useRef<ViewerInputs>({ renderables: [], liveUpdate: null })
   const [frameTick, setFrameTick] = useState(0)
 
   // The coordinates for a trajectory frame: in-memory directly, or from the lazy
@@ -328,7 +390,10 @@ export default function App() {
   function frameAt(traj: Trajectory | null | undefined, index: number): Float32Array | null {
     if (!traj) return null
     if (traj.frames) return traj.frames[Math.min(index, traj.frames.length - 1)] ?? null
-    if (traj.source) return frameCacheRef.current.get(`${traj.source.trajId}:${index}`) ?? null
+    if (traj.source) {
+      const w = frameWindowRef.current
+      return w && w.trajId === traj.source.trajId ? w.get(index) : null
+    }
     return null
   }
 
@@ -368,21 +433,28 @@ export default function App() {
     if (!active) return
     setError(null)
     try {
-      const file = await window.ffe.openTextFile(ATTACH_FILTERS)
-      if (!file) return
-      const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+      const chosen = await window.ffe.chooseFile(ATTACH_FILTERS)
+      if (!chosen) return
+      const ext = (chosen.name.split('.').pop() ?? '').toLowerCase()
+      // .dcd is binary and may be huge — hand its path to the trajectory API
+      // rather than reading it as text.
+      if (ext === 'dcd') {
+        await attachDcd(active.id, active.structure, chosen.path)
+        return
+      }
+      const text = await window.ffe.readTextFile(chosen.path)
       if (ext === 'seq') {
         setSystems((prev) =>
           prev.map((s) =>
-            s.id === active.id ? { ...s, seqName: file.name, seqText: file.text } : s
+            s.id === active.id ? { ...s, seqName: chosen.name, seqText: text } : s
           )
         )
       } else if (ext === 'prm') {
-        applyFFToSystem(active.id, file.text, file.name)
+        applyFFToSystem(active.id, text, chosen.name)
       } else {
         // .key (default)
-        setSystemKey(active.id, file.name, file.text)
-        const ff = await window.ffe.resolveForceFieldFromKey(file.text, file.path)
+        setSystemKey(active.id, chosen.name, text)
+        const ff = await window.ffe.resolveForceFieldFromKey(text, chosen.path)
         if (ff.prmText && ff.prmName) applyFFToSystem(active.id, ff.prmText, ff.prmName)
       }
     } catch (e) {
@@ -429,24 +501,13 @@ export default function App() {
       }
     })
 
-    // Live-frame stream: append a new frame (minimize) or replace from the full
-    // .arc (dynamics), and follow the latest frame.
+    // Minimize streams discrete cycle files as one-frame appends. The count is
+    // bounded (a minimization converges in a modest number of cycles), so these
+    // are kept in memory; dynamics instead streams via onLiveArc (disk-backed).
     const offLive = window.ffe.job.onLive((m) => {
       const live = liveRef.current
       if (!live || live.jobId !== m.jobId) return
-      if (m.mode === 'replace') {
-        const { structure, frames } = parseTinkerArc(m.text)
-        if (frames.length === 0) return
-        live.frameCount = frames.length
-        setSystems((prev) =>
-          prev.map((s) =>
-            s.id === live.systemId
-              ? { ...s, structure, trajectory: { frameCount: frames.length, frames }, rev: (s.rev ?? 0) + 1 }
-              : s
-          )
-        )
-        setFrameIndex(frames.length - 1)
-      } else {
+      {
         const struct = parseTinkerXyz(m.text)
         const coords = coordsOf(struct.atoms)
         const isFirst = live.frameCount === 0
@@ -469,18 +530,43 @@ export default function App() {
       }
     })
 
+    // Dynamics: the run's growing .arc is indexed on disk in the main process and
+    // exposed as a streamed `source` trajectory. We just track the frame count and
+    // follow the latest frame; the windowed frame path fetches coordinates from
+    // disk on demand (bounded memory), so the whole run stays scrubbable without
+    // holding every frame in RAM.
+    const offLiveArc = window.ffe.job.onLiveArc(({ jobId, trajId, frameCount }) => {
+      const live = liveRef.current
+      if (!live || live.jobId !== jobId) return
+      live.frameCount = frameCount
+      setSystems((prev) =>
+        prev.map((s) =>
+          s.id === live.systemId
+            ? {
+                ...s,
+                trajectory: { frameCount, source: { trajId } },
+                ...(live.attached && live.dcdName ? { dcdName: live.dcdName } : {})
+              }
+            : s
+        )
+      )
+      setFrameIndex(frameCount - 1)
+    })
+
     const offLiveEnd = window.ffe.job.onLiveEnd((m) => {
       const live = liveRef.current
       if (!live || live.jobId !== m.jobId) return
+      // Attached DCD dynamics: the .dcd stays attached to the existing system and
+      // remains scrubbable — nothing to rename, hide, or restore.
+      if (live.attached) {
+        liveRef.current = null
+        return
+      }
+      // Keep the finished result trajectory active and visible (positioned at the
+      // last frame); just drop the "(live)" suffix. Don't revert to the original.
       setSystems((prev) =>
         prev.map((s) => (s.id === live.systemId ? { ...s, name: s.name.replace(/ \(live\)$/, '') } : s))
       )
-      // Dynamics: hide the trajectory and return to the original system. Minimize:
-      // leave the result trajectory open and active for review.
-      if (live.kind === 'dynamics') {
-        setVisibleIds(new Set(live.prevVisibleIds))
-        if (live.prevActiveId) setActiveId(live.prevActiveId)
-      }
       liveRef.current = null
     })
 
@@ -488,6 +574,7 @@ export default function App() {
       offOut()
       offExit()
       offLive()
+      offLiveArc()
       offLiveEnd()
     }
   }, [])
@@ -502,7 +589,7 @@ export default function App() {
     stdin: string,
     watch: boolean,
     requiresStructure: boolean
-  ): Promise<string> {
+  ): Promise<{ id: string; ok: boolean }> {
     const id = `job-${Date.now()}`
     const sysName = system?.name ?? program
     setJobs((prev) => [
@@ -536,31 +623,48 @@ export default function App() {
           setJobs((prev) =>
             prev.map((j) => (j.id === id ? { ...j, status: 'failed', output: messageOf(e) } : j))
           )
-          return id
+          return { id, ok: false }
         }
       }
     }
 
     const kind = watch && system && structurePath ? liveKind(program) : null
     if (kind && system) {
-      const liveId = nextSystemId()
-      const liveSystem: MolecularSystem = {
-        id: liveId,
-        name: `${program} · ${system.name} (live)`,
-        fileType: kind === 'dynamics' ? 'arc' : system.fileType,
-        structure: system.structure,
-        trajectory: { frameCount: 0, frames: [] }
-      }
-      setSystems((prev) => [...prev, liveSystem])
-      setActiveId(liveId)
-      setVisibleIds(new Set([liveId]))
-      liveRef.current = {
-        jobId: id,
-        systemId: liveId,
-        kind,
-        prevActiveId: activeId,
-        prevVisibleIds: new Set(visibleIds),
-        frameCount: 0
+      // Dynamics with a DCD-ARCHIVE key writes a .dcd — stream it into the SAME
+      // system (attach), rather than spawning a separate "(live)" arc system.
+      const dcdOutput = kind === 'dynamics' && /^\s*dcd-archive\b/im.test(system.keyText ?? '')
+      if (dcdOutput) {
+        const prevTrajId = system.trajectory?.source?.trajId
+        if (prevTrajId) void window.ffe.trajectory.close(prevTrajId)
+        setActiveId(system.id)
+        setVisibleIds((prev) => new Set(prev).add(system.id))
+        liveRef.current = {
+          jobId: id,
+          systemId: system.id,
+          kind,
+          attached: true,
+          dcdName: system.name.replace(/\.[^.]*$/, '') + '.dcd',
+          frameCount: 0
+        }
+      } else {
+        const liveId = nextSystemId()
+        const liveSystem: MolecularSystem = {
+          id: liveId,
+          name: `${program} · ${system.name} (live)`,
+          fileType: kind === 'dynamics' ? 'arc' : system.fileType,
+          structure: system.structure,
+          trajectory: { frameCount: 0, frames: [] }
+        }
+        setSystems((prev) => [...prev, liveSystem])
+        setActiveId(liveId)
+        setVisibleIds(new Set([liveId]))
+        liveRef.current = {
+          jobId: id,
+          systemId: liveId,
+          kind,
+          attached: false,
+          frameCount: 0
+        }
       }
       liveJobIdsRef.current.add(id)
     }
@@ -584,7 +688,7 @@ export default function App() {
           : j
       })
     )
-    return id
+    return { id, ok: res.ok }
   }
 
   function clearJob(id: string): void {
@@ -743,10 +847,25 @@ export default function App() {
     [picks, activeId, frameIndex, frameCount, frameTick, options.showLabels]
   )
 
+  // The active system's current-frame coordinates. While a streamed/live frame is
+  // still being fetched, frameAt returns null; rather than snap to the structure's
+  // rest positions (visible jitter during live dynamics), hold the last frame
+  // shown for this system until the new one arrives.
+  let activeCoords: Float32Array | null = null
+  if (active?.trajectory) {
+    const c = frameAt(active.trajectory, frameIndex)
+    if (c) {
+      activeCoords = c
+      lastFrameCoordsRef.current = { id: active.id, coords: c }
+    } else if (lastFrameCoordsRef.current?.id === active.id) {
+      activeCoords = lastFrameCoordsRef.current.coords
+    }
+  }
+
   const renderables: Renderable[] = visibleSystems.map((s) => ({
     id: s.id,
     structure: s.structure,
-    coords: s.id === activeId && s.trajectory ? frameAt(s.trajectory, frameIndex) : null,
+    coords: s.id === activeId ? activeCoords : null,
     selected: s.id === activeId ? selectedInActive : undefined,
     transform: s.transform,
     repByAtom: s.repByAtom,
@@ -769,17 +888,18 @@ export default function App() {
     options.ballScale,
     options.bondScale,
     options.showHydrogens ? 'h' : '',
+    options.showBox ? 'box' : '',
     options.restrictToSelection ? 'r' : '',
     options.restrictToSelection ? [...selectedInActive].sort((a, b) => a - b).join(',') : ''
   ].join('|')
 
-  // The active system's coordinates (trajectory frame) + transform, applied in
-  // place when they change.
-  const activeCoords = active?.trajectory ? frameAt(active.trajectory, frameIndex) : null
+  // Frame + transform for the active system, applied in place when they change.
   const liveUpdate = active
     ? { systemId: active.id, coords: activeCoords, transform: active.transform }
     : null
   const coordKey = `${activeId ?? ''}|${frameIndex}|${frameTick}|${transformSig(active?.transform)}`
+  // Keep the heavy data in the ref so it stays out of React's prop diffing.
+  viewerInputsRef.current = { renderables, liveUpdate }
 
   let measureResult: string | null = null
   if (picks.length > 0) {
@@ -808,6 +928,7 @@ export default function App() {
     else if (action === 'download:nci') setDownloadSource('nci')
     else if (action === 'download:pdb') setDownloadSource('pdb')
     else if (action === 'commands') setModal('commands')
+    else if (action === 'graphics') setModal('graphics')
     else if (action === 'jobs') setModal('jobs')
     else if (action === 'keywords') {
       setKeyText('')
@@ -858,63 +979,72 @@ export default function App() {
     setPicks([])
   }, [activeId])
 
+  // Keep frameIndexRef in step with frameIndex (for the playback timer to read).
+  useEffect(() => {
+    frameIndexRef.current = frameIndex
+  }, [frameIndex])
+
   // Trajectory playback loop (honors oscillate / speed / skip).
   useEffect(() => {
     if (!playing || frameCount === 0) return
     const step = Math.max(1, skip)
-    const id = window.setInterval(() => {
-      setFrameIndex((f) => {
-        let next = f + playDirRef.current * step
-        if (oscillate) {
-          if (next >= frameCount - 1) {
-            next = frameCount - 1
-            playDirRef.current = -1
-          } else if (next <= 0) {
-            next = 0
-            playDirRef.current = 1
-          }
-        } else {
-          next = ((next % frameCount) + frameCount) % frameCount
+    const advance = (): void => {
+      const f = frameIndexRef.current
+      let next = f + playDirRef.current * step
+      if (oscillate) {
+        if (next >= frameCount - 1) {
+          next = frameCount - 1
+          playDirRef.current = -1
+        } else if (next <= 0) {
+          next = 0
+          playDirRef.current = 1
         }
-        return next
-      })
-    }, 1000 / Math.max(1, speed))
+      } else {
+        next = ((next % frameCount) + frameCount) % frameCount
+      }
+      // For a streamed (disk-windowed) trajectory, don't outrun the fetch: if the
+      // next frame isn't loaded yet, keep it (and the read-ahead) fetching and wait
+      // for the next tick. Playback then throttles to the achievable rate instead
+      // of racing ahead of the window and freezing on a stale frame.
+      const w = frameWindowRef.current
+      if (w && next !== f && !w.get(next)) {
+        w.request(next, frameCount, playDirRef.current)
+        return
+      }
+      frameIndexRef.current = next
+      setFrameIndex(next)
+    }
+    const id = window.setInterval(advance, 1000 / Math.max(1, speed))
     return () => window.clearInterval(id)
   }, [playing, frameCount, oscillate, speed, skip])
 
-  // For a streamed (lazy) trajectory, fetch the current frame and a few ahead,
-  // caching them with a simple size cap so huge archives never load whole.
+  // Build (or rebuild) the frame window when the active source trajectory or its
+  // per-frame size changes; dispose it when there's no streamed source.
+  useEffect(() => {
+    const src = active?.trajectory?.source
+    const natoms = active?.structure.atoms.length ?? 0
+    if (!src || natoms === 0) {
+      frameWindowRef.current?.dispose()
+      frameWindowRef.current = null
+      return
+    }
+    if (frameWindowRef.current?.trajId !== src.trajId) {
+      frameWindowRef.current?.dispose()
+      frameWindowRef.current = new FrameWindow(
+        src.trajId,
+        natoms * 3 * 4,
+        (id, idx) => window.ffe.trajectory.frame(id, idx),
+        () => setFrameTick((t) => t + 1),
+        LOCAL_SOURCE
+      )
+    }
+  }, [active?.id, active?.trajectory?.source?.trajId, active?.structure.atoms.length])
+
+  // Prefetch around the current frame (in the play direction) as it advances.
   useEffect(() => {
     const traj = active?.trajectory
-    if (!traj?.source) return
-    const trajId = traj.source.trajId
-    const cache = frameCacheRef.current
-    const PREFETCH = 5
-    const CACHE_CAP = 1000
-    const want: number[] = []
-    for (let d = 0; d <= PREFETCH; d++) {
-      const idx = frameIndex + d
-      if (idx < traj.frameCount && !cache.has(`${trajId}:${idx}`)) want.push(idx)
-    }
-    if (want.length === 0) return
-    let cancelled = false
-    void (async () => {
-      let added = false
-      for (const idx of want) {
-        const coords = await window.ffe.trajectory.frame(trajId, idx)
-        if (cancelled || !coords) continue
-        cache.set(`${trajId}:${idx}`, coords)
-        added = true
-        while (cache.size > CACHE_CAP) {
-          const oldest = cache.keys().next().value
-          if (oldest === undefined) break
-          cache.delete(oldest)
-        }
-      }
-      if (!cancelled && added) setFrameTick((t) => t + 1)
-    })()
-    return () => {
-      cancelled = true
+    if (traj?.source) {
+      frameWindowRef.current?.request(frameIndex, traj.frameCount, playDirRef.current)
     }
   }, [active?.id, active?.trajectory, frameIndex])
 
@@ -1053,29 +1183,44 @@ export default function App() {
                 )
               )}
             </dl>
-            {active.fileType !== 'arc' && active.fileType !== 'pdb' && (
-              <>
+            {active.fileType !== 'arc' && (
+              <div className="files-block">
                 <div className="key-row">
                   <span className="key-row-label">Key file</span>
                   <span className={active.keyName ? 'key-row-name' : 'key-row-name none'}>
                     {active.keyName ?? '(none)'}
                   </span>
                   <div className="key-row-actions">
-                    <button className="mini-btn" onClick={() => void handleAttach()} title="Attach .key, .seq, or .prm">
-                      Attach…
-                    </button>
                     <button className="mini-btn" onClick={handleEditKey}>
                       Edit…
                     </button>
                   </div>
                 </div>
-                <div className="key-row">
-                  <span className="key-row-label">Seq file</span>
-                  <span className={active.seqName ? 'key-row-name' : 'key-row-name none'}>
-                    {active.seqName ?? '(none)'}
-                  </span>
-                </div>
-              </>
+                {/* Only proteins/nucleic acids built with a sequence carry a .seq;
+                    show the row only once one is attached, so it isn't noise. */}
+                {active.seqName && (
+                  <div className="key-row">
+                    <span className="key-row-label">Seq file</span>
+                    <span className="key-row-name">{active.seqName}</span>
+                  </div>
+                )}
+                {/* A .dcd trajectory attached to this .xyz unlocks the playback panel. */}
+                {active.dcdName && (
+                  <div className="key-row">
+                    <span className="key-row-label">DCD file</span>
+                    <span className="key-row-name">{active.dcdName}</span>
+                  </div>
+                )}
+                {/* Attach applies to any supplementary file, not just the key —
+                    give it its own line so that's clear. */}
+                <button
+                  className="mini-btn attach-file-btn"
+                  onClick={() => void handleAttach()}
+                  title="Attach a Tinker .key, .seq, .prm, or .dcd trajectory to this system"
+                >
+                  Attach file… (.key / .seq / .prm / .dcd)
+                </button>
+              </div>
             )}
             <details
               className="atoms-disclosure"
@@ -1101,60 +1246,62 @@ export default function App() {
 
         {trajectory && frameCount > 1 && (
           <section className="panel">
-            <h2>Trajectory</h2>
-            <div className="traj-counter">
-              Frame {frameIndex + 1} / {frameCount}
-              {trajectory.indexing && (
-                <span className="traj-indexing"> · indexing… (~{trajectory.estimate})</span>
-              )}
-            </div>
-            <input
-              className="traj-slider"
-              type="range"
-              min={0}
-              max={frameCount - 1}
-              value={Math.min(frameIndex, frameCount - 1)}
-              onChange={(e) => {
-                setPlaying(false)
-                setFrameIndex(Number(e.target.value))
-              }}
-            />
-            <div className="traj-buttons">
-              <button className="seg-btn" title="First frame" onClick={() => { setPlaying(false); setFrameIndex(0) }}>
-                ⏮
-              </button>
-              <button
-                className="seg-btn"
-                title="Step back"
-                onClick={() => { setPlaying(false); setFrameIndex((f) => (f - 1 + frameCount) % frameCount) }}
-              >
-                ◀
-              </button>
-              <button className="seg-btn" title={playing ? 'Pause' : 'Play'} onClick={() => setPlaying((p) => !p)}>
-                {playing ? '⏸' : '▶'}
-              </button>
-              <button
-                className="seg-btn"
-                title="Step forward"
-                onClick={() => { setPlaying(false); setFrameIndex((f) => (f + 1) % frameCount) }}
-              >
-                ▶▏
-              </button>
-            </div>
-            <div className="traj-opts">
-              <label className="traj-opt">
-                <input type="checkbox" checked={oscillate} onChange={(e) => setOscillate(e.target.checked)} />
-                Oscillate
-              </label>
-              <label className="traj-opt">
-                Speed
-                <input type="number" min={1} max={60} value={speed} onChange={(e) => setSpeed(Number(e.target.value) || 1)} />
-              </label>
-              <label className="traj-opt">
-                Skip
-                <input type="number" min={1} value={skip} onChange={(e) => setSkip(Number(e.target.value) || 1)} />
-              </label>
-            </div>
+            <details className="atoms-disclosure" open>
+              <summary>Trajectory</summary>
+              <div className="traj-counter">
+                Frame {frameIndex + 1} / {frameCount}
+                {trajectory.indexing && (
+                  <span className="traj-indexing"> · indexing… (~{trajectory.estimate})</span>
+                )}
+              </div>
+              <input
+                className="traj-slider"
+                type="range"
+                min={0}
+                max={frameCount - 1}
+                value={Math.min(frameIndex, frameCount - 1)}
+                onChange={(e) => {
+                  setPlaying(false)
+                  setFrameIndex(Number(e.target.value))
+                }}
+              />
+              <div className="traj-buttons">
+                <button className="seg-btn" title="First frame" onClick={() => { setPlaying(false); setFrameIndex(0) }}>
+                  ⏮
+                </button>
+                <button
+                  className="seg-btn"
+                  title="Step back"
+                  onClick={() => { setPlaying(false); setFrameIndex((f) => (f - 1 + frameCount) % frameCount) }}
+                >
+                  ◀
+                </button>
+                <button className="seg-btn" title={playing ? 'Pause' : 'Play'} onClick={() => setPlaying((p) => !p)}>
+                  {playing ? '⏸' : '▶'}
+                </button>
+                <button
+                  className="seg-btn"
+                  title="Step forward"
+                  onClick={() => { setPlaying(false); setFrameIndex((f) => (f + 1) % frameCount) }}
+                >
+                  ▶▏
+                </button>
+              </div>
+              <div className="traj-opts">
+                <label className="traj-opt">
+                  <input type="checkbox" checked={oscillate} onChange={(e) => setOscillate(e.target.checked)} />
+                  Oscillate
+                </label>
+                <label className="traj-opt">
+                  Speed
+                  <input type="number" min={1} max={60} value={speed} onChange={(e) => setSpeed(Number(e.target.value) || 1)} />
+                </label>
+                <label className="traj-opt">
+                  Skip
+                  <input type="number" min={1} value={skip} onChange={(e) => setSkip(Number(e.target.value) || 1)} />
+                </label>
+              </div>
+            </details>
           </section>
         )}
 
@@ -1276,29 +1423,6 @@ export default function App() {
                 Only selection
               </label>
             </div>
-            <div className="control">
-              <span className="control-label">Perspective</span>
-              <div className="perspective-row">
-                <span className="perspective-end" title="Wide angle — camera close">
-                  ◗
-                </span>
-                <input
-                  className="perspective-slider"
-                  type="range"
-                  min={FOV_MIN}
-                  max={FOV_MAX}
-                  // Left = wide angle (large FOV); invert so the slider reads
-                  // near-to-far left-to-right.
-                  value={FOV_MIN + FOV_MAX - options.fov}
-                  onChange={(e) =>
-                    setOptions((o) => ({ ...o, fov: FOV_MIN + FOV_MAX - Number(e.target.value) }))
-                  }
-                />
-                <span className="perspective-end" title="Telephoto — camera far">
-                  ◓
-                </span>
-              </div>
-            </div>
           </details>
         </section>
 
@@ -1353,7 +1477,7 @@ export default function App() {
 
       <section className="viewport">
         <Viewer
-          renderables={renderables}
+          inputsRef={viewerInputsRef}
           options={options}
           sceneKey={sceneKey}
           pickingEnabled={active != null && !moveMode}
@@ -1361,16 +1485,8 @@ export default function App() {
           onPick={applySelection}
           manipulation={moveMode && active ? { systemId: active.id, mode: moveTransform } : null}
           onTransform={setSystemTransform}
-          liveUpdate={liveUpdate}
           coordKey={coordKey}
         />
-        <button
-          className="viewer-graphics"
-          title="Graphics settings"
-          onClick={() => setModal('graphics')}
-        >
-          ⚙
-        </button>
       </section>
 
       {downloadSource && (
@@ -1388,6 +1504,7 @@ export default function App() {
           tinkerDir={tinkerDir}
           jobs={jobs}
           onRunJob={startJob}
+          onStarted={() => setModal('jobs')}
           onClose={() => setModal(null)}
         />
       )}
@@ -1472,7 +1589,7 @@ const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
 ]
 
 const KEY_FILE_FILTERS = [{ name: 'Tinker Key Files', extensions: ['key'] }]
-const ATTACH_FILTERS = [{ name: 'Tinker Files', extensions: ['key', 'seq', 'prm'] }]
+const ATTACH_FILTERS = [{ name: 'Tinker Files', extensions: ['key', 'seq', 'prm', 'dcd'] }]
 // Used when running a command on a system that has no key attached.
 const DEFAULT_KEY = '# Force Field Explorer: no key file attached\n'
 
@@ -1553,7 +1670,7 @@ function GraphicsModal({
   const set = (patch: Partial<RenderOptions>): void => setOptions((o) => ({ ...o, ...patch }))
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-gfx" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>Graphics</h3>
           <button className="modal-x" onClick={onClose}>
@@ -1585,18 +1702,172 @@ function GraphicsModal({
           <span className="gfx-val">{options.bondScale.toFixed(2)}×</span>
         </div>
         <div className="gfx-row">
+          <label>Contrast</label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={options.contrast}
+            onChange={(e) => set({ contrast: Number(e.target.value) })}
+          />
+          <span className="gfx-val">{Math.round(options.contrast * 100)}%</span>
+        </div>
+        <div className="gfx-row">
+          <label>Perspective</label>
+          <div className="perspective-row">
+            <span className="perspective-end" title="Wide angle — camera close">
+              ◗
+            </span>
+            <input
+              className="perspective-slider"
+              type="range"
+              min={FOV_MIN}
+              max={FOV_MAX}
+              // Left = wide angle (large FOV); invert so the slider reads near-to-far.
+              value={FOV_MIN + FOV_MAX - options.fov}
+              onChange={(e) => set({ fov: FOV_MIN + FOV_MAX - Number(e.target.value) })}
+            />
+            <span className="perspective-end" title="Telephoto — camera far">
+              ◓
+            </span>
+          </div>
+        </div>
+        <div className="gfx-row">
+          <label>Finish</label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={options.glossiness}
+            onChange={(e) => set({ glossiness: Number(e.target.value) })}
+          />
+          <span className="gfx-val">{options.glossiness < 0.5 ? 'matte' : 'glossy'}</span>
+        </div>
+        <div className="gfx-row">
           <label>Background</label>
           <input
             type="color"
             value={hexColor(options.backgroundColor)}
             onChange={(e) => set({ backgroundColor: parseHexColor(e.target.value) })}
           />
+          <label className="gfx-check">
+            <input
+              type="checkbox"
+              checked={options.backgroundGradient}
+              onChange={(e) => set({ backgroundGradient: e.target.checked })}
+            />
+            Gradient
+          </label>
+        </div>
+        <div className="gfx-row">
+          <label>Antialiasing</label>
+          <label className="gfx-check">
+            <input
+              type="checkbox"
+              checked={options.antialias}
+              onChange={(e) => set({ antialias: e.target.checked })}
+            />
+            Smooth edges
+          </label>
+        </div>
+        <div className="gfx-row">
+          <label>Highlight</label>
+          <input
+            type="color"
+            value={hexColor(options.highlightColor)}
+            onChange={(e) => set({ highlightColor: parseHexColor(e.target.value) })}
+          />
+        </div>
+        <div className="gfx-row">
+          <label>Labels</label>
+          <input
+            type="color"
+            value={hexColor(options.labelColor)}
+            onChange={(e) => set({ labelColor: parseHexColor(e.target.value) })}
+          />
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.1}
+            value={options.labelScale}
+            onChange={(e) => set({ labelScale: Number(e.target.value) })}
+            title="Label size"
+          />
+        </div>
+        <div className="gfx-row">
+          <label>Depth cueing</label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={options.fog}
+            onChange={(e) => set({ fog: Number(e.target.value) })}
+          />
+          <span className="gfx-val">{options.fog === 0 ? 'off' : `${Math.round(options.fog * 100)}%`}</span>
+        </div>
+        <div className="gfx-row">
+          <label>Effects</label>
+          <label className="gfx-check">
+            <input
+              type="checkbox"
+              checked={options.ambientOcclusion}
+              onChange={(e) => set({ ambientOcclusion: e.target.checked })}
+            />
+            AO
+          </label>
+          <label className="gfx-check">
+            <input
+              type="checkbox"
+              checked={options.outline}
+              onChange={(e) => set({ outline: e.target.checked })}
+            />
+            Outline
+          </label>
+        </div>
+        <div className="gfx-row">
+          <label>Projection</label>
+          <label className="gfx-check">
+            <input
+              type="checkbox"
+              checked={options.orthographic}
+              onChange={(e) => set({ orthographic: e.target.checked })}
+            />
+            Orthographic
+          </label>
+          <label className="gfx-check">
+            <input
+              type="checkbox"
+              checked={options.showBox}
+              onChange={(e) => set({ showBox: e.target.checked })}
+            />
+            Periodic box
+          </label>
         </div>
         <div className="modal-buttons">
           <button
             className="modal-btn ghost"
             onClick={() =>
-              set({ ballScale: 1, bondScale: 1, backgroundColor: DEFAULT_BACKGROUND })
+              set({
+                ballScale: 1,
+                bondScale: 1,
+                backgroundColor: DEFAULT_BACKGROUND,
+                backgroundGradient: false,
+                contrast: CONTRAST_DEFAULT,
+                glossiness: GLOSSINESS_DEFAULT,
+                antialias: true,
+                highlightColor: HIGHLIGHT_COLOR_DEFAULT,
+                labelColor: LABEL_COLOR_DEFAULT,
+                labelScale: 1,
+                fog: 0,
+                ambientOcclusion: false,
+                outline: false,
+                orthographic: false,
+                showBox: false
+              })
             }
           >
             Reset

@@ -49,6 +49,8 @@ export interface MolecularSystem {
   seqName?: string
   /** Attached Tinker .seq file contents. */
   seqText?: string
+  /** Attached .dcd trajectory file name, if any (its frames stream via `trajectory.source`). */
+  dcdName?: string
   /** Rigid-body placement of this system in the scene (default: identity). */
   transform?: Transform
   /** Per-atom representation overrides (atom index -> representation). */

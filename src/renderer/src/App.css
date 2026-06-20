@@ -711,26 +711,6 @@ body {
   background: rgba(30, 33, 44, 0.9);
 }
 
-.viewer-graphics {
-  position: absolute;
-  top: 0.6rem;
-  right: 6.2rem;
-  z-index: 5;
-  font-size: 0.9rem;
-  line-height: 1;
-  color: var(--text-dim);
-  background: rgba(20, 22, 30, 0.7);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  cursor: pointer;
-}
-
-.viewer-graphics:hover {
-  color: var(--text);
-  background: rgba(30, 33, 44, 0.9);
-}
-
 .color-pick {
   display: flex;
   align-items: center;
@@ -767,6 +747,15 @@ body {
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);
   font-size: 0.78rem;
+}
+
+.gfx-check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .display-hint {
@@ -834,6 +823,22 @@ body {
 .key-row-actions {
   display: flex;
   gap: 0.35rem;
+}
+
+.files-block {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.files-block .key-row:first-child {
+  margin-top: 0;
+}
+
+/* Attach lives on its own line: it applies to .key/.seq/.prm, not just the key. */
+.attach-file-btn {
+  margin-top: 0.6rem;
+  width: 100%;
 }
 
 .kw-actions {
@@ -1083,6 +1088,12 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 100;
+}
+
+/* Graphics settings — wider so the labelled rows (label · control · value) fit. */
+.modal.modal-gfx {
+  width: 420px;
+  max-width: 94vw;
 }
 
 .modal {

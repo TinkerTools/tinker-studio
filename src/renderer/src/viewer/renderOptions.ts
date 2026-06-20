@@ -30,6 +30,33 @@ export interface RenderOptions {
   bondScale: number
   /** Viewport background color. */
   backgroundColor: number
+  /**
+   * Lighting contrast, 0..1. Shifts the balance between the camera headlights and
+   * ambient fill: 0 = flat / evenly lit, 1 = strong shading with a dim backside.
+   */
+  contrast: number
+  /** Surface finish, 0..1: 0 = matte, 1 = glossy. 0.5 ≈ the original look. */
+  glossiness: number
+  /** Antialiasing (SMAA) on/off. */
+  antialias: boolean
+  /** Render the background as a subtle vertical gradient instead of a flat color. */
+  backgroundGradient: boolean
+  /** Color of the selection highlight spheres. */
+  highlightColor: number
+  /** Atom-label text color. */
+  labelColor: number
+  /** Atom-label size multiplier. */
+  labelScale: number
+  /** Depth cueing (fog) amount, 0..1. 0 = off. Distant atoms fade to background. */
+  fog: number
+  /** Screen-space ambient occlusion (soft contact shadows). */
+  ambientOcclusion: boolean
+  /** Dark silhouette outline around shapes (depth-edge). */
+  outline: boolean
+  /** Orthographic projection (vs perspective). */
+  orthographic: boolean
+  /** Draw the periodic box, when the structure carries one. */
+  showBox: boolean
 }
 
 /** Field-of-view range for the perspective control (degrees). */
@@ -38,6 +65,13 @@ export const FOV_MAX = 90
 export const FOV_DEFAULT = 50
 
 export const DEFAULT_BACKGROUND = 0x12141a
+
+/** Default lighting contrast (0..1); ~matches the original fixed light balance. */
+export const CONTRAST_DEFAULT = 0.5
+/** Default surface finish (0..1); reproduces the original 0.4 material roughness. */
+export const GLOSSINESS_DEFAULT = 0.5
+export const HIGHLIGHT_COLOR_DEFAULT = 0xffd400
+export const LABEL_COLOR_DEFAULT = 0xffe066
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   representation: 'ball-and-stick',
@@ -49,7 +83,19 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   fov: FOV_DEFAULT,
   ballScale: 1,
   bondScale: 1,
-  backgroundColor: DEFAULT_BACKGROUND
+  backgroundColor: DEFAULT_BACKGROUND,
+  contrast: CONTRAST_DEFAULT,
+  glossiness: GLOSSINESS_DEFAULT,
+  antialias: true,
+  backgroundGradient: false,
+  highlightColor: HIGHLIGHT_COLOR_DEFAULT,
+  labelColor: LABEL_COLOR_DEFAULT,
+  labelScale: 1,
+  fog: 0,
+  ambientOcclusion: false,
+  outline: false,
+  orthographic: false,
+  showBox: false
 }
 
 export const REPRESENTATIONS: ReadonlyArray<{ value: Representation; label: string }> = [

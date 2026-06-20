@@ -16,8 +16,22 @@ export interface OpenedFile {
   /** Sibling Tinker .key file auto-located on open (name + contents). */
   keyName?: string
   keyText?: string
+  /** Sibling Tinker .seq file auto-located on open (name + contents). */
+  seqName?: string
+  seqText?: string
+  /** Path of a sibling .dcd trajectory (same stem), if one exists next to an .xyz. */
+  dcdPath?: string
   /** True for a .arc file: text is empty; open it lazily via the trajectory API. */
   arc?: boolean
+}
+
+/** Result of attaching a .dcd trajectory to a structure. */
+export interface DcdOpened {
+  ok: boolean
+  trajId?: string
+  frameCount?: number
+  name?: string
+  reason?: string
 }
 
 export interface TrajectoryOpened {
@@ -59,6 +73,17 @@ export interface JobLive {
   /** 'append' = one new frame (text is one coordinate set); 'replace' = full .arc. */
   mode: 'append' | 'replace'
   text: string
+}
+
+/**
+ * A live dynamics run's growing .arc is indexed on disk and served as a normal
+ * streamed trajectory; this just reports the current frame count so the renderer
+ * can follow along and scrub it through the windowed frame path.
+ */
+export interface JobLiveArc {
+  jobId: string
+  trajId: string
+  frameCount: number
 }
 
 export interface JobLiveEnd {
@@ -139,6 +164,11 @@ const api = {
       ipcRenderer.on('job:live', listener)
       return () => ipcRenderer.removeListener('job:live', listener)
     },
+    onLiveArc: (cb: (m: JobLiveArc) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, m: JobLiveArc): void => cb(m)
+      ipcRenderer.on('job:liveArc', listener)
+      return () => ipcRenderer.removeListener('job:liveArc', listener)
+    },
     onLiveEnd: (cb: (m: JobLiveEnd) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, m: JobLiveEnd): void => cb(m)
       ipcRenderer.on('job:liveEnd', listener)
@@ -155,6 +185,13 @@ const api = {
   openTextFile: (
     filters?: Array<{ name: string; extensions: string[] }>
   ): Promise<OpenedFile | null> => ipcRenderer.invoke('file:openText', filters),
+  /** Pick a file path without reading it (for binary attachments like .dcd). */
+  chooseFile: (
+    filters?: Array<{ name: string; extensions: string[] }>
+  ): Promise<{ path: string; name: string } | null> =>
+    ipcRenderer.invoke('file:choosePath', filters),
+  /** Read a text file by path. */
+  readTextFile: (path: string): Promise<string> => ipcRenderer.invoke('file:readText', path),
   /** Resolve the force-field .prm referenced by a key's PARAMETERS line. */
   resolveForceFieldFromKey: (
     keyText: string,
@@ -167,6 +204,11 @@ const api = {
     frame: (trajId: string, frame: number): Promise<Float32Array | null> =>
       ipcRenderer.invoke('trajectory:frame', trajId, frame),
     close: (trajId: string): Promise<boolean> => ipcRenderer.invoke('trajectory:close', trajId),
+    /** Validate + open a .dcd against an .xyz's atom count; resolves to a trajId on success. */
+    openDcd: (path: string, natoms: number): Promise<DcdOpened> =>
+      ipcRenderer.invoke('trajectory:openDcd', path, natoms),
+    /** Show a dialog to pick a .dcd file; resolves to its path, or null. */
+    chooseDcd: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseDcd'),
     /** Fires as a trajectory's background index grows (and once when done). */
     onProgress: (cb: (p: TrajectoryProgress) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, p: TrajectoryProgress): void => cb(p)

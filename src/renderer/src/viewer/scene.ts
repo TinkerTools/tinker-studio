@@ -3,13 +3,21 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { TransformControls } from 'three/addons/controls/TransformControls.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { OUTLINE_SHADER, AO_SHADER } from './postShaders'
 import type { Structure } from '../core/types'
 import { applyTransform, type Transform } from '../core/transform'
 import { elementInfo } from '../core/elements'
 import { type RenderOptions, type Representation, type ColorMode } from './renderOptions'
-import { createImpostorSpheres, updateImpostorLighting } from './impostorSpheres'
+import {
+  createImpostorSpheres,
+  updateImpostorLighting,
+  updateImpostorFinish,
+  updateImpostorOrtho,
+  updateImpostorFog
+} from './impostorSpheres'
 
 /**
  * The Three.js viewport core. Renders one or more systems at once (setScene),
@@ -64,6 +72,24 @@ export interface SceneHandle {
   setFov(fov: number): void
   /** Set the viewport background color. */
   setBackground(color: number): void
+  /** Render the background as a vertical gradient (vs flat). */
+  setBackgroundGradient(on: boolean): void
+  /** Set lighting contrast (0..1): directional-vs-ambient balance. */
+  setContrast(contrast: number): void
+  /** Set surface finish (0..1): matte → glossy. */
+  setFinish(glossiness: number): void
+  /** Toggle antialiasing (SMAA). */
+  setAntialias(on: boolean): void
+  /** Set selection-highlight color + atom-label color/size. */
+  setHighlightStyle(color: number, labelColor: number, labelScale: number): void
+  /** Set depth-cueing (fog) amount, 0..1 (0 = off). */
+  setFog(amount: number): void
+  /** Toggle orthographic projection. */
+  setOrthographic(on: boolean): void
+  /** Toggle the silhouette outline post-pass. */
+  setOutline(on: boolean): void
+  /** Toggle screen-space ambient occlusion. */
+  setAmbientOcclusion(on: boolean): void
   /** Re-frame the camera to fit the current scene. */
   recenter(): void
   /** Update one system's coordinates in place (trajectory frame); no rebuild. */
@@ -118,7 +144,13 @@ function repSpec(rep: Representation): RepSpec {
     case 'spacefill':
       return { atomRadius: (vdw) => vdw, bond: 'none', bondRadius: 0 }
     case 'sticks':
-      return { atomRadius: () => 0.18, bond: 'cylinder', bondRadius: 0.18 }
+      // The cap sphere must be a touch larger than the bond cylinder. If they
+      // were exactly equal their surfaces would be tangent along the whole
+      // joint, and since the spheres are GPU impostors (writing gl_FragDepth)
+      // while the bonds are real cylinder meshes, the depth buffer fights along
+      // that ring — the moiré "wave" at the caps. A slightly larger sphere
+      // subsumes the cylinder end and reads as a clean rounded joint.
+      return { atomRadius: () => 0.2, bond: 'cylinder', bondRadius: 0.18 }
     case 'wireframe':
       // No atom spheres in wireframe — just the bond lines.
       return { atomRadius: () => 0, bond: 'line', bondRadius: 0 }
@@ -218,34 +250,154 @@ export function createScene(container: HTMLElement): SceneHandle {
   controls.staticMoving = false
   controls.dynamicDampingFactor = 0.15
 
-  const ambientIntensity = 0.55
-  scene.add(new THREE.AmbientLight(0xffffff, ambientIntensity))
+  let ambientIntensity = 0.55
+  const ambient = new THREE.AmbientLight(0xffffff, ambientIntensity)
+  scene.add(ambient)
+  // Camera-attached "headlights": the lights (and their targets) are children of
+  // the camera, so they orbit with it — the side facing the viewer is always lit
+  // and rotating never reveals a dark, shadowed backside. The camera itself must
+  // be in the scene graph for its child lights to take effect.
+  scene.add(camera)
   const key = new THREE.DirectionalLight(0xffffff, 1.3)
-  key.position.set(5, 10, 7)
-  scene.add(key)
+  key.position.set(0.3, 0.4, 1) // camera space: front, slightly up/right of the lens
+  camera.add(key)
+  camera.add(key.target) // target at the camera origin → light direction fixed in view space
   const fill = new THREE.DirectionalLight(0x9bb0ff, 0.35)
-  fill.position.set(-6, -3, -4)
-  scene.add(fill)
+  fill.position.set(-0.4, -0.3, 0.8) // a softer fill from the lower-left, still frontal
+  camera.add(fill)
+  camera.add(fill.target)
 
-  // Scratch for syncing the impostor shader's lighting to these lights each frame.
-  const _keyView = new THREE.Vector3()
-  const _fillView = new THREE.Vector3()
+  // Lighting contrast (0..1): shift the balance between the directional headlights
+  // and the ambient fill. Low = flat/evenly lit; high = strong shading, dim back.
+  // The default (0.5) reproduces the original fixed light balance.
+  function setContrast(c: number): void {
+    const t = Math.min(1, Math.max(0, c))
+    const lerp = (a: number, b: number): number => a + (b - a) * t
+    ambientIntensity = lerp(0.85, 0.2)
+    ambient.intensity = ambientIntensity
+    key.intensity = lerp(0.6, 1.9)
+    fill.intensity = lerp(0.15, 0.5)
+    // The impostor uniforms are refreshed from these every frame (see tick).
+  }
+
+  // With camera-attached lights the view-space light directions are constant, so
+  // the impostor shader (which shades in view space) just mirrors them — matching
+  // the cylinders' headlight exactly. Only the colors/intensities are re-read.
+  const _keyView = new THREE.Vector3(0.3, 0.4, 1).normalize()
+  const _fillView = new THREE.Vector3(-0.4, -0.3, 0.8).normalize()
   const _keyCol = new THREE.Color()
   const _fillCol = new THREE.Color()
   function syncImpostorLighting(): void {
-    _keyView.copy(key.position).normalize().transformDirection(camera.matrixWorldInverse)
-    _fillView.copy(fill.position).normalize().transformDirection(camera.matrixWorldInverse)
     _keyCol.copy(key.color).multiplyScalar(key.intensity)
     _fillCol.copy(fill.color).multiplyScalar(fill.intensity)
     updateImpostorLighting(_keyView, _keyCol, _fillView, _fillCol, ambientIntensity)
   }
 
+  // Orthographic rendering uses a second camera synced to the perspective one
+  // (which still owns the lights / controls / picking). Only the *render* camera
+  // is swapped, and the impostor shader is told which ray model to use.
+  const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000)
+  let renderCamera: THREE.Camera = camera
+  let orthographic = false
+  function syncOrthoCamera(): void {
+    orthoCamera.position.copy(camera.position)
+    orthoCamera.quaternion.copy(camera.quaternion)
+    const dist = camera.position.distanceTo(controls.target)
+    const size = dist * Math.tan((camera.fov * Math.PI) / 360)
+    const aspect = aspectOf(container)
+    orthoCamera.left = -size * aspect
+    orthoCamera.right = size * aspect
+    orthoCamera.top = size
+    orthoCamera.bottom = -size
+    orthoCamera.near = camera.near
+    orthoCamera.far = camera.far
+    orthoCamera.updateProjectionMatrix()
+  }
+
+  // Depth pre-pass target: when outline/AO are on, the scene is rendered once to
+  // capture true depth (the impostors write gl_FragDepth), which the post shaders
+  // read. three's own SSAO/Outline passes can't do this — they re-render with
+  // override materials and would see the impostors' flat billboards.
+  const depthRT = new THREE.WebGLRenderTarget(1, 1, {
+    depthTexture: new THREE.DepthTexture(1, 1),
+    depthBuffer: true
+  })
+
   const composer = new EffectComposer(renderer)
-  composer.addPass(new RenderPass(scene, camera))
-  composer.addPass(new SMAAPass())
+  const renderPass = new RenderPass(scene, camera)
+  composer.addPass(renderPass)
+  const aoPass = new ShaderPass(AO_SHADER)
+  aoPass.enabled = false
+  composer.addPass(aoPass)
+  const outlinePass = new ShaderPass(OUTLINE_SHADER)
+  outlinePass.enabled = false
+  composer.addPass(outlinePass)
+  const smaaPass = new SMAAPass()
+  composer.addPass(smaaPass)
   composer.addPass(new OutputPass())
   composer.setPixelRatio(pixelRatio)
   composer.setSize(container.clientWidth, container.clientHeight)
+  depthRT.setSize(container.clientWidth * pixelRatio, container.clientHeight * pixelRatio)
+
+  // Depth cueing (fog). 0 = off; near/far recomputed each frame from the camera
+  // distance so it tracks zoom. Cylinders use scene.fog; impostors mirror it.
+  let fogAmount = 0
+  const fog = new THREE.Fog(0x12141a, 1, 1000)
+  const _fogColor = new THREE.Color()
+  function setFog(amount: number): void {
+    fogAmount = Math.min(1, Math.max(0, amount))
+    if (fogAmount <= 0) {
+      scene.fog = null
+      updateImpostorFog(0, 1, 1000, _fogColor.set(bgColor))
+    }
+  }
+  function setOrthographic(on: boolean): void {
+    orthographic = on
+    renderCamera = on ? orthoCamera : camera
+    renderPass.camera = renderCamera
+    if (on) syncOrthoCamera()
+    updateImpostorOrtho(on)
+  }
+  function setOutline(on: boolean): void {
+    outlinePass.enabled = on
+  }
+  function setAmbientOcclusion(on: boolean): void {
+    aoPass.enabled = on
+  }
+
+  // Appearance state adjustable live from the Graphics settings.
+  let highlightColor = 0xffd400
+  let labelColor = 0xffe066
+  let labelScale = 1
+  let lastHighlightItems: HighlightItem[] = []
+  let bgColor = 0x12141a
+  let bgGradient = false
+  let bgTexture: THREE.Texture | null = null
+
+  // Surface finish: matte (low gloss) → glossy (tight, bright highlight + lower
+  // roughness). 0.5 reproduces the original 0.4-roughness / 0.1-spec look.
+  function applyFinish(glossiness: number): void {
+    const g = Math.min(1, Math.max(0, glossiness))
+    updateImpostorFinish(0.04 + g * 0.12, 8 + g * 44)
+    const roughness = 0.7 - 0.6 * g
+    for (const grp of groups) {
+      grp.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined
+        if (m && m.isMeshStandardMaterial) m.roughness = roughness
+      })
+    }
+  }
+
+  function applyBackground(): void {
+    bgTexture?.dispose()
+    if (bgGradient) {
+      bgTexture = makeGradientTexture(bgColor)
+      scene.background = bgTexture
+    } else {
+      bgTexture = null
+      scene.background = new THREE.Color(bgColor)
+    }
+  }
 
   // All visible systems are rendered as ONE merged set of meshes (impostor atoms,
   // instanced cylinder bonds, line bonds). Rendering each system as its own
@@ -332,7 +484,9 @@ export function createScene(container: HTMLElement): SceneHandle {
     clearGroups()
     pickables = []
     lastRenderables = renderables
-    ;(scene.background as THREE.Color).set(options.backgroundColor)
+    bgColor = options.backgroundColor
+    bgGradient = options.backgroundGradient
+    applyBackground()
     const merged = new THREE.Group()
 
     // World-space accumulators for the single merged meshes.
@@ -439,9 +593,21 @@ export function createScene(container: HTMLElement): SceneHandle {
       lineMesh = buildLineBonds(lin)
       merged.add(lineMesh)
     }
+    if (options.showBox) {
+      for (const r of renderables) {
+        if (!r.structure.box) continue
+        const box = buildBox(r.structure.box)
+        if (r.transform) {
+          box.position.set(...r.transform.position)
+          box.quaternion.set(...r.transform.quaternion)
+        }
+        merged.add(box)
+      }
+    }
 
     scene.add(merged)
     groups.push(merged)
+    applyFinish(options.glossiness)
     applyManipulation()
     const k = renderables.map((r) => r.id).join(',')
     if (k !== lastKey) {
@@ -462,46 +628,90 @@ export function createScene(container: HTMLElement): SceneHandle {
     if (!built || !r || !atomMesh || !atomCenters) return
     const atoms = r.structure.atoms
 
-    const baseOf = (i: number): [number, number, number] =>
-      coords ? [coords[i * 3], coords[i * 3 + 1], coords[i * 3 + 2]] : [atoms[i].x, atoms[i].y, atoms[i].z]
-    const worldOf = (i: number): [number, number, number] => {
-      const b = baseOf(i)
-      return transform ? applyTransform(b, transform) : b
+    // Base (untransformed) coordinates of atom i, written into `out` — no alloc.
+    const baseInto = (out: Vec3, i: number): void => {
+      if (coords) {
+        out[0] = coords[i * 3]
+        out[1] = coords[i * 3 + 1]
+        out[2] = coords[i * 3 + 2]
+      } else {
+        out[0] = atoms[i].x
+        out[1] = atoms[i].y
+        out[2] = atoms[i].z
+      }
+    }
+    // World coordinates (base + rigid transform) of atom i, written into `out`.
+    // The quaternion rotation is inlined so we never allocate a result array.
+    const worldInto = (out: Vec3, i: number): void => {
+      baseInto(out, i)
+      if (!transform) return
+      const x = out[0]
+      const y = out[1]
+      const z = out[2]
+      const qx = transform.quaternion[0]
+      const qy = transform.quaternion[1]
+      const qz = transform.quaternion[2]
+      const qw = transform.quaternion[3]
+      const tx = 2 * (qy * z - qz * y)
+      const ty = 2 * (qz * x - qx * z)
+      const tz = 2 * (qx * y - qy * x)
+      out[0] = x + qw * tx + (qy * tz - qz * ty) + transform.position[0]
+      out[1] = y + qw * ty + (qz * tx - qx * tz) + transform.position[1]
+      out[2] = z + qw * tz + (qx * ty - qy * tx) + transform.position[2]
     }
 
-    built.atomSlots.forEach((atomIndex, j) => {
+    for (let j = 0; j < built.atomSlots.length; j++) {
+      const atomIndex = built.atomSlots[j]
       const slot = built.atomStart + j
-      const w = worldOf(atomIndex)
-      atomCenters![slot * 3] = w[0]
-      atomCenters![slot * 3 + 1] = w[1]
-      atomCenters![slot * 3 + 2] = w[2]
+      worldInto(_waScratch, atomIndex)
+      atomCenters[slot * 3] = _waScratch[0]
+      atomCenters[slot * 3 + 1] = _waScratch[1]
+      atomCenters[slot * 3 + 2] = _waScratch[2]
       const pk = pickables[slot]
-      pk.x = w[0]
-      pk.y = w[1]
-      pk.z = w[2]
-      const base = baseOf(atomIndex)
-      pk.bx = base[0]
-      pk.by = base[1]
-      pk.bz = base[2]
-    })
+      pk.x = _waScratch[0]
+      pk.y = _waScratch[1]
+      pk.z = _waScratch[2]
+      baseInto(_wbScratch, atomIndex)
+      pk.bx = _wbScratch[0]
+      pk.by = _wbScratch[1]
+      pk.bz = _wbScratch[2]
+    }
     ;(atomMesh.geometry.getAttribute('aCenter') as THREE.BufferAttribute).needsUpdate = true
 
     if (cylMesh && built.cylBonds.length > 0) {
-      built.cylBonds.forEach((bd, k) => {
-        placeBondCylinders(cylMesh!, built.cylStart + k, worldOf(bd.a), worldOf(bd.b), bd.radius)
-      })
+      for (let k = 0; k < built.cylBonds.length; k++) {
+        const bd = built.cylBonds[k]
+        worldInto(_waScratch, bd.a)
+        worldInto(_wbScratch, bd.b)
+        placeBondCylinders(cylMesh, built.cylStart + k, _waScratch, _wbScratch, bd.radius)
+      }
       cylMesh.instanceMatrix.needsUpdate = true
     }
 
     if (lineMesh && built.lineBonds.length > 0) {
       const pos = lineMesh.geometry.getAttribute('position') as THREE.BufferAttribute
       const arr = pos.array as Float32Array
-      built.lineBonds.forEach((bd, k) => {
-        const wa = worldOf(bd.a)
-        const wb = worldOf(bd.b)
-        const m: Vec3 = [(wa[0] + wb[0]) / 2, (wa[1] + wb[1]) / 2, (wa[2] + wb[2]) / 2]
-        arr.set([...wa, ...m, ...m, ...wb], (built.lineStart + k) * 12)
-      })
+      for (let k = 0; k < built.lineBonds.length; k++) {
+        const bd = built.lineBonds[k]
+        worldInto(_waScratch, bd.a)
+        worldInto(_wbScratch, bd.b)
+        const mx = (_waScratch[0] + _wbScratch[0]) / 2
+        const my = (_waScratch[1] + _wbScratch[1]) / 2
+        const mz = (_waScratch[2] + _wbScratch[2]) / 2
+        const base = (built.lineStart + k) * 12
+        arr[base] = _waScratch[0]
+        arr[base + 1] = _waScratch[1]
+        arr[base + 2] = _waScratch[2]
+        arr[base + 3] = mx
+        arr[base + 4] = my
+        arr[base + 5] = mz
+        arr[base + 6] = mx
+        arr[base + 7] = my
+        arr[base + 8] = mz
+        arr[base + 9] = _wbScratch[0]
+        arr[base + 10] = _wbScratch[1]
+        arr[base + 11] = _wbScratch[2]
+      }
       pos.needsUpdate = true
     }
 
@@ -516,7 +726,7 @@ export function createScene(container: HTMLElement): SceneHandle {
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1
     )
-    raycaster.setFromCamera(ndc, camera)
+    raycaster.setFromCamera(ndc, renderCamera)
     const ray = raycaster.ray
     const oc = new THREE.Vector3()
     const center = new THREE.Vector3()
@@ -545,6 +755,7 @@ export function createScene(container: HTMLElement): SceneHandle {
   }
 
   function setHighlights(items: HighlightItem[]): void {
+    lastHighlightItems = items
     if (highlightGroup) {
       scene.remove(highlightGroup)
       disposeGroup(highlightGroup)
@@ -554,7 +765,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     const group = new THREE.Group()
     const geometry = new THREE.SphereGeometry(1, 16, 16)
     const material = new THREE.MeshBasicMaterial({
-      color: 0xffd400,
+      color: highlightColor,
       transparent: true,
       opacity: 0.5,
       depthTest: false
@@ -567,7 +778,7 @@ export function createScene(container: HTMLElement): SceneHandle {
       mesh.renderOrder = 999
       group.add(mesh)
       if (it.label) {
-        const sprite = makeLabelSprite(it.label)
+        const sprite = makeLabelSprite(it.label, labelScale, labelColor)
         sprite.position.set(x, y, z)
         group.add(sprite)
       }
@@ -582,6 +793,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     if (w === 0 || h === 0) return
     renderer.setSize(w, h)
     composer.setSize(w, h)
+    depthRT.setSize(w * pixelRatio, h * pixelRatio)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
     controls.handleResize()
@@ -594,7 +806,35 @@ export function createScene(container: HTMLElement): SceneHandle {
     controls.update()
     camera.updateMatrixWorld()
     camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
+    if (orthographic) syncOrthoCamera()
     syncImpostorLighting()
+    // Depth cueing: track the camera distance so fog density feels consistent.
+    if (fogAmount > 0) {
+      const dist = camera.position.distanceTo(controls.target)
+      const near = dist * (2.0 - 1.6 * fogAmount)
+      const far = dist * (6.0 - 4.9 * fogAmount)
+      _fogColor.set(bgColor)
+      fog.near = near
+      fog.far = far
+      fog.color.copy(_fogColor)
+      scene.fog = fog
+      updateImpostorFog(fogAmount, near, far, _fogColor)
+    }
+    // Depth pre-pass: render once to capture true depth for the outline / AO
+    // shaders (only when at least one is enabled).
+    if (aoPass.enabled || outlinePass.enabled) {
+      renderer.setRenderTarget(depthRT)
+      renderer.render(scene, renderCamera)
+      renderer.setRenderTarget(null)
+      const rc = renderCamera as THREE.PerspectiveCamera
+      for (const p of [aoPass, outlinePass]) {
+        if (!p.enabled) continue
+        p.uniforms.tDepth.value = depthRT.depthTexture
+        p.uniforms.cameraNear.value = rc.near
+        p.uniforms.cameraFar.value = rc.far
+        ;(p.uniforms.resolution.value as THREE.Vector2).set(depthRT.width, depthRT.height)
+      }
+    }
     composer.render()
     raf = requestAnimationFrame(tick)
   }
@@ -629,8 +869,30 @@ export function createScene(container: HTMLElement): SceneHandle {
       frameCameraToRenderables(lastRenderables, camera, controls)
     },
     setBackground(color): void {
-      ;(scene.background as THREE.Color).set(color)
+      bgColor = color
+      applyBackground()
     },
+    setBackgroundGradient(on): void {
+      bgGradient = on
+      applyBackground()
+    },
+    setContrast,
+    setFinish(glossiness): void {
+      applyFinish(glossiness)
+    },
+    setAntialias(on): void {
+      smaaPass.enabled = on
+    },
+    setHighlightStyle(color, lblColor, lblScale): void {
+      highlightColor = color
+      labelColor = lblColor
+      labelScale = lblScale
+      if (lastHighlightItems.length) setHighlights(lastHighlightItems)
+    },
+    setFog,
+    setOrthographic,
+    setOutline,
+    setAmbientOcclusion,
     updateSystem,
     dispose(): void {
       cancelAnimationFrame(raf)
@@ -641,6 +903,8 @@ export function createScene(container: HTMLElement): SceneHandle {
       gizmo.dispose()
       clearGroups()
       if (highlightGroup) disposeGroup(highlightGroup)
+      bgTexture?.dispose()
+      depthRT.dispose()
       composer.dispose()
       renderer.dispose()
       if (renderer.domElement.parentNode === container) {
@@ -706,6 +970,12 @@ function buildBackboneTube(
 const _dummy = new THREE.Object3D()
 const _dir = new THREE.Vector3()
 const _up = new THREE.Vector3(0, 1, 0)
+// Reused world/midpoint vectors so the per-frame update allocates nothing — at
+// ~120k bonds+atoms per frame, allocating tuples here forced V8 to grow its heap
+// into the gigabytes (committed, never released) during trajectory playback.
+const _midScratch: Vec3 = [0, 0, 0]
+const _waScratch: Vec3 = [0, 0, 0]
+const _wbScratch: Vec3 = [0, 0, 0]
 
 function placeCylinder(mesh: THREE.InstancedMesh, slot: number, from: Vec3, to: Vec3, radius: number): void {
   _dir.set(to[0] - from[0], to[1] - from[1], to[2] - from[2])
@@ -726,15 +996,21 @@ function placeBondCylinders(
   wb: Vec3,
   radius: number
 ): void {
-  const mid: Vec3 = [(wa[0] + wb[0]) / 2, (wa[1] + wb[1]) / 2, (wa[2] + wb[2]) / 2]
-  placeCylinder(mesh, bondSlot * 2, wa, mid, radius)
-  placeCylinder(mesh, bondSlot * 2 + 1, wb, mid, radius)
+  _midScratch[0] = (wa[0] + wb[0]) / 2
+  _midScratch[1] = (wa[1] + wb[1]) / 2
+  _midScratch[2] = (wa[2] + wb[2]) / 2
+  placeCylinder(mesh, bondSlot * 2, wa, _midScratch, radius)
+  placeCylinder(mesh, bondSlot * 2 + 1, wb, _midScratch, radius)
 }
 
 function buildCylinderBonds(drawn: WorldBond[]): THREE.InstancedMesh {
   const geometry = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true)
   const material = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.0 })
   const mesh = new THREE.InstancedMesh(geometry, material, drawn.length * 2)
+  // The matrices are rewritten every frame during playback — see the aCenter
+  // note in impostorSpheres.ts. Mark dynamic so the driver reuses one buffer
+  // instead of orphaning (and pooling) a new one per update.
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   const color = new THREE.Color()
   drawn.forEach((b, k) => {
     placeBondCylinders(mesh, k, b.wa, b.wb, b.radius)
@@ -762,13 +1038,77 @@ function buildLineBonds(drawn: WorldBond[]): THREE.LineSegments {
     colors.set([...ca, ...ca, ...cb, ...cb], k * 12)
   })
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  // position is rewritten every frame during playback — mark dynamic to avoid
+  // the driver buffer-orphaning growth (see the aCenter note in impostorSpheres).
+  const pos = new THREE.BufferAttribute(positions, 3)
+  pos.setUsage(THREE.DynamicDrawUsage)
+  geometry.setAttribute('position', pos)
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   const material = new THREE.LineBasicMaterial({ vertexColors: true })
   return new THREE.LineSegments(geometry, material)
 }
 
-function makeLabelSprite(text: string): THREE.Sprite {
+/** Wireframe of a Tinker periodic box (a,b,c,α,β,γ), centered at the origin. */
+function buildBox(box: [number, number, number, number, number, number]): THREE.LineSegments {
+  const [a, b, c, alpha, beta, gamma] = box
+  const deg = Math.PI / 180
+  const ca = Math.cos(alpha * deg)
+  const cb = Math.cos(beta * deg)
+  const cg = Math.cos(gamma * deg)
+  const sg = Math.sin(gamma * deg) || 1
+  // Lattice vectors from the cell parameters (standard crystallographic convention).
+  const va = new THREE.Vector3(a, 0, 0)
+  const vb = new THREE.Vector3(b * cg, b * sg, 0)
+  const cx = c * cb
+  const cy = (c * (ca - cb * cg)) / sg
+  const vc = new THREE.Vector3(cx, cy, Math.sqrt(Math.max(c * c - cx * cx - cy * cy, 0)))
+  const corners: THREE.Vector3[] = []
+  for (let k = 0; k < 2; k++)
+    for (let j = 0; j < 2; j++)
+      for (let i = 0; i < 2; i++) {
+        corners.push(
+          new THREE.Vector3()
+            .addScaledVector(va, i - 0.5)
+            .addScaledVector(vb, j - 0.5)
+            .addScaledVector(vc, k - 0.5)
+        )
+      }
+  // 12 edges by corner index (index = i + 2j + 4k).
+  const edges = [
+    [0, 1], [2, 3], [4, 5], [6, 7],
+    [0, 2], [1, 3], [4, 6], [5, 7],
+    [0, 4], [1, 5], [2, 6], [3, 7]
+  ]
+  const pos: number[] = []
+  for (const [s, e] of edges) {
+    pos.push(corners[s].x, corners[s].y, corners[s].z, corners[e].x, corners[e].y, corners[e].z)
+  }
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  const mat = new THREE.LineBasicMaterial({ color: 0x6b7280, transparent: true, opacity: 0.6 })
+  return new THREE.LineSegments(geom, mat)
+}
+
+/** A 2×256 vertical gradient (darkened top → slightly lightened bottom) of `color`. */
+function makeGradientTexture(color: number): THREE.Texture {
+  const c = new THREE.Color(color)
+  const top = c.clone().multiplyScalar(0.55)
+  const bottom = c.clone().lerp(new THREE.Color(0xffffff), 0.08)
+  const canvas = document.createElement('canvas')
+  canvas.width = 2
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+  const grad = ctx.createLinearGradient(0, 0, 0, 256)
+  grad.addColorStop(0, `#${top.getHexString()}`)
+  grad.addColorStop(1, `#${bottom.getHexString()}`)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, 2, 256)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+function makeLabelSprite(text: string, scale: number, color: number): THREE.Sprite {
   const fontPx = 56
   const pad = 10
   const measureCtx = document.createElement('canvas').getContext('2d')!
@@ -782,7 +1122,7 @@ function makeLabelSprite(text: string): THREE.Sprite {
   ctx.font = `${fontPx}px sans-serif`
   ctx.fillStyle = 'rgba(10,12,18,0.72)'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.fillStyle = '#ffe066'
+  ctx.fillStyle = '#' + (color & 0xffffff).toString(16).padStart(6, '0')
   ctx.textBaseline = 'middle'
   ctx.fillText(text, pad, canvas.height / 2)
 
@@ -795,7 +1135,7 @@ function makeLabelSprite(text: string): THREE.Sprite {
     sizeAttenuation: false
   })
   const sprite = new THREE.Sprite(material)
-  const h = 0.05
+  const h = 0.05 * scale
   sprite.scale.set((canvas.width / canvas.height) * h, h, 1)
   sprite.renderOrder = 1001
   return sprite

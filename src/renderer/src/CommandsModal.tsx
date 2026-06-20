@@ -9,7 +9,7 @@ type RunJob = (
   stdin: string,
   watch: boolean,
   requiresStructure: boolean
-) => Promise<string>
+) => Promise<{ id: string; ok: boolean }>
 
 // fileTypes ['ANY'] are sequence builders (protein/nucleic) that take no
 // coordinate file; everything else operates on a loaded structure.
@@ -29,12 +29,15 @@ export function CommandsModal({
   tinkerDir,
   jobs,
   onRunJob,
+  onStarted,
   onClose
 }: {
   system: MolecularSystem | null
   tinkerDir?: string
   jobs: JobRecord[]
   onRunJob: RunJob
+  /** Called when a command is launched — used to jump to the Job Output view. */
+  onStarted: () => void
   onClose: () => void
 }) {
   const ft = system?.fileType.toUpperCase()
@@ -79,6 +82,7 @@ export function CommandsModal({
                 tinkerDir={tinkerDir}
                 jobs={jobs}
                 onRunJob={onRunJob}
+                onStarted={onStarted}
               />
             )}
           </div>
@@ -93,13 +97,15 @@ function CommandDetail({
   system,
   tinkerDir,
   jobs,
-  onRunJob
+  onRunJob,
+  onStarted
 }: {
   command: TinkerCommand
   system: MolecularSystem | null
   tinkerDir?: string
   jobs: JobRecord[]
   onRunJob: RunJob
+  onStarted: () => void
 }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const valueOf = (o: TinkerOption): string => values[o.name] ?? o.default
@@ -131,6 +137,7 @@ function CommandDetail({
         tinkerDir={tinkerDir}
         jobs={jobs}
         onRunJob={onRunJob}
+        onStarted={onStarted}
         buildStdin={buildStdin}
       />
     </>
@@ -216,6 +223,7 @@ function RunSection({
   tinkerDir,
   jobs,
   onRunJob,
+  onStarted,
   buildStdin
 }: {
   command: TinkerCommand
@@ -223,6 +231,7 @@ function RunSection({
   tinkerDir?: string
   jobs: JobRecord[]
   onRunJob: RunJob
+  onStarted: () => void
   buildStdin: () => string
 }) {
   // The job started from this panel; its output/status are read from the shared
@@ -237,8 +246,11 @@ function RunSection({
   const noKeyWarning = requires && system != null && !system.keyText
 
   async function run(): Promise<void> {
-    const id = await onRunJob(command.name.toLowerCase(), system, buildStdin(), watchLive, requires)
+    const { id } = await onRunJob(command.name.toLowerCase(), system, buildStdin(), watchLive, requires)
     setJobId(id)
+    // Whether it spawned or failed to, a job record now exists — jump to the Job
+    // Output view (which focuses the newest job) so the user sees its log there.
+    onStarted()
   }
 
   return (

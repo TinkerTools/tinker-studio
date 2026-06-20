@@ -21,6 +21,12 @@ export function hasSaveCycle(keyText?: string): boolean {
   return keyText.split(/\r?\n/).some((l) => /^\s*save-cycle\b/i.test(l))
 }
 
+/** True if the key requests DCD trajectory output (Tinker's DCD-ARCHIVE keyword). */
+export function hasDcdArchive(keyText?: string): boolean {
+  if (!keyText) return false
+  return keyText.split(/\r?\n/).some((l) => /^\s*dcd-archive\b/i.test(l))
+}
+
 /** Build a temp key = the real key (if any) plus a SAVE-CYCLE line. */
 export function buildLiveKey(realKeyText?: string): string {
   const base = realKeyText && realKeyText.trim() ? realKeyText.replace(/\s*$/, '') + '\n' : ''

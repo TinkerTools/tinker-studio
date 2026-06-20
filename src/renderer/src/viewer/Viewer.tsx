@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type MutableRefObject } from 'react'
 import {
   createScene,
   type SceneHandle,
@@ -11,13 +11,26 @@ import type { Transform } from '../core/transform'
 import type { RenderOptions } from './renderOptions'
 
 /**
+ * Heavy per-frame scene inputs (the full structure + coordinate arrays). These
+ * are passed through a ref rather than props on purpose: in dev, React 19's
+ * component-render performance tracking deep-walks and String()-ifies every
+ * prop on each render, and stringifying a 19k-atom structure every frame
+ * allocated ~15MB/frame and ballooned the V8 heap. A ref's identity is stable,
+ * so React never inspects its contents.
+ */
+export interface ViewerInputs {
+  renderables: Renderable[]
+  liveUpdate: { systemId: string; coords: Float32Array | null; transform?: Transform } | null
+}
+
+/**
  * React wrapper that owns the lifetime of the Three.js scene. It feeds in the
  * renderables (one per visible system) + options whenever `sceneKey` changes,
  * forwards highlight markers, and — when picking is enabled — turns a click
  * (not a drag) into an atom pick.
  */
 export function Viewer({
-  renderables,
+  inputsRef,
   options,
   sceneKey,
   pickingEnabled = false,
@@ -25,10 +38,10 @@ export function Viewer({
   onPick,
   manipulation = null,
   onTransform,
-  liveUpdate = null,
   coordKey = ''
 }: {
-  renderables: Renderable[]
+  /** Heavy scene data (structure + coords), passed by ref to keep it out of prop diffing. */
+  inputsRef: MutableRefObject<ViewerInputs>
   options: RenderOptions
   sceneKey: string
   pickingEnabled?: boolean
@@ -36,26 +49,20 @@ export function Viewer({
   onPick?: (result: PickResult | null, additive: boolean) => void
   manipulation?: ManipTarget | null
   onTransform?: (systemId: string, transform: Transform) => void
-  /** Coordinate-only update for one system (no rebuild); applied when coordKey changes. */
-  liveUpdate?: { systemId: string; coords: Float32Array | null; transform?: Transform } | null
   coordKey?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<SceneHandle | null>(null)
-  const renderablesRef = useRef(renderables)
   const optionsRef = useRef(options)
   const pickingRef = useRef(pickingEnabled)
   const onPickRef = useRef(onPick)
   const manipulationRef = useRef(manipulation)
   const onTransformRef = useRef(onTransform)
-  const liveUpdateRef = useRef(liveUpdate)
-  renderablesRef.current = renderables
   optionsRef.current = options
   pickingRef.current = pickingEnabled
   onPickRef.current = onPick
   manipulationRef.current = manipulation
   onTransformRef.current = onTransform
-  liveUpdateRef.current = liveUpdate
 
   useEffect(() => {
     const container = containerRef.current
@@ -87,7 +94,7 @@ export function Viewer({
   }, [])
 
   useEffect(() => {
-    handleRef.current?.setScene(renderablesRef.current, optionsRef.current)
+    handleRef.current?.setScene(inputsRef.current.renderables, optionsRef.current)
   }, [sceneKey])
 
   useEffect(() => {
@@ -110,10 +117,50 @@ export function Viewer({
     handleRef.current?.setBackground(options.backgroundColor)
   }, [options.backgroundColor])
 
+  useEffect(() => {
+    handleRef.current?.setContrast(options.contrast)
+  }, [options.contrast])
+
+  useEffect(() => {
+    handleRef.current?.setBackgroundGradient(options.backgroundGradient)
+  }, [options.backgroundGradient])
+
+  useEffect(() => {
+    handleRef.current?.setFinish(options.glossiness)
+  }, [options.glossiness])
+
+  useEffect(() => {
+    handleRef.current?.setAntialias(options.antialias)
+  }, [options.antialias])
+
+  useEffect(() => {
+    handleRef.current?.setHighlightStyle(
+      options.highlightColor,
+      options.labelColor,
+      options.labelScale
+    )
+  }, [options.highlightColor, options.labelColor, options.labelScale])
+
+  useEffect(() => {
+    handleRef.current?.setFog(options.fog)
+  }, [options.fog])
+
+  useEffect(() => {
+    handleRef.current?.setOrthographic(options.orthographic)
+  }, [options.orthographic])
+
+  useEffect(() => {
+    handleRef.current?.setOutline(options.outline)
+  }, [options.outline])
+
+  useEffect(() => {
+    handleRef.current?.setAmbientOcclusion(options.ambientOcclusion)
+  }, [options.ambientOcclusion])
+
   // Coordinate-only changes (trajectory frame, gizmo/center transforms) update
   // the merged mesh in place instead of triggering a full rebuild.
   useEffect(() => {
-    const u = liveUpdateRef.current
+    const u = inputsRef.current.liveUpdate
     if (u) handleRef.current?.updateSystem(u.systemId, u.coords, u.transform)
   }, [coordKey])
 

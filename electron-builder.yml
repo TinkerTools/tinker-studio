@@ -7,18 +7,42 @@ directories:
   buildResources: build
 
 # The whole app is bundled into out/ by electron-vite (renderer libs are inlined
-# by Vite, main/preload by rollup), so only out/ needs to ship.
+# by Vite, main/preload by rollup) and there are no native modules, so only out/
+# needs to ship and any OS can be targeted just by building on that OS.
 files:
   - out/**
 
+# Icons follow the buildResources convention: build/icon.icns (mac, present),
+# build/icon.ico (Windows), build/icon.png (Linux, >=512px). Dropping a single
+# 512x512 build/icon.png lets electron-builder generate the .ico / Linux icons
+# automatically; without custom icons the build still succeeds with a default.
 mac:
   category: public.app-category.education
   icon: build/icon.icns
   target:
     - target: dmg
-      arch: arm64
+      arch: [arm64, x64] # Apple Silicon + Intel (two dmgs; use `universal` for one)
   # Unsigned local build: ad-hoc signature only (no Apple Developer identity).
   identity: null
 
 dmg:
   title: ${productName} ${version}
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  category: Education
+  # .deb requires a maintainer in "Name <email>" form; the author field has no
+  # email, so set it explicitly here (change to a real contact when you like).
+  maintainer: Jay Ponder Lab <noreply@tinkertools.org>
+  target:
+    - AppImage
+    - deb
