@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { mkdtempSync, writeFileSync, chmodSync } from 'fs'
+import { mkdtempSync, writeFileSync, chmodSync, mkdirSync } from 'fs'
 
 /**
  * Thin wrapper over the system `ssh` binary. We deliberately shell out rather
@@ -71,25 +71,49 @@ export function splitArgs(s?: string): string[] {
 }
 
 /**
+ * ControlMaster socket path. Unix-domain socket paths are capped (~104 bytes on
+ * macOS), and macOS `$TMPDIR` is long — combined with the 40-char `%C` hash and
+ * ssh's own random suffix it overflows. So we keep the socket in a short per-user
+ * dir under /tmp. Returns null on Windows (OpenSSH there has no ControlMaster) or
+ * if the dir can't be made, in which case we simply don't multiplex.
+ */
+let controlDir: string | null | undefined
+function controlPath(): string | null {
+  if (process.platform === 'win32') return null
+  if (controlDir === undefined) {
+    try {
+      const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+      const d = join('/tmp', `ffe-cm-${uid}`)
+      mkdirSync(d, { recursive: true, mode: 0o700 })
+      controlDir = d
+    } catch {
+      controlDir = null
+    }
+  }
+  return controlDir ? join(controlDir, '%C') : null
+}
+
+/**
  * Base ssh args. User-supplied options come first so they win (ssh takes the
  * first value seen for an option); our defaults add non-interactive behavior, a
- * connect timeout, and a persistent ControlMaster so repeated calls to the same
- * host reuse one connection (%C is a hash of the connection parameters).
+ * connect timeout, and — where supported — a persistent ControlMaster so repeated
+ * calls to the same host reuse one connection (%C is a hash of the connection).
  */
 function baseArgs(target: SshTarget): string[] {
-  const args = [
-    ...splitArgs(target.sshOptions),
-    '-o',
-    'ConnectTimeout=15',
-    '-o',
-    'ControlMaster=auto',
-    '-o',
-    `ControlPath=${join(tmpdir(), 'ffe-cm-%C')}`,
-    // Hold the authenticated master open a while so password hosts authenticate
-    // once and subsequent calls (incl. background polls) reuse it without a prompt.
-    '-o',
-    'ControlPersist=300'
-  ]
+  const args = [...splitArgs(target.sshOptions), '-o', 'ConnectTimeout=15']
+  const cp = controlPath()
+  if (cp) {
+    args.push(
+      '-o',
+      'ControlMaster=auto',
+      '-o',
+      `ControlPath=${cp}`,
+      // Hold the authenticated master open a while so password hosts authenticate
+      // once and subsequent calls (incl. background polls) reuse it without a prompt.
+      '-o',
+      'ControlPersist=300'
+    )
+  }
   if (target.acceptNewHostKeys) args.push('-o', 'StrictHostKeyChecking=accept-new')
   if (target.password != null) {
     // Password auth via askpass: don't disable prompts, cap retries, and steer
