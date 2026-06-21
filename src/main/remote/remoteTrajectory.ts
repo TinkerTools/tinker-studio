@@ -47,31 +47,44 @@ function cachePut(h: BaseHandle, frame: number, coords: Float32Array): void {
   }
 }
 
-/** Run the remote awk pass; returns frame-start offsets + an EOF sentinel. */
-async function scanArcOffsets(
-  target: SshTarget,
-  path: string,
-  stride: number
-): Promise<{ offsets: number[]; frameCount: number }> {
+/** The remote awk one-liner that emits frame-start byte offsets for a stride. */
+export function awkOffsetCommand(path: string, stride: number): string {
   // Prints the byte offset at the start of every `stride`-th line, then a final
   // "<totalBytes>\t<totalLines>" line. length($0)+1 assumes single-LF lines
   // (standard Tinker output); chars==bytes for ASCII coordinate files.
-  const awk =
+  return (
     `awk -v S=${stride} 'BEGIN{p=0} {if((NR-1)%S==0) print p; p+=length($0)+1} END{print p"\\t"NR}' ` +
     remoteQuote(path)
-  const r = await sshRun(target, awk)
-  if (r.code !== 0) throw new Error(r.stderr.trim() || `failed to index remote .arc (exit ${r.code})`)
-  const lines = r.stdout.trimEnd().split('\n')
+  )
+}
+
+/**
+ * Parse the awk pass's stdout into a frame-offset index. Drops any trailing
+ * partial frame (a live run mid-write) and guarantees a final end-of-last-frame
+ * sentinel, matching the local TrajectoryIndex.offsets shape.
+ */
+export function parseAwkOffsets(stdout: string, stride: number): { offsets: number[]; frameCount: number } {
+  const lines = stdout.trimEnd().split('\n')
   const endLine = lines.pop() ?? '0\t0'
   const [totBytesStr, totLinesStr] = endLine.split('\t')
   const totBytes = Number.parseInt(totBytesStr, 10) || 0
   const totLines = Number.parseInt(totLinesStr, 10) || 0
   const starts = lines.map((l) => Number.parseInt(l, 10)).filter((n) => Number.isFinite(n))
   const completeFrames = Math.floor(totLines / stride)
-  // Drop any trailing partial frame; ensure a final EOF/end-of-last-frame sentinel.
   const offsets =
     starts.length > completeFrames ? starts.slice(0, completeFrames + 1) : [...starts, totBytes]
   return { offsets, frameCount: Math.max(0, offsets.length - 1) }
+}
+
+/** Run the remote awk pass; returns frame-start offsets + an EOF sentinel. */
+async function scanArcOffsets(
+  target: SshTarget,
+  path: string,
+  stride: number
+): Promise<{ offsets: number[]; frameCount: number }> {
+  const r = await sshRun(target, awkOffsetCommand(path, stride))
+  if (r.code !== 0) throw new Error(r.stderr.trim() || `failed to index remote .arc (exit ${r.code})`)
+  return parseAwkOffsets(r.stdout, stride)
 }
 
 /** Open a remote .arc: detect topology, index offsets, return the first frame text. */
