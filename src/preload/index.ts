@@ -284,6 +284,12 @@ const api = {
       ipcRenderer.invoke('remote:deleteCluster', id),
     testConnection: (id: string): Promise<{ ok: boolean; message: string }> =>
       ipcRenderer.invoke('remote:testConnection', id),
+    /** Test a profile that may be unsaved (and ad-hoc connection-var values). */
+    testProfile: (
+      profile: ClusterProfile,
+      vars?: Record<string, string>
+    ): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke('remote:testProfile', profile, vars),
 
     submit: (req: RemoteSubmitRequest): Promise<RemoteJobRecord> =>
       ipcRenderer.invoke('remote:submit', req),
@@ -299,11 +305,19 @@ const api = {
     openJobText: (id: string, name: string): Promise<{ name: string; text: string }> =>
       ipcRenderer.invoke('remote:openJobText', id, name),
     /** Open an arbitrary remote text file (e.g. a remote .xyz) by path. */
-    openText: (clusterId: string, path: string): Promise<{ name: string; text: string }> =>
-      ipcRenderer.invoke('remote:openText', clusterId, path),
+    openText: (
+      clusterId: string,
+      path: string,
+      vars?: Record<string, string>
+    ): Promise<{ name: string; text: string }> =>
+      ipcRenderer.invoke('remote:openText', clusterId, path, vars),
 
-    openTrajectory: (clusterId: string, path: string): Promise<RemoteTrajectoryOpened> =>
-      ipcRenderer.invoke('remote:openTrajectory', clusterId, path),
+    openTrajectory: (
+      clusterId: string,
+      path: string,
+      vars?: Record<string, string>
+    ): Promise<RemoteTrajectoryOpened> =>
+      ipcRenderer.invoke('remote:openTrajectory', clusterId, path, vars),
     openJobTrajectory: (id: string): Promise<RemoteTrajectoryOpened> =>
       ipcRenderer.invoke('remote:openJobTrajectory', id),
     refreshTrajectory: (trajId: string): Promise<number> =>

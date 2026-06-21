@@ -977,6 +977,9 @@ function registerRemoteHandlers(mgr: RemoteManager): void {
   ipcMain.handle('remote:saveCluster', (_e, profile: ClusterProfile) => mgr.saveCluster(profile))
   ipcMain.handle('remote:deleteCluster', (_e, id: string) => mgr.deleteCluster(id))
   ipcMain.handle('remote:testConnection', (_e, id: string) => mgr.testConnection(id))
+  ipcMain.handle('remote:testProfile', (_e, profile: ClusterProfile, vars?: Record<string, string>) =>
+    mgr.testProfile(profile, vars)
+  )
 
   // Jobs.
   ipcMain.handle('remote:submit', (_e, req: RemoteSubmitRequest) => mgr.submit(req))
@@ -999,13 +1002,13 @@ function registerRemoteHandlers(mgr: RemoteManager): void {
   ipcMain.handle('remote:openJobText', (_e, id: string, name: string) => mgr.fetchJobText(id, name))
 
   // Open an arbitrary remote text file (e.g. a remote .xyz) by path.
-  ipcMain.handle('remote:openText', (_e, clusterId: string, path: string) =>
-    mgr.openRemoteText(clusterId, path)
+  ipcMain.handle('remote:openText', (_e, clusterId: string, path: string, vars?: Record<string, string>) =>
+    mgr.openRemoteText(clusterId, path, vars)
   )
 
   // Remote trajectory streaming (mirrors the local trajectory API).
-  ipcMain.handle('remote:openTrajectory', (_e, clusterId: string, path: string) =>
-    mgr.openTrajectory(clusterId, path)
+  ipcMain.handle('remote:openTrajectory', (_e, clusterId: string, path: string, vars?: Record<string, string>) =>
+    mgr.openTrajectory(clusterId, path, vars)
   )
   ipcMain.handle('remote:openJobTrajectory', (_e, id: string) => mgr.openJobTrajectory(id))
   ipcMain.handle('remote:refreshTrajectory', (_e, trajId: string) => mgr.refreshTrajectory(trajId))

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ClusterProfile, ClusterKind, ClusterVariable } from '../../main/remote/types'
 
 /**
@@ -17,31 +17,41 @@ export function ClustersModal({
   onChange: (clusters: ClusterProfile[]) => void
   onClose: () => void
 }) {
+  // Working list = the persisted clusters plus any not-yet-saved drafts. Drafts
+  // exist only here until the user clicks Save, so the rest of the app (the
+  // submit dropdown, etc.) never sees a half-configured cluster.
   const [list, setList] = useState<ClusterProfile[]>(clusters)
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(clusters.map((c) => c.id)))
   const [selectedId, setSelectedId] = useState<string | null>(clusters[0]?.id ?? null)
   const selected = list.find((c) => c.id === selectedId) ?? null
 
-  useEffect(() => setList(clusters), [clusters])
-
   async function addCluster(kind: ClusterKind): Promise<void> {
+    // Create a draft only — not persisted until Save.
     const profile = await window.ffe.remote.newProfile(kind)
-    const next = await window.ffe.remote.saveCluster(profile)
-    setList(next)
-    onChange(next)
+    setList((l) => [...l, profile])
     setSelectedId(profile.id)
   }
 
   async function save(profile: ClusterProfile): Promise<void> {
     const next = await window.ffe.remote.saveCluster(profile)
-    setList(next)
+    setList((l) => l.map((c) => (c.id === profile.id ? profile : c)))
+    setSavedIds((s) => new Set(s).add(profile.id))
     onChange(next)
   }
 
   async function remove(id: string): Promise<void> {
-    const next = await window.ffe.remote.deleteCluster(id)
-    setList(next)
-    onChange(next)
-    if (selectedId === id) setSelectedId(next[0]?.id ?? null)
+    // Persisted clusters are deleted on disk; an unsaved draft is just dropped.
+    if (savedIds.has(id)) {
+      const next = await window.ffe.remote.deleteCluster(id)
+      onChange(next)
+    }
+    setList((l) => l.filter((c) => c.id !== id))
+    setSavedIds((s) => {
+      const n = new Set(s)
+      n.delete(id)
+      return n
+    })
+    if (selectedId === id) setSelectedId((cur) => (cur === id ? null : cur))
   }
 
   return (
@@ -63,7 +73,10 @@ export function ClustersModal({
                 onClick={() => setSelectedId(c.id)}
               >
                 <span className="cluster-name">{c.name}</span>
-                <span className="cluster-kind">{c.kind}</span>
+                <span className="cluster-kind">
+                  {c.kind}
+                  {!savedIds.has(c.id) && <span className="cluster-unsaved"> • unsaved</span>}
+                </span>
               </div>
             ))}
             <div className="cluster-add">
@@ -83,6 +96,7 @@ export function ClustersModal({
               <ClusterEditor
                 key={selected.id}
                 profile={selected}
+                unsaved={!savedIds.has(selected.id)}
                 onSave={save}
                 onDelete={() => remove(selected.id)}
               />
@@ -98,10 +112,12 @@ export function ClustersModal({
 
 function ClusterEditor({
   profile,
+  unsaved,
   onSave,
   onDelete
 }: {
   profile: ClusterProfile
+  unsaved: boolean
   onSave: (p: ClusterProfile) => void
   onDelete: () => void
 }) {
@@ -110,6 +126,7 @@ function ClusterEditor({
   const [testing, setTesting] = useState(false)
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [dirty, setDirty] = useState(false)
+  const needsSave = dirty || unsaved
 
   function set<K extends keyof ClusterProfile>(key: K, value: ClusterProfile[K]): void {
     setDraft((d) => ({ ...d, [key]: value }))
@@ -128,7 +145,7 @@ function ClusterEditor({
     setDirty(true)
   }
   function addVar(): void {
-    setDraft((d) => ({ ...d, variables: [...d.variables, { name: '', default: '' }] }))
+    setDraft((d) => ({ ...d, variables: [...d.variables, { name: '', default: '', scope: 'submit' }] }))
     setDirty(true)
   }
   function removeVar(i: number): void {
@@ -137,13 +154,12 @@ function ClusterEditor({
   }
 
   async function test(): Promise<void> {
-    // Persist first so the test uses the current connection settings.
-    onSave(draft)
-    setDirty(false)
+    // Test the current draft directly — no need to persist it first. Connection
+    // variables use their entered defaults.
     setTesting(true)
     setTestMsg(null)
     try {
-      const r = await window.ffe.remote.testConnection(draft.id)
+      const r = await window.ffe.remote.testProfile(draft)
       setTestMsg({ ok: r.ok, text: r.message })
     } catch (e) {
       setTestMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -209,11 +225,14 @@ function ClusterEditor({
           </button>
         </div>
         <p className="opt-desc">
-          Prompted at submit time and usable in the templates below as{' '}
-          <code>{'{{name}}'}</code>.
+          Usable in templates as <code>{'{{name}}'}</code>. <b>Submit</b> variables are
+          prompted when launching a job; <b>connection</b> variables are part of the ssh host /
+          options and are needed for everything (submitting, polling, downloading, opening remote
+          files) — e.g. a node number behind a login front-door. A connection variable's default is
+          its stored value.
         </p>
         {draft.variables.map((v, i) => (
-          <div className="var-row" key={i}>
+          <div className="var-row var-row-scoped" key={i}>
             <input
               className="var-name"
               placeholder="name"
@@ -228,10 +247,18 @@ function ClusterEditor({
             />
             <input
               className="var-default"
-              placeholder="default value"
+              placeholder={v.scope === 'connection' ? 'value' : 'default value'}
               value={v.default ?? ''}
               onChange={(e) => setVar(i, { default: e.target.value })}
             />
+            <select
+              className="var-scope"
+              value={v.scope ?? 'submit'}
+              onChange={(e) => setVar(i, { scope: e.target.value as 'submit' | 'connection' })}
+            >
+              <option value="submit">submit</option>
+              <option value="connection">connection</option>
+            </select>
             <button className="mini-btn ghost" onClick={() => removeVar(i)}>
               ×
             </button>
@@ -277,8 +304,15 @@ function ClusterEditor({
       )}
 
       <div className="form-actions">
-        <button className="modal-btn primary" onClick={() => { onSave(draft); setDirty(false) }} disabled={!dirty}>
-          {dirty ? 'Save' : 'Saved'}
+        <button
+          className="modal-btn primary"
+          onClick={() => {
+            onSave(draft)
+            setDirty(false)
+          }}
+          disabled={!needsSave}
+        >
+          {needsSave ? 'Save' : 'Saved'}
         </button>
         <button className="modal-btn" onClick={test} disabled={testing || !draft.host}>
           {testing ? 'Testing…' : 'Test connection'}

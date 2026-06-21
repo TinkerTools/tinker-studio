@@ -125,12 +125,35 @@ export class RemoteManager {
     return c
   }
 
-  private targetOf(c: ClusterProfile): SshTarget {
-    return { host: c.host, sshOptions: c.sshOptions }
+  /** Stored values of the connection-scoped variables (their `default` field). */
+  private connectionDefaults(c: ClusterProfile): Record<string, string> {
+    const m: Record<string, string> = {}
+    for (const v of c.variables) if (v.scope === 'connection') m[v.name] = v.default ?? ''
+    return m
+  }
+
+  /**
+   * Build the ssh destination, substituting connection-scoped variables into the
+   * host + ssh options. `vars` overrides the stored defaults (e.g. a per-job node
+   * captured at submit time, or values entered when opening a remote file).
+   */
+  private targetOf(c: ClusterProfile, vars?: Record<string, string>): SshTarget {
+    const all = { ...this.connectionDefaults(c), ...(vars ?? {}) }
+    const host = renderTemplate(c.host, all).text
+    const sshOptions = c.sshOptions ? renderTemplate(c.sshOptions, all).text : undefined
+    return { host, sshOptions }
   }
 
   testConnection(clusterId: string): Promise<{ ok: boolean; message: string }> {
     return testConnection(this.targetOf(this.cluster(clusterId)))
+  }
+
+  /** Test a profile that may not be saved yet (and with ad-hoc connection vars). */
+  testProfile(
+    profile: ClusterProfile,
+    vars?: Record<string, string>
+  ): Promise<{ ok: boolean; message: string }> {
+    return testConnection(this.targetOf(profile, vars))
   }
 
   // ---- jobs --------------------------------------------------------------
@@ -165,7 +188,15 @@ export class RemoteManager {
 
   async submit(req: RemoteSubmitRequest): Promise<RemoteJobRecord> {
     const c = this.cluster(req.clusterId)
-    const target = this.targetOf(c)
+    // Resolve all variable values (defaults overlaid with what the form supplied)
+    // and the connection-scoped subset, which we render into the ssh destination
+    // and remember on the job so later polls/downloads use the same connection.
+    const allVars: Record<string, string> = {}
+    for (const v of c.variables) allVars[v.name] = v.default ?? ''
+    Object.assign(allVars, req.variables ?? {})
+    const connectionVars: Record<string, string> = {}
+    for (const v of c.variables) if (v.scope === 'connection') connectionVars[v.name] = allVars[v.name]
+    const target = this.targetOf(c, allVars)
     const id = `rj-${Date.now().toString(36)}`
     const stem = this.safe(req.jobName || req.inputName || req.program)
     const jobName = `${stem}-${id}`
@@ -189,6 +220,7 @@ export class RemoteManager {
       inputName: req.inputName,
       outputFormat,
       outputName,
+      connectionVars,
       submittedAt: Date.now(),
       status: 'submitting',
       log: ''
@@ -206,6 +238,17 @@ export class RemoteManager {
       for (const f of req.files ?? []) {
         const up = await uploadBytes(target, `${workdir}/${f.name}`, Buffer.from(f.text, 'utf8'))
         if (up.code !== 0) throw new Error(up.stderr.trim() || `failed to upload ${f.name}`)
+      }
+
+      // 2b. Use a specific remote .key (when it isn't sitting next to the .xyz
+      // with the matching name) by copying it to <inputStem>.key in the workdir.
+      if (req.remoteKeyPath && req.remoteKeyPath.trim()) {
+        const keyStem = req.inputName.replace(/\.[^.]*$/, '')
+        const cp = await sshRun(
+          target,
+          `cp ${remoteQuote(req.remoteKeyPath.trim())} ${remoteQuote(`${workdir}/${keyStem}.key`)}`
+        )
+        if (cp.code !== 0) throw new Error(cp.stderr.trim() || 'failed to copy the specified key file')
       }
 
       // 3. Write job.sh (setup + Tinker command + exit-code capture).
@@ -304,7 +347,7 @@ export class RemoteManager {
       job_id: j.remoteJobId,
       workdir: j.workdir
     })
-    const res = await sshRun(this.targetOf(c), cmd)
+    const res = await sshRun(this.targetOf(c, j.connectionVars), cmd)
     const raw = res.stdout.trim()
     const state = classifyStatus(raw)
     if (state === 'unknown') return j.status // transient; keep prior state
@@ -330,7 +373,7 @@ export class RemoteManager {
       job_id: j.remoteJobId,
       workdir: j.workdir
     })
-    const res = await sshRun(this.targetOf(c), cmd)
+    const res = await sshRun(this.targetOf(c, j.connectionVars), cmd)
     this.append(id, `$ ${cmd}\n${res.stdout}${res.stderr}`)
     this.update(id, { status: 'canceled', finishedAt: Date.now() })
     this.stopPolling(id)
@@ -338,12 +381,16 @@ export class RemoteManager {
 
   // ---- results + remote files -------------------------------------------
 
+  /** The ssh destination for an existing job, using its captured connection vars. */
+  private jobTarget(j: RemoteJobRecord): SshTarget {
+    return this.targetOf(this.cluster(j.clusterId), j.connectionVars)
+  }
+
   /** Download a remote file's text by job id + relative name. */
   async fetchJobText(id: string, name: string): Promise<{ name: string; text: string }> {
     const j = this.jobs.get(id)
     if (!j) throw new Error('Unknown job')
-    const c = this.cluster(j.clusterId)
-    const buf = await downloadBytes(this.targetOf(c), `${j.workdir}/${name}`)
+    const buf = await downloadBytes(this.jobTarget(j), `${j.workdir}/${name}`)
     return { name, text: buf.toString('utf8') }
   }
 
@@ -351,8 +398,7 @@ export class RemoteManager {
   async listJobFiles(id: string): Promise<string[]> {
     const j = this.jobs.get(id)
     if (!j) throw new Error('Unknown job')
-    const c = this.cluster(j.clusterId)
-    const r = await sshRun(this.targetOf(c), `ls -1 ${remoteQuote(j.workdir)} 2>/dev/null`)
+    const r = await sshRun(this.jobTarget(j), `ls -1 ${remoteQuote(j.workdir)} 2>/dev/null`)
     return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
   }
 
@@ -360,14 +406,20 @@ export class RemoteManager {
   async fetchJobBytes(id: string, name: string): Promise<Buffer> {
     const j = this.jobs.get(id)
     if (!j) throw new Error('Unknown job')
-    const c = this.cluster(j.clusterId)
-    return downloadBytes(this.targetOf(c), `${j.workdir}/${name}`)
+    return downloadBytes(this.jobTarget(j), `${j.workdir}/${name}`)
   }
 
-  /** Open an arbitrary remote text file by absolute/relative path on a cluster. */
-  async openRemoteText(clusterId: string, path: string): Promise<{ name: string; text: string }> {
+  /**
+   * Open an arbitrary remote text file by path. `vars` supplies connection-scoped
+   * variable values (e.g. a node number) when they differ from stored defaults.
+   */
+  async openRemoteText(
+    clusterId: string,
+    path: string,
+    vars?: Record<string, string>
+  ): Promise<{ name: string; text: string }> {
     const c = this.cluster(clusterId)
-    const buf = await downloadBytes(this.targetOf(c), path)
+    const buf = await downloadBytes(this.targetOf(c, vars), path)
     return { name: path.split('/').pop() ?? path, text: buf.toString('utf8') }
   }
 
@@ -376,10 +428,11 @@ export class RemoteManager {
   /** Open a remote .arc/.dcd for streamed playback; returns id + shape + first frame. */
   async openTrajectory(
     clusterId: string,
-    path: string
+    path: string,
+    vars?: Record<string, string>
   ): Promise<{ trajId: string; frameCount: number; natoms: number; kind: 'arc' | 'dcd'; firstFrameText?: string }> {
     const c = this.cluster(clusterId)
-    const target = this.targetOf(c)
+    const target = this.targetOf(c, vars)
     const trajId = `rtraj-${++this.trajCounter}`
     if (/\.dcd$/i.test(path)) {
       const handle = await openRemoteDcd(target, path)
@@ -396,7 +449,7 @@ export class RemoteManager {
     const j = this.jobs.get(id)
     if (!j) throw new Error('Unknown job')
     if (!j.outputName) throw new Error('Job has no trajectory output')
-    return this.openTrajectory(j.clusterId, `${j.workdir}/${j.outputName}`)
+    return this.openTrajectory(j.clusterId, `${j.workdir}/${j.outputName}`, j.connectionVars)
   }
 
   async refreshTrajectory(trajId: string): Promise<number> {

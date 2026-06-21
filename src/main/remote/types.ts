@@ -14,16 +14,27 @@
 /** Built-in shapes plus an escape hatch for anything else. */
 export type ClusterKind = 'ssh-direct' | 'slurm' | 'custom'
 
-/** A user-defined value prompted for at submit time and exposed to templates. */
+/** A user-defined value exposed to the templates (and, for connection vars, to
+ * the ssh destination itself). */
 export interface ClusterVariable {
   /** Referenced in templates as {{name}}. */
   name: string
-  /** Human-friendly label for the submit dialog (defaults to `name`). */
+  /** Human-friendly label for the prompt (defaults to `name`). */
   label?: string
-  /** Pre-filled value. */
+  /** Pre-filled value (also the stored value for connection-scoped variables). */
   default?: string
   /** Optional help text shown under the field. */
   description?: string
+  /**
+   * Where the variable is needed:
+   *  - 'submit' (default): only when launching a job; substituted into the
+   *    submit/status/cancel templates.
+   *  - 'connection': part of the ssh destination itself (substituted into the
+   *    host + ssh options), so it's needed for *every* operation on this cluster
+   *    — submitting, polling, downloading, and opening remote files. Think a
+   *    node number behind a login front-door.
+   */
+  scope?: 'connection' | 'submit'
 }
 
 /**
@@ -93,6 +104,12 @@ export interface RemoteSubmitRequest {
   files?: StagedFile[]
   /** When running on existing remote files, the directory they live in. */
   remoteInputDir?: string
+  /**
+   * A specific remote .key file to use (for the run-on-existing-files case where
+   * the key isn't sitting next to the .xyz with the matching name). It's copied
+   * to `<inputStem>.key` in the working directory so Tinker picks it up.
+   */
+  remoteKeyPath?: string
   /** User-defined variable values (keyed by variable name). */
   variables?: Record<string, string>
   /** Trajectory output the run produces, for live streaming. */
@@ -131,6 +148,10 @@ export interface RemoteJobRecord {
   outputFormat?: 'arc' | 'dcd' | null
   /** Output trajectory filename on the remote, if any (e.g. mol.arc). */
   outputName?: string
+  /** Connection-scoped variable values captured at submit time, reused for every
+   * subsequent ssh op on this job (poll/cancel/download/stream), incl. after a
+   * restart. */
+  connectionVars?: Record<string, string>
   submittedAt: number
   finishedAt?: number
   status: RemoteJobState

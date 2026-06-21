@@ -4,8 +4,9 @@ import type { ClusterProfile } from '../../main/remote/types'
 /**
  * Open a file that lives on a remote cluster: a structure (.xyz/.pdb/…) is
  * loaded directly, while a trajectory (.arc/.dcd) is streamed frame-on-demand
- * over ssh — nothing is downloaded whole. Pick the cluster, type the remote
- * path, and go.
+ * over ssh — nothing is downloaded whole. Pick the cluster, fill in any
+ * connection-scoped variables (e.g. a node behind a front-door), type the
+ * remote path, and go.
  */
 export function RemoteOpenModal({
   clusters,
@@ -14,19 +15,25 @@ export function RemoteOpenModal({
   onClose
 }: {
   clusters: ClusterProfile[]
-  onOpen: (clusterId: string, path: string) => Promise<void>
+  onOpen: (clusterId: string, path: string, vars: Record<string, string>) => Promise<void>
   onManageClusters: () => void
   onClose: () => void
 }) {
   const [clusterId, setClusterId] = useState(clusters[0]?.id ?? '')
   const [path, setPath] = useState('')
+  const [vars, setVars] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+
+  const cluster = clusters.find((c) => c.id === clusterId) ?? null
+  const connVars = (cluster?.variables ?? []).filter((v) => v.scope === 'connection')
 
   async function open(): Promise<void> {
     if (!clusterId || !path.trim()) return
     setBusy(true)
     try {
-      await onOpen(clusterId, path.trim())
+      const values: Record<string, string> = {}
+      for (const v of connVars) values[v.name] = vars[v.name] ?? v.default ?? ''
+      await onOpen(clusterId, path.trim(), values)
     } finally {
       setBusy(false)
     }
@@ -60,6 +67,15 @@ export function RemoteOpenModal({
                 ))}
               </select>
             </div>
+            {connVars.map((v) => (
+              <div className="form-row" key={v.name}>
+                <label title={v.description}>{v.label || v.name}</label>
+                <input
+                  value={vars[v.name] ?? v.default ?? ''}
+                  onChange={(e) => setVars((m) => ({ ...m, [v.name]: e.target.value }))}
+                />
+              </div>
+            ))}
             <div className="form-row">
               <label>Remote path</label>
               <input

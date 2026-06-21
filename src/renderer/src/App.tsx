@@ -1061,6 +1061,7 @@ export default function App() {
           jobName: opts.inputName || opts.program,
           inputName: opts.inputName!,
           remoteInputDir: opts.remoteInputDir,
+          remoteKeyPath: opts.remoteKeyPath,
           stdin: opts.stdin,
           variables: opts.variables,
           outputFormat
@@ -1152,19 +1153,24 @@ export default function App() {
   }
 
   // Open an arbitrary remote file: stream a .arc/.dcd, or load a structure text.
-  async function openRemotePath(clusterId: string, path: string): Promise<void> {
+  // `vars` carries connection-scoped variable values (e.g. a node number).
+  async function openRemotePath(
+    clusterId: string,
+    path: string,
+    vars: Record<string, string> = {}
+  ): Promise<void> {
     setError(null)
     const cluster = clusters.find((c) => c.id === clusterId)
     try {
       if (/\.(arc|dcd)$/i.test(path)) {
-        const res = await window.ffe.remote.openTrajectory(clusterId, path)
+        const res = await window.ffe.remote.openTrajectory(clusterId, path, vars)
         let structure: Parsed['structure']
         if (res.kind === 'arc' && res.firstFrameText) {
           structure = parseTinkerXyz(res.firstFrameText)
         } else {
           // Need topology for a .dcd: read the sibling .xyz next to it.
           const xyzPath = path.replace(/\.dcd$/i, '.xyz')
-          const input = await window.ffe.remote.openText(clusterId, xyzPath)
+          const input = await window.ffe.remote.openText(clusterId, xyzPath, vars)
           structure = parseTinkerXyz(input.text)
         }
         const id = nextSystemId()
@@ -1182,7 +1188,7 @@ export default function App() {
         setVisibleIds(new Set([id]))
         setFrameIndex(0)
       } else {
-        const { name, text } = await window.ffe.remote.openText(clusterId, path)
+        const { name, text } = await window.ffe.remote.openText(clusterId, path, vars)
         addSystem(parseStructureFile(text, name), `${name} · ${cluster?.name ?? 'remote'}`)
       }
       setModal(null)

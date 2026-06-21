@@ -1458,7 +1458,12 @@ input.mono {
   gap: 0.35rem;
 }
 
-.var-row input {
+.var-row.var-row-scoped {
+  grid-template-columns: 1.1fr 1.1fr 1.1fr 0.9fr auto;
+}
+
+.var-row input,
+.var-row select.var-scope {
   font: inherit;
   font-size: 0.8rem;
   color: var(--text);
@@ -1466,6 +1471,10 @@ input.mono {
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 0.25rem 0.4rem;
+}
+
+.cluster-unsaved {
+  color: #e0a85b;
 }
 
 .form-actions {

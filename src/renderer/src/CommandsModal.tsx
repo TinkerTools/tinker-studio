@@ -19,6 +19,8 @@ export type SubmitRemote = (opts: {
   source: 'upload' | 'remote'
   remoteInputDir?: string
   inputName?: string
+  /** A specific remote .key path to use (run-on-existing-files case). */
+  remoteKeyPath?: string
   variables: Record<string, string>
   stdin: string
   watch: boolean
@@ -281,6 +283,7 @@ function RunSection({
   const [source, setSource] = useState<'upload' | 'remote'>('upload')
   const [remoteDir, setRemoteDir] = useState('')
   const [remoteInput, setRemoteInput] = useState('')
+  const [remoteKey, setRemoteKey] = useState('')
   const [vars, setVars] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitMsg, setSubmitMsg] = useState<string | null>(null)
@@ -315,6 +318,7 @@ function RunSection({
         source,
         remoteInputDir: source === 'remote' ? remoteDir.trim() : undefined,
         inputName: source === 'remote' ? remoteInput.trim() : undefined,
+        remoteKeyPath: source === 'remote' && remoteKey.trim() ? remoteKey.trim() : undefined,
         variables,
         stdin: buildStdin(),
         watch: watchLive,
@@ -415,6 +419,14 @@ function RunSection({
                   placeholder="mol.xyz"
                   value={remoteInput}
                   onChange={(e) => setRemoteInput(e.target.value)}
+                />
+              </div>
+              <div className="form-row">
+                <label>Key file</label>
+                <input
+                  placeholder="optional — e.g. ~/params/run.key (copied to <input>.key)"
+                  value={remoteKey}
+                  onChange={(e) => setRemoteKey(e.target.value)}
                 />
               </div>
             </div>
