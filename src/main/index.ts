@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, dialog, Menu } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, Menu, safeStorage } from 'electron'
 import type { MenuItemConstructorOptions, IpcMainInvokeEvent } from 'electron'
 import { join, basename, dirname } from 'path'
 import { readFile, writeFile } from 'fs/promises'
@@ -977,8 +977,15 @@ function registerRemoteHandlers(mgr: RemoteManager): void {
   ipcMain.handle('remote:saveCluster', (_e, profile: ClusterProfile) => mgr.saveCluster(profile))
   ipcMain.handle('remote:deleteCluster', (_e, id: string) => mgr.deleteCluster(id))
   ipcMain.handle('remote:testConnection', (_e, id: string) => mgr.testConnection(id))
-  ipcMain.handle('remote:testProfile', (_e, profile: ClusterProfile, vars?: Record<string, string>) =>
-    mgr.testProfile(profile, vars)
+  ipcMain.handle(
+    'remote:testProfile',
+    (_e, profile: ClusterProfile, vars?: Record<string, string>, password?: string) =>
+      mgr.testProfile(profile, vars, password)
+  )
+  ipcMain.handle('remote:needsPassword', (_e, id: string) => mgr.needsPassword(id))
+  ipcMain.handle(
+    'remote:setPassword',
+    (_e, id: string, password: string, remember: boolean) => mgr.setPassword(id, password, remember)
   )
 
   // Jobs.
@@ -1024,7 +1031,21 @@ function registerRemoteHandlers(mgr: RemoteManager): void {
 app.whenReady().then(() => {
   buildApplicationMenu()
   registerIpcHandlers()
-  remote = new RemoteManager(app.getPath('userData'), broadcast)
+  // OS-keychain encryption for remembered passwords (Electron safeStorage).
+  const secretCrypto = {
+    encrypt: (plain: string): string | null =>
+      safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(plain).toString('base64') : null,
+    decrypt: (stored: string): string | null => {
+      try {
+        return safeStorage.isEncryptionAvailable()
+          ? safeStorage.decryptString(Buffer.from(stored, 'base64'))
+          : null
+      } catch {
+        return null
+      }
+    }
+  }
+  remote = new RemoteManager(app.getPath('userData'), broadcast, secretCrypto)
   registerRemoteHandlers(remote)
   remote.resumePolling()
   createWindow()

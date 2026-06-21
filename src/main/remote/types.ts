@@ -71,6 +71,24 @@ export interface ClusterProfile {
   host: string
   /** Extra args added to every ssh/scp call, e.g. `-p 2222 -J jump.host`. */
   sshOptions?: string
+  /**
+   * Authentication method. 'key' (default) relies on the user's ssh keys/agent —
+   * fully non-interactive. 'password' supplies a password via an SSH_ASKPASS
+   * helper (held in memory; optionally remembered, encrypted, via the OS keychain).
+   */
+  auth?: 'key' | 'password'
+  /**
+   * Auto-accept (trust-on-first-use) a host key not yet in known_hosts
+   * (StrictHostKeyChecking=accept-new). Off by default; handy for password hosts
+   * the user hasn't connected to from a terminal before.
+   */
+  acceptNewHostKeys?: boolean
+  /**
+   * Remembered password, encrypted with the OS keychain (Electron safeStorage),
+   * base64-encoded. Only present when the user chose to remember it; otherwise the
+   * password lives only in memory for the session.
+   */
+  encryptedPassword?: string
   /** Remote directory under which a per-job working directory is created. */
   remoteBaseDir: string
   /** Directory holding the remote Tinker binaries; prepended to PATH in job.sh. */

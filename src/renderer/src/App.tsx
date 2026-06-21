@@ -83,6 +83,8 @@ export default function App() {
   const [jobs, setJobs] = useState<JobRecord[]>([])
   const [clusters, setClusters] = useState<ClusterProfile[]>([])
   const [remoteJobs, setRemoteJobs] = useState<RemoteJobRecord[]>([])
+  const [pwPrompt, setPwPrompt] = useState<{ clusterId: string; clusterName: string } | null>(null)
+  const pwResolveRef = useRef<((ok: boolean) => void) | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [atomsOpen, setAtomsOpen] = useState(false)
@@ -1040,6 +1042,32 @@ export default function App() {
     return () => window.clearInterval(iv)
   }, [growingKey])
 
+  // For a password-auth cluster with no password yet this session, prompt for it
+  // (and optionally remember it, encrypted). Resolves true once a password is set,
+  // false if the user cancels. Key-auth clusters resolve immediately.
+  async function ensurePassword(clusterId: string): Promise<boolean> {
+    if (!(await window.ffe.remote.needsPassword(clusterId))) return true
+    const cluster = clusters.find((c) => c.id === clusterId)
+    return new Promise<boolean>((resolve) => {
+      pwResolveRef.current = resolve
+      setPwPrompt({ clusterId, clusterName: cluster?.name ?? 'cluster' })
+    })
+  }
+
+  async function submitPassword(password: string, remember: boolean): Promise<void> {
+    const prompt = pwPrompt
+    if (prompt) await window.ffe.remote.setPassword(prompt.clusterId, password, remember)
+    setPwPrompt(null)
+    pwResolveRef.current?.(true)
+    pwResolveRef.current = null
+  }
+
+  function cancelPassword(): void {
+    setPwPrompt(null)
+    pwResolveRef.current?.(false)
+    pwResolveRef.current = null
+  }
+
   // Submit a Tinker job to a remote cluster. Builds the staged input files from
   // the current system (or references files already on the host), then hands off
   // to the main-process remote manager, which uploads, submits, and polls.
@@ -1050,6 +1078,7 @@ export default function App() {
       setError('Unknown cluster.')
       return false
     }
+    if (!(await ensurePassword(cluster.id))) return false
     try {
       let req: Parameters<typeof window.ffe.remote.submit>[0]
       if (opts.source === 'remote') {
@@ -1097,6 +1126,7 @@ export default function App() {
   // Open (or start streaming) a remote job's trajectory output into the viewer.
   async function viewRemoteJob(job: RemoteJobRecord): Promise<void> {
     setError(null)
+    if (!(await ensurePassword(job.clusterId))) return
     try {
       const res = await window.ffe.remote.openJobTrajectory(job.id)
       let structure: Parsed['structure']
@@ -1132,6 +1162,7 @@ export default function App() {
   // Download a finished job's optimized/result structure and open it locally.
   async function openRemoteResult(job: RemoteJobRecord): Promise<void> {
     setError(null)
+    if (!(await ensurePassword(job.clusterId))) return
     try {
       const files = await window.ffe.remote.listJobFiles(job.id)
       const stem = (job.inputName ?? '').replace(/\.[^.]*$/, '')
@@ -1161,6 +1192,7 @@ export default function App() {
   ): Promise<void> {
     setError(null)
     const cluster = clusters.find((c) => c.id === clusterId)
+    if (!(await ensurePassword(clusterId))) return
     try {
       if (/\.(arc|dcd)$/i.test(path)) {
         const res = await window.ffe.remote.openTrajectory(clusterId, path, vars)
@@ -1806,6 +1838,13 @@ export default function App() {
           onClose={() => setModal(null)}
         />
       )}
+      {pwPrompt && (
+        <PasswordModal
+          clusterName={pwPrompt.clusterName}
+          onSubmit={submitPassword}
+          onCancel={cancelPassword}
+        />
+      )}
       {modal === 'keywords' && (
         <KeywordsModal
           initialText={keyText}
@@ -2162,6 +2201,69 @@ function GraphicsModal({
           >
             Reset
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PasswordModal({
+  clusterName,
+  onSubmit,
+  onCancel
+}: {
+  clusterName: string
+  onSubmit: (password: string, remember: boolean) => void
+  onCancel: () => void
+}) {
+  const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(true)
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>Password for {clusterName}</h3>
+          <button className="modal-x" onClick={onCancel}>
+            ×
+          </button>
+        </div>
+        <div className="form-section">
+          <div className="form-row">
+            <label>Password</label>
+            <input
+              type="password"
+              autoFocus
+              autoComplete="off"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && password) onSubmit(password, remember)
+              }}
+            />
+          </div>
+          <div className="form-row">
+            <label></label>
+            <label className="opt-choice">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
+              Remember (encrypted in the OS keychain)
+            </label>
+          </div>
+          <div className="form-actions">
+            <button
+              className="modal-btn primary"
+              onClick={() => onSubmit(password, remember)}
+              disabled={!password}
+            >
+              Connect
+            </button>
+            <button className="modal-btn ghost" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>

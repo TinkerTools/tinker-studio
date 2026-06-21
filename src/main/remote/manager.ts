@@ -35,6 +35,12 @@ import {
 
 type Emit = (channel: string, payload: unknown) => void
 
+/** Optional OS-keychain encryption for remembered passwords (Electron safeStorage). */
+export interface SecretCrypto {
+  encrypt(plain: string): string | null
+  decrypt(stored: string): string | null
+}
+
 const POLL_MS = 7000
 
 /**
@@ -54,9 +60,13 @@ export class RemoteManager {
   private readonly clustersPath: string
   private readonly jobsPath: string
 
+  /** Session passwords for password-auth clusters, keyed by cluster id. */
+  private passwords = new Map<string, string>()
+
   constructor(
     dataDir: string,
-    private emit: Emit
+    private emit: Emit,
+    private crypto?: SecretCrypto
   ) {
     this.clustersPath = join(dataDir, 'clusters.json')
     this.jobsPath = join(dataDir, 'remote-jobs.json')
@@ -72,6 +82,15 @@ export class RemoteManager {
       }
     } catch {
       this.clusters = []
+    }
+    // Decrypt any remembered passwords into the in-memory map.
+    if (this.crypto) {
+      for (const c of this.clusters) {
+        if (c.encryptedPassword) {
+          const pw = this.crypto.decrypt(c.encryptedPassword)
+          if (pw != null) this.passwords.set(c.id, pw)
+        }
+      }
     }
     try {
       if (existsSync(this.jobsPath)) {
@@ -101,22 +120,33 @@ export class RemoteManager {
 
   // ---- clusters ----------------------------------------------------------
 
+  /** Clusters for the renderer, with the encrypted password stripped out. */
   listClusters(): ClusterProfile[] {
-    return this.clusters
+    return this.clusters.map((c) => {
+      const copy: ClusterProfile = { ...c }
+      delete copy.encryptedPassword
+      return copy
+    })
   }
 
   saveCluster(profile: ClusterProfile): ClusterProfile[] {
+    // The renderer never sees the encrypted password (see listClusters), so
+    // preserve whatever is already stored rather than letting a save wipe it.
+    const existing = this.clusters.find((c) => c.id === profile.id)
+    const merged: ClusterProfile = { ...profile, encryptedPassword: existing?.encryptedPassword }
+    if (!merged.encryptedPassword) delete merged.encryptedPassword
     const i = this.clusters.findIndex((c) => c.id === profile.id)
-    if (i >= 0) this.clusters[i] = profile
-    else this.clusters.push(profile)
+    if (i >= 0) this.clusters[i] = merged
+    else this.clusters.push(merged)
     this.saveClusters()
-    return this.clusters
+    return this.listClusters()
   }
 
   deleteCluster(id: string): ClusterProfile[] {
     this.clusters = this.clusters.filter((c) => c.id !== id)
+    this.passwords.delete(id)
     this.saveClusters()
-    return this.clusters
+    return this.listClusters()
   }
 
   private cluster(id: string): ClusterProfile {
@@ -134,26 +164,64 @@ export class RemoteManager {
 
   /**
    * Build the ssh destination, substituting connection-scoped variables into the
-   * host + ssh options. `vars` overrides the stored defaults (e.g. a per-job node
-   * captured at submit time, or values entered when opening a remote file).
+   * host + ssh options and attaching auth settings (password for password-auth
+   * clusters, host-key acceptance). `vars` overrides the stored connection
+   * defaults; `passwordOverride` is used for testing an unsaved/ad-hoc password.
    */
-  private targetOf(c: ClusterProfile, vars?: Record<string, string>): SshTarget {
+  private targetOf(
+    c: ClusterProfile,
+    vars?: Record<string, string>,
+    passwordOverride?: string
+  ): SshTarget {
     const all = { ...this.connectionDefaults(c), ...(vars ?? {}) }
     const host = renderTemplate(c.host, all).text
     const sshOptions = c.sshOptions ? renderTemplate(c.sshOptions, all).text : undefined
-    return { host, sshOptions }
+    const password =
+      c.auth === 'password' ? (passwordOverride ?? this.passwords.get(c.id)) : undefined
+    return { host, sshOptions, password, acceptNewHostKeys: c.acceptNewHostKeys }
   }
 
   testConnection(clusterId: string): Promise<{ ok: boolean; message: string }> {
     return testConnection(this.targetOf(this.cluster(clusterId)))
   }
 
-  /** Test a profile that may not be saved yet (and with ad-hoc connection vars). */
+  /** Test a profile that may not be saved yet (with ad-hoc vars / password). */
   testProfile(
     profile: ClusterProfile,
-    vars?: Record<string, string>
+    vars?: Record<string, string>,
+    password?: string
   ): Promise<{ ok: boolean; message: string }> {
-    return testConnection(this.targetOf(profile, vars))
+    return testConnection(this.targetOf(profile, vars, password))
+  }
+
+  /** True when a password-auth cluster has no password available yet (must prompt). */
+  needsPassword(clusterId: string): boolean {
+    const c = this.clusters.find((x) => x.id === clusterId)
+    return !!c && c.auth === 'password' && !this.passwords.get(clusterId)
+  }
+
+  /**
+   * Set a password-auth cluster's password for this session. When `remember` is
+   * set and OS-keychain encryption is available, also persist it encrypted on the
+   * profile; otherwise any previously remembered value is cleared.
+   */
+  setPassword(clusterId: string, password: string, remember: boolean): { remembered: boolean } {
+    this.passwords.set(clusterId, password)
+    const c = this.clusters.find((x) => x.id === clusterId)
+    if (!c) return { remembered: false }
+    if (remember && this.crypto) {
+      const enc = this.crypto.encrypt(password)
+      if (enc) {
+        c.encryptedPassword = enc
+        this.saveClusters()
+        return { remembered: true }
+      }
+    }
+    if (c.encryptedPassword) {
+      delete c.encryptedPassword
+      this.saveClusters()
+    }
+    return { remembered: false }
   }
 
   // ---- jobs --------------------------------------------------------------

@@ -284,12 +284,22 @@ const api = {
       ipcRenderer.invoke('remote:deleteCluster', id),
     testConnection: (id: string): Promise<{ ok: boolean; message: string }> =>
       ipcRenderer.invoke('remote:testConnection', id),
-    /** Test a profile that may be unsaved (and ad-hoc connection-var values). */
+    /** Test a profile that may be unsaved (ad-hoc connection vars + password). */
     testProfile: (
       profile: ClusterProfile,
-      vars?: Record<string, string>
+      vars?: Record<string, string>,
+      password?: string
     ): Promise<{ ok: boolean; message: string }> =>
-      ipcRenderer.invoke('remote:testProfile', profile, vars),
+      ipcRenderer.invoke('remote:testProfile', profile, vars, password),
+    /** True when a password-auth cluster needs a password entered this session. */
+    needsPassword: (id: string): Promise<boolean> => ipcRenderer.invoke('remote:needsPassword', id),
+    /** Set a password-auth cluster's password (optionally remembered, encrypted). */
+    setPassword: (
+      id: string,
+      password: string,
+      remember: boolean
+    ): Promise<{ remembered: boolean }> =>
+      ipcRenderer.invoke('remote:setPassword', id, password, remember),
 
     submit: (req: RemoteSubmitRequest): Promise<RemoteJobRecord> =>
       ipcRenderer.invoke('remote:submit', req),

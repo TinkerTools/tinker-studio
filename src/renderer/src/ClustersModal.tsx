@@ -126,7 +126,9 @@ function ClusterEditor({
   const [testing, setTesting] = useState(false)
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [dirty, setDirty] = useState(false)
-  const needsSave = dirty || unsaved
+  const [password, setPassword] = useState('')
+  const [rememberPw, setRememberPw] = useState(true)
+  const needsSave = dirty || unsaved || (draft.auth === 'password' && password !== '')
 
   function set<K extends keyof ClusterProfile>(key: K, value: ClusterProfile[K]): void {
     setDraft((d) => ({ ...d, [key]: value }))
@@ -155,16 +157,26 @@ function ClusterEditor({
 
   async function test(): Promise<void> {
     // Test the current draft directly — no need to persist it first. Connection
-    // variables use their entered defaults.
+    // variables use their entered defaults; a typed password is used ad-hoc.
     setTesting(true)
     setTestMsg(null)
     try {
-      const r = await window.ffe.remote.testProfile(draft)
+      const r = await window.ffe.remote.testProfile(draft, undefined, password || undefined)
       setTestMsg({ ok: r.ok, text: r.message })
     } catch (e) {
       setTestMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
       setTesting(false)
+    }
+  }
+
+  async function save(): Promise<void> {
+    onSave(draft)
+    setDirty(false)
+    // Persist/refresh the session password after the cluster exists.
+    if (draft.auth === 'password' && password) {
+      await window.ffe.remote.setPassword(draft.id, password, rememberPw)
+      setPassword('')
     }
   }
 
@@ -189,6 +201,52 @@ function ClusterEditor({
           value={draft.sshOptions ?? ''}
           onChange={(e) => set('sshOptions', e.target.value)}
         />
+      </div>
+      <div className="form-row">
+        <label>Authentication</label>
+        <select
+          value={draft.auth ?? 'key'}
+          onChange={(e) => set('auth', e.target.value as 'key' | 'password')}
+        >
+          <option value="key">SSH key / agent</option>
+          <option value="password">Password</option>
+        </select>
+      </div>
+      {draft.auth === 'password' && (
+        <>
+          <div className="form-row">
+            <label>Password</label>
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder={unsaved ? 'enter password' : 'leave blank to keep the saved password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <div className="form-row">
+            <label></label>
+            <label className="opt-choice">
+              <input
+                type="checkbox"
+                checked={rememberPw}
+                onChange={(e) => setRememberPw(e.target.checked)}
+              />
+              Remember (encrypted in the OS keychain)
+            </label>
+          </div>
+        </>
+      )}
+      <div className="form-row">
+        <label></label>
+        <label className="opt-choice">
+          <input
+            type="checkbox"
+            checked={draft.acceptNewHostKeys ?? false}
+            onChange={(e) => set('acceptNewHostKeys', e.target.checked)}
+          />
+          Accept a new host key automatically (first connection)
+        </label>
       </div>
       <div className="form-row">
         <label>Remote job dir</label>
@@ -304,14 +362,7 @@ function ClusterEditor({
       )}
 
       <div className="form-actions">
-        <button
-          className="modal-btn primary"
-          onClick={() => {
-            onSave(draft)
-            setDirty(false)
-          }}
-          disabled={!needsSave}
-        >
+        <button className="modal-btn primary" onClick={save} disabled={!needsSave}>
           {needsSave ? 'Save' : 'Saved'}
         </button>
         <button className="modal-btn" onClick={test} disabled={testing || !draft.host}>

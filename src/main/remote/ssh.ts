@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { mkdtempSync, writeFileSync, chmodSync } from 'fs'
 
 /**
  * Thin wrapper over the system `ssh` binary. We deliberately shell out rather
@@ -18,6 +19,40 @@ export interface SshTarget {
   host: string
   /** Extra args inserted before our defaults, e.g. `-p 2222 -J jump.host`. */
   sshOptions?: string
+  /** When set, authenticate with this password via an SSH_ASKPASS helper. */
+  password?: string
+  /** Auto-accept an unknown host key (StrictHostKeyChecking=accept-new). */
+  acceptNewHostKeys?: boolean
+}
+
+/**
+ * A tiny askpass helper that prints $FFE_SSH_PW. ssh runs it (when SSH_ASKPASS +
+ * SSH_ASKPASS_REQUIRE=force are set) to obtain the password without a TTY. Written
+ * once to a 0700 temp file; the password itself is passed per-call via the child's
+ * environment, never written to disk.
+ */
+let askpassPath: string | null = null
+function ensureAskpass(): string {
+  if (askpassPath) return askpassPath
+  const dir = mkdtempSync(join(tmpdir(), 'ffe-askpass-'))
+  const p = join(dir, 'askpass.sh')
+  writeFileSync(p, '#!/bin/sh\nprintf \'%s\\n\' "$FFE_SSH_PW"\n', { mode: 0o700 })
+  chmodSync(p, 0o700)
+  askpassPath = p
+  return p
+}
+
+/** Environment for an ssh child: adds the askpass plumbing when a password is set. */
+function spawnEnv(target: SshTarget): NodeJS.ProcessEnv {
+  if (target.password == null) return process.env
+  return {
+    ...process.env,
+    SSH_ASKPASS: ensureAskpass(),
+    // OpenSSH 8.4+: use askpass even with a tty and without DISPLAY.
+    SSH_ASKPASS_REQUIRE: 'force',
+    DISPLAY: process.env.DISPLAY || ':0',
+    FFE_SSH_PW: target.password
+  }
 }
 
 export interface RunResult {
@@ -42,25 +77,40 @@ export function splitArgs(s?: string): string[] {
  * host reuse one connection (%C is a hash of the connection parameters).
  */
 function baseArgs(target: SshTarget): string[] {
-  return [
+  const args = [
     ...splitArgs(target.sshOptions),
-    '-o',
-    'BatchMode=yes',
     '-o',
     'ConnectTimeout=15',
     '-o',
     'ControlMaster=auto',
     '-o',
     `ControlPath=${join(tmpdir(), 'ffe-cm-%C')}`,
+    // Hold the authenticated master open a while so password hosts authenticate
+    // once and subsequent calls (incl. background polls) reuse it without a prompt.
     '-o',
-    'ControlPersist=60'
+    'ControlPersist=300'
   ]
+  if (target.acceptNewHostKeys) args.push('-o', 'StrictHostKeyChecking=accept-new')
+  if (target.password != null) {
+    // Password auth via askpass: don't disable prompts, cap retries, and steer
+    // toward password / keyboard-interactive methods.
+    args.push(
+      '-o',
+      'NumberOfPasswordPrompts=1',
+      '-o',
+      'PreferredAuthentications=keyboard-interactive,password'
+    )
+  } else {
+    // Key/agent auth: never block on a prompt.
+    args.push('-o', 'BatchMode=yes')
+  }
+  return args
 }
 
 /** Run a command on the remote host; capture stdout/stderr as text. */
 export function sshRun(target: SshTarget, command: string): Promise<RunResult> {
   return new Promise((resolve) => {
-    const child = spawn('ssh', [...baseArgs(target), target.host, command])
+    const child = spawn('ssh', [...baseArgs(target), target.host, command], { env: spawnEnv(target) })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (d) => (stdout += d.toString()))
@@ -73,7 +123,7 @@ export function sshRun(target: SshTarget, command: string): Promise<RunResult> {
 /** Run a command and capture stdout as raw bytes (for binary range reads). */
 export function sshRunBinary(target: SshTarget, command: string): Promise<{ code: number | null; data: Buffer; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn('ssh', [...baseArgs(target), target.host, command])
+    const child = spawn('ssh', [...baseArgs(target), target.host, command], { env: spawnEnv(target) })
     const chunks: Buffer[] = []
     let stderr = ''
     child.stdout.on('data', (d: Buffer) => chunks.push(d))
@@ -101,7 +151,9 @@ export async function sshMkdirp(target: SshTarget, dir: string): Promise<RunResu
 /** Upload bytes to a remote path by piping them into `cat > path`. */
 export function uploadBytes(target: SshTarget, remotePath: string, data: Buffer): Promise<RunResult> {
   return new Promise((resolve) => {
-    const child = spawn('ssh', [...baseArgs(target), target.host, `cat > ${remoteQuote(remotePath)}`])
+    const child = spawn('ssh', [...baseArgs(target), target.host, `cat > ${remoteQuote(remotePath)}`], {
+      env: spawnEnv(target)
+    })
     let stderr = ''
     child.stderr.on('data', (d) => (stderr += d.toString()))
     child.on('error', (e) => resolve({ code: null, stdout: '', stderr: stderr + e.message }))
