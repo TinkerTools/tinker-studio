@@ -50,9 +50,14 @@ describe('buildJobScript / buildSetup', () => {
     expect(s).not.toContain('export PATH')
   })
 
-  it('builds a PATH + module setup block', () => {
-    expect(buildSetup({ remoteTinkerDir: '/opt/tinker/bin', setupCommands: 'module load tinker' }))
-      .toBe('export PATH="/opt/tinker/bin:$PATH"\nmodule load tinker')
+  it('builds a PATH + module setup block, adding bin / bin-macos / bin-linux', () => {
+    expect(buildSetup({ remoteTinkerDir: '/opt/tinker', setupCommands: 'module load tinker' })).toBe(
+      'export PATH="/opt/tinker:/opt/tinker/bin:/opt/tinker/bin-macos:/opt/tinker/bin-linux:$PATH"\nmodule load tinker'
+    )
+    // A trailing slash is normalized.
+    expect(buildSetup({ remoteTinkerDir: '/opt/tinker/' })).toBe(
+      'export PATH="/opt/tinker:/opt/tinker/bin:/opt/tinker/bin-macos:/opt/tinker/bin-linux:$PATH"'
+    )
     expect(buildSetup({})).toBe('')
   })
 })

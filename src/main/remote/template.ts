@@ -59,11 +59,20 @@ export function buildJobScript(opts: {
   ].join('\n')
 }
 
-/** Compose the PATH/module setup block for job.sh from a profile's settings. */
+/**
+ * Compose the PATH/module setup block for job.sh from a profile's settings.
+ *
+ * The Tinker dir is added to PATH along with its `bin`, `bin-macos`, and
+ * `bin-linux` subdirectories — so pointing at either the directory that holds the
+ * executables OR the install root works, on a macOS or Linux remote alike.
+ * (Nonexistent entries on PATH are simply ignored by the shell.) This mirrors the
+ * tolerance of the local executable resolver.
+ */
 export function buildSetup(opts: { remoteTinkerDir?: string; setupCommands?: string }): string {
   const lines: string[] = []
-  if (opts.remoteTinkerDir && opts.remoteTinkerDir.trim()) {
-    lines.push(`export PATH="${opts.remoteTinkerDir.trim()}:$PATH"`)
+  const dir = opts.remoteTinkerDir?.trim().replace(/\/+$/, '')
+  if (dir) {
+    lines.push(`export PATH="${dir}:${dir}/bin:${dir}/bin-macos:${dir}/bin-linux:$PATH"`)
   }
   if (opts.setupCommands && opts.setupCommands.trim()) {
     lines.push(opts.setupCommands.trim())
