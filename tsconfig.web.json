@@ -16,5 +16,9 @@
     "skipLibCheck": true,
     "paths": { "@/*": ["./src/renderer/src/*"] }
   },
-  "include": ["src/renderer/src/**/*", "src/renderer/src/env.d.ts"]
+  "include": [
+    "src/renderer/src/**/*",
+    "src/renderer/src/env.d.ts",
+    "src/main/remote/types.ts"
+  ]
 }

@@ -1,4 +1,24 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type {
+  ClusterProfile,
+  ClusterKind,
+  RemoteJobRecord,
+  RemoteJobState,
+  RemoteSubmitRequest
+} from '../main/remote/types'
+
+// Re-export the remote data model so the renderer can type the config UI through
+// the single window.ffe surface (env.d.ts already imports FFEApi from here).
+export type { ClusterProfile, ClusterKind, RemoteJobRecord, RemoteJobState, RemoteSubmitRequest }
+
+/** Result of opening a remote trajectory for streamed playback. */
+export interface RemoteTrajectoryOpened {
+  trajId: string
+  frameCount: number
+  natoms: number
+  kind: 'arc' | 'dcd'
+  firstFrameText?: string
+}
 
 /**
  * Preload script — the only bridge between the privileged main process and the
@@ -250,6 +270,54 @@ const api = {
       const listener = (_e: IpcRendererEvent, p: TrajectoryProgress): void => cb(p)
       ipcRenderer.on('trajectory:progress', listener)
       return () => ipcRenderer.removeListener('trajectory:progress', listener)
+    }
+  },
+  /** Remote (cluster) job management: clusters, jobs, and remote trajectories. */
+  remote: {
+    listClusters: (): Promise<ClusterProfile[]> => ipcRenderer.invoke('remote:listClusters'),
+    /** Create an in-memory default profile of a kind (not yet saved). */
+    newProfile: (kind: ClusterKind, name?: string): Promise<ClusterProfile> =>
+      ipcRenderer.invoke('remote:newProfile', kind, name),
+    saveCluster: (profile: ClusterProfile): Promise<ClusterProfile[]> =>
+      ipcRenderer.invoke('remote:saveCluster', profile),
+    deleteCluster: (id: string): Promise<ClusterProfile[]> =>
+      ipcRenderer.invoke('remote:deleteCluster', id),
+    testConnection: (id: string): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke('remote:testConnection', id),
+
+    submit: (req: RemoteSubmitRequest): Promise<RemoteJobRecord> =>
+      ipcRenderer.invoke('remote:submit', req),
+    listJobs: (): Promise<RemoteJobRecord[]> => ipcRenderer.invoke('remote:listJobs'),
+    poll: (id: string): Promise<RemoteJobState> => ipcRenderer.invoke('remote:poll', id),
+    cancel: (id: string): Promise<void> => ipcRenderer.invoke('remote:cancel', id),
+    forgetJob: (id: string): Promise<RemoteJobRecord[]> => ipcRenderer.invoke('remote:forgetJob', id),
+    listJobFiles: (id: string): Promise<string[]> => ipcRenderer.invoke('remote:listJobFiles', id),
+    /** Download a remote job file to a user-chosen local path; resolves to the path or null. */
+    saveJobFile: (id: string, name: string): Promise<string | null> =>
+      ipcRenderer.invoke('remote:saveJobFile', id, name),
+    /** Read a remote job file's text into the app. */
+    openJobText: (id: string, name: string): Promise<{ name: string; text: string }> =>
+      ipcRenderer.invoke('remote:openJobText', id, name),
+    /** Open an arbitrary remote text file (e.g. a remote .xyz) by path. */
+    openText: (clusterId: string, path: string): Promise<{ name: string; text: string }> =>
+      ipcRenderer.invoke('remote:openText', clusterId, path),
+
+    openTrajectory: (clusterId: string, path: string): Promise<RemoteTrajectoryOpened> =>
+      ipcRenderer.invoke('remote:openTrajectory', clusterId, path),
+    openJobTrajectory: (id: string): Promise<RemoteTrajectoryOpened> =>
+      ipcRenderer.invoke('remote:openJobTrajectory', id),
+    refreshTrajectory: (trajId: string): Promise<number> =>
+      ipcRenderer.invoke('remote:refreshTrajectory', trajId),
+    trajFrame: (trajId: string, frame: number): Promise<Float32Array | null> =>
+      ipcRenderer.invoke('remote:trajFrame', trajId, frame),
+    closeTrajectory: (trajId: string): Promise<boolean> =>
+      ipcRenderer.invoke('remote:closeTrajectory', trajId),
+
+    /** Subscribe to remote job updates (status/log changes). Returns an unsubscribe fn. */
+    onJobUpdate: (cb: (job: RemoteJobRecord) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, job: RemoteJobRecord): void => cb(job)
+      ipcRenderer.on('remote:jobUpdate', listener)
+      return () => ipcRenderer.removeListener('remote:jobUpdate', listener)
     }
   }
 }

@@ -35,6 +35,9 @@ import {
   type TrajectoryIndex
 } from './trajectory'
 import { openDcd, readDcdFrame, type DcdIndex } from './dcd'
+import { RemoteManager } from './remote/manager'
+import { newClusterProfile } from './remote/presets'
+import type { ClusterProfile, ClusterKind, RemoteSubmitRequest } from './remote/types'
 
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
@@ -952,9 +955,73 @@ function registerIpcHandlers(): void {
   )
 }
 
+// Remote (cluster) job manager. Created on app-ready; broadcasts job updates to
+// every open window so the Jobs UI stays live.
+let remote: RemoteManager | null = null
+
+function broadcast(channel: string, payload: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.webContents.isDestroyed()) w.webContents.send(channel, payload)
+  }
+}
+
+/** IPC surface for clusters, remote jobs, and remote trajectory streaming. */
+function registerRemoteHandlers(mgr: RemoteManager): void {
+  // Clusters.
+  ipcMain.handle('remote:listClusters', () => mgr.listClusters())
+  ipcMain.handle('remote:newProfile', (_e, kind: ClusterKind, name?: string) =>
+    newClusterProfile(kind, name)
+  )
+  ipcMain.handle('remote:saveCluster', (_e, profile: ClusterProfile) => mgr.saveCluster(profile))
+  ipcMain.handle('remote:deleteCluster', (_e, id: string) => mgr.deleteCluster(id))
+  ipcMain.handle('remote:testConnection', (_e, id: string) => mgr.testConnection(id))
+
+  // Jobs.
+  ipcMain.handle('remote:submit', (_e, req: RemoteSubmitRequest) => mgr.submit(req))
+  ipcMain.handle('remote:listJobs', () => mgr.listJobs())
+  ipcMain.handle('remote:poll', (_e, id: string) => mgr.poll(id))
+  ipcMain.handle('remote:cancel', (_e, id: string) => mgr.cancel(id))
+  ipcMain.handle('remote:forgetJob', (_e, id: string) => mgr.forgetJob(id))
+  ipcMain.handle('remote:listJobFiles', (_e, id: string) => mgr.listJobFiles(id))
+
+  // Download a remote job file to a user-chosen local path.
+  ipcMain.handle('remote:saveJobFile', async (_e, id: string, name: string) => {
+    const r = await dialog.showSaveDialog({ defaultPath: name })
+    if (r.canceled || !r.filePath) return null
+    const buf = await mgr.fetchJobBytes(id, name)
+    await writeFile(r.filePath, buf)
+    return r.filePath
+  })
+
+  // Open a remote job file as text directly into the app (no local copy kept).
+  ipcMain.handle('remote:openJobText', (_e, id: string, name: string) => mgr.fetchJobText(id, name))
+
+  // Open an arbitrary remote text file (e.g. a remote .xyz) by path.
+  ipcMain.handle('remote:openText', (_e, clusterId: string, path: string) =>
+    mgr.openRemoteText(clusterId, path)
+  )
+
+  // Remote trajectory streaming (mirrors the local trajectory API).
+  ipcMain.handle('remote:openTrajectory', (_e, clusterId: string, path: string) =>
+    mgr.openTrajectory(clusterId, path)
+  )
+  ipcMain.handle('remote:openJobTrajectory', (_e, id: string) => mgr.openJobTrajectory(id))
+  ipcMain.handle('remote:refreshTrajectory', (_e, trajId: string) => mgr.refreshTrajectory(trajId))
+  ipcMain.handle('remote:trajFrame', (_e, trajId: string, frame: number) =>
+    mgr.readTrajectoryFrame(trajId, frame)
+  )
+  ipcMain.handle('remote:closeTrajectory', (_e, trajId: string) => {
+    mgr.closeTrajectory(trajId)
+    return true
+  })
+}
+
 app.whenReady().then(() => {
   buildApplicationMenu()
   registerIpcHandlers()
+  remote = new RemoteManager(app.getPath('userData'), broadcast)
+  registerRemoteHandlers(remote)
+  remote.resumePolling()
   createWindow()
 
   app.on('activate', () => {
@@ -966,4 +1033,8 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   // macOS apps typically stay alive until the user quits explicitly.
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  remote?.dispose()
 })
