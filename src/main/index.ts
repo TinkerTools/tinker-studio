@@ -53,6 +53,7 @@ function buildApplicationMenu(): void {
       label: 'File',
       submenu: [
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
+        { label: 'Open Remote…', accelerator: 'CmdOrCtrl+Shift+O', click: () => sendMenu('openRemote') },
         { label: 'New Molecule (Builder)…', accelerator: 'CmdOrCtrl+N', click: () => sendMenu('build') },
         {
           label: 'Save Structure As',
@@ -84,7 +85,8 @@ function buildApplicationMenu(): void {
       label: 'Tinker',
       submenu: [
         { label: 'Modeling Commands…', click: () => sendMenu('commands') },
-        { label: 'Job Output…', click: () => sendMenu('jobs') },
+        { label: 'Jobs…', click: () => sendMenu('jobs') },
+        { label: 'Clusters…', click: () => sendMenu('clusters') },
         { label: 'Keyword Reference…', click: () => sendMenu('keywords') },
         { label: 'Open Key File…', click: () => sendMenu('openKey') },
         { label: 'Apply Force Field (.prm)…', click: () => sendMenu('applyFF') },

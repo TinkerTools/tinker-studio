@@ -15,8 +15,13 @@ export interface Trajectory {
   frameCount: number
   /** In-memory frames (each numAtoms*3), when not streamed lazily. */
   frames?: Float32Array[]
-  /** Lazy source for large .arc files; frames are fetched on demand. */
-  source?: { trajId: string }
+  /**
+   * Lazy source for large/remote trajectories; frames are fetched on demand.
+   * `remote` routes frame reads through the remote (ssh) trajectory API instead
+   * of the local one. `growing` marks a still-running job's output that should be
+   * re-polled for new frames.
+   */
+  source?: { trajId: string; remote?: boolean; growing?: boolean; jobId?: string }
   /** True while a streamed source's byte-offset index is still being built. */
   indexing?: boolean
   /** Rough total frame count shown while indexing (exact when done). */

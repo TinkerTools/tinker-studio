@@ -32,6 +32,16 @@ export const LOCAL_SOURCE: FrameSourceConfig = {
   prefetchAhead: 8
 }
 
+/**
+ * Remote (ssh) default: each fetch crosses the network, so prefetch deeper to
+ * hide the round-trip latency. The byte budget stays generous so a fetched
+ * window — including the deeper read-ahead — comfortably stays resident.
+ */
+export const REMOTE_SOURCE: FrameSourceConfig = {
+  budgetBytes: 96 * 1024 * 1024,
+  prefetchAhead: 24
+}
+
 type FetchFrame = (trajId: string, index: number) => Promise<Float32Array | null>
 
 export class FrameWindow {

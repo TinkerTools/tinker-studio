@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { tinkerCommands, type TinkerCommand, type TinkerOption } from './data/tinkerCatalog'
 import type { MolecularSystem } from './core/system'
 import { liveKind, type JobRecord } from './core/job'
+import type { ClusterProfile } from '../../main/remote/types'
 
 type RunJob = (
   program: string,
@@ -10,6 +11,19 @@ type RunJob = (
   watch: boolean,
   requiresStructure: boolean
 ) => Promise<{ id: string; ok: boolean }>
+
+/** Submit a job to a remote cluster. Returns true on a successful submission. */
+export type SubmitRemote = (opts: {
+  program: string
+  clusterId: string
+  source: 'upload' | 'remote'
+  remoteInputDir?: string
+  inputName?: string
+  variables: Record<string, string>
+  stdin: string
+  watch: boolean
+  requiresStructure: boolean
+}) => Promise<boolean>
 
 // fileTypes ['ANY'] are sequence builders (protein/nucleic) that take no
 // coordinate file; everything else operates on a loaded structure.
@@ -28,14 +42,20 @@ export function CommandsModal({
   system,
   tinkerDir,
   jobs,
+  clusters,
   onRunJob,
+  onSubmitRemote,
+  onManageClusters,
   onStarted,
   onClose
 }: {
   system: MolecularSystem | null
   tinkerDir?: string
   jobs: JobRecord[]
+  clusters: ClusterProfile[]
   onRunJob: RunJob
+  onSubmitRemote: SubmitRemote
+  onManageClusters: () => void
   /** Called when a command is launched — used to jump to the Job Output view. */
   onStarted: () => void
   onClose: () => void
@@ -81,7 +101,10 @@ export function CommandsModal({
                 system={system}
                 tinkerDir={tinkerDir}
                 jobs={jobs}
+                clusters={clusters}
                 onRunJob={onRunJob}
+                onSubmitRemote={onSubmitRemote}
+                onManageClusters={onManageClusters}
                 onStarted={onStarted}
               />
             )}
@@ -97,14 +120,20 @@ function CommandDetail({
   system,
   tinkerDir,
   jobs,
+  clusters,
   onRunJob,
+  onSubmitRemote,
+  onManageClusters,
   onStarted
 }: {
   command: TinkerCommand
   system: MolecularSystem | null
   tinkerDir?: string
   jobs: JobRecord[]
+  clusters: ClusterProfile[]
   onRunJob: RunJob
+  onSubmitRemote: SubmitRemote
+  onManageClusters: () => void
   onStarted: () => void
 }) {
   const [values, setValues] = useState<Record<string, string>>({})
@@ -136,7 +165,10 @@ function CommandDetail({
         system={system}
         tinkerDir={tinkerDir}
         jobs={jobs}
+        clusters={clusters}
         onRunJob={onRunJob}
+        onSubmitRemote={onSubmitRemote}
+        onManageClusters={onManageClusters}
         onStarted={onStarted}
         buildStdin={buildStdin}
       />
@@ -222,7 +254,10 @@ function RunSection({
   system,
   tinkerDir,
   jobs,
+  clusters,
   onRunJob,
+  onSubmitRemote,
+  onManageClusters,
   onStarted,
   buildStdin
 }: {
@@ -230,7 +265,10 @@ function RunSection({
   system: MolecularSystem | null
   tinkerDir?: string
   jobs: JobRecord[]
+  clusters: ClusterProfile[]
   onRunJob: RunJob
+  onSubmitRemote: SubmitRemote
+  onManageClusters: () => void
   onStarted: () => void
   buildStdin: () => string
 }) {
@@ -238,74 +276,199 @@ function RunSection({
   // App-level job list so they survive the modal closing.
   const [jobId, setJobId] = useState<string | null>(null)
   const [watchLive, setWatchLive] = useState(true)
+  // 'local' or a cluster id.
+  const [target, setTarget] = useState('local')
+  const [source, setSource] = useState<'upload' | 'remote'>('upload')
+  const [remoteDir, setRemoteDir] = useState('')
+  const [remoteInput, setRemoteInput] = useState('')
+  const [vars, setVars] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [submitMsg, setSubmitMsg] = useState<string | null>(null)
+
+  const program = command.name.toLowerCase()
   const job = jobs.find((j) => j.id === jobId) ?? null
   const running = job?.status === 'running'
   const requires = needsStructure(command)
-  const canRun = requires ? Boolean(system) : true
-  const kind = liveKind(command.name.toLowerCase())
+  const kind = liveKind(program)
   const noKeyWarning = requires && system != null && !system.keyText
+  const cluster = clusters.find((c) => c.id === target) ?? null
+  const isRemote = cluster != null
 
   async function run(): Promise<void> {
-    const { id } = await onRunJob(command.name.toLowerCase(), system, buildStdin(), watchLive, requires)
+    const { id } = await onRunJob(program, system, buildStdin(), watchLive, requires)
     setJobId(id)
-    // Whether it spawned or failed to, a job record now exists — jump to the Job
-    // Output view (which focuses the newest job) so the user sees its log there.
+    // Whether it spawned or failed to, a job record now exists — jump to the Jobs
+    // view (which focuses the newest job) so the user sees its log there.
     onStarted()
   }
+
+  async function submitRemote(): Promise<void> {
+    if (!cluster) return
+    setSubmitting(true)
+    setSubmitMsg(null)
+    try {
+      const variables: Record<string, string> = {}
+      for (const v of cluster.variables) variables[v.name] = vars[v.name] ?? v.default ?? ''
+      const ok = await onSubmitRemote({
+        program,
+        clusterId: cluster.id,
+        source,
+        remoteInputDir: source === 'remote' ? remoteDir.trim() : undefined,
+        inputName: source === 'remote' ? remoteInput.trim() : undefined,
+        variables,
+        stdin: buildStdin(),
+        watch: watchLive,
+        requiresStructure: requires
+      })
+      if (ok) onStarted()
+      else setSubmitMsg('Submission failed — see the Jobs window for details.')
+    } catch (e) {
+      setSubmitMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const canRunLocal = requires ? Boolean(system) : true
+  const canSubmitRemote =
+    isRemote &&
+    Boolean(cluster?.host) &&
+    (source === 'upload' ? !requires || Boolean(system) : Boolean(remoteDir.trim() && remoteInput.trim()))
 
   return (
     <div className="run-section">
       <div className="run-status">
-        Program <code>{command.name.toLowerCase()}</code>
-        {requires && (
+        Program <code>{program}</code>
+        {requires && !isRemote && (
           <>
             {' · '}
             System: <code>{system?.name ?? '(none)'}</code>
           </>
         )}
-        {tinkerDir ? (
-          <>
-            {' · '}
-            Tinker: <code>{tinkerDir}</code>
-          </>
-        ) : (
-          <span className="run-warn"> · Tinker directory not set (Tinker ▸ Set Tinker Directory…)</span>
-        )}
       </div>
-      {requires && !system && (
+
+      <div className="run-target">
+        <label>Run on</label>
+        <select value={target} onChange={(e) => setTarget(e.target.value)}>
+          <option value="local">This computer (local)</option>
+          {clusters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} ({c.kind})
+            </option>
+          ))}
+        </select>
+        <button className="link-btn" onClick={onManageClusters}>
+          Manage clusters…
+        </button>
+      </div>
+
+      {!isRemote && !tinkerDir && (
+        <div className="run-warn">Tinker directory not set (Tinker ▸ Set Tinker Installation Folder…).</div>
+      )}
+      {!isRemote && requires && !system && (
         <div className="run-warn">Load a system to run this command on.</div>
       )}
-      {noKeyWarning && (
+      {noKeyWarning && !isRemote && (
         <div className="run-warn">
           No key file attached — attempting with a minimal default key; the run may need a force
           field (.prm) to succeed.
         </div>
       )}
+
+      {isRemote && (
+        <div className="remote-submit">
+          {requires && (
+            <div className="run-source">
+              <label className="opt-choice">
+                <input
+                  type="radio"
+                  name="src"
+                  checked={source === 'upload'}
+                  onChange={() => setSource('upload')}
+                />
+                Upload current system{system ? `: ${system.name}` : ' (none loaded)'}
+              </label>
+              <label className="opt-choice">
+                <input
+                  type="radio"
+                  name="src"
+                  checked={source === 'remote'}
+                  onChange={() => setSource('remote')}
+                />
+                Use files already on the cluster
+              </label>
+            </div>
+          )}
+          {requires && source === 'remote' && (
+            <div className="remote-files">
+              <div className="form-row">
+                <label>Remote dir</label>
+                <input
+                  placeholder="~/runs/mysim"
+                  value={remoteDir}
+                  onChange={(e) => setRemoteDir(e.target.value)}
+                />
+              </div>
+              <div className="form-row">
+                <label>Input file</label>
+                <input
+                  placeholder="mol.xyz"
+                  value={remoteInput}
+                  onChange={(e) => setRemoteInput(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          {cluster && cluster.variables.length > 0 && (
+            <div className="remote-vars">
+              {cluster.variables.map((v) => (
+                <div className="form-row" key={v.name}>
+                  <label title={v.description}>{v.label || v.name}</label>
+                  <input
+                    value={vars[v.name] ?? v.default ?? ''}
+                    onChange={(e) => setVars((m) => ({ ...m, [v.name]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {kind && (
         <label className="watch-live">
-          <input
-            type="checkbox"
-            checked={watchLive}
-            disabled={running}
-            onChange={(e) => setWatchLive(e.target.checked)}
-          />
-          Watch live — animate the {kind === 'dynamics' ? 'trajectory' : 'minimization'} as it runs
+          <input type="checkbox" checked={watchLive} onChange={(e) => setWatchLive(e.target.checked)} />
+          {isRemote
+            ? `Stream the ${kind === 'dynamics' ? 'trajectory' : 'output'} into the viewer as it runs`
+            : `Watch live — animate the ${kind === 'dynamics' ? 'trajectory' : 'minimization'} as it runs`}
         </label>
       )}
+
       <div className="run-buttons">
-        <button className="modal-btn primary" onClick={run} disabled={!canRun || running}>
-          {running ? 'Running…' : 'Run'}
-        </button>
-        {running && job && (
-          <button className="modal-btn ghost" onClick={() => window.ffe.job.cancel(job.id)}>
-            Cancel
+        {!isRemote ? (
+          <>
+            <button className="modal-btn primary" onClick={run} disabled={!canRunLocal || running}>
+              {running ? 'Running…' : 'Run'}
+            </button>
+            {running && job && (
+              <button className="modal-btn ghost" onClick={() => window.ffe.job.cancel(job.id)}>
+                Cancel
+              </button>
+            )}
+          </>
+        ) : (
+          <button
+            className="modal-btn primary"
+            onClick={submitRemote}
+            disabled={!canSubmitRemote || submitting}
+          >
+            {submitting ? 'Submitting…' : 'Submit'}
           </button>
         )}
-        {job && (
-          <span className="run-hint">Output is kept in Tinker ▸ Job Output…</span>
-        )}
+        <span className="run-hint">Jobs are tracked in Tinker ▸ Jobs…</span>
       </div>
-      {job?.output && <pre className="run-log">{job.output}</pre>}
+      {submitMsg && <div className="run-warn">{submitMsg}</div>}
+      {!isRemote && job?.output && <pre className="run-log">{job.output}</pre>}
     </div>
   )
 }

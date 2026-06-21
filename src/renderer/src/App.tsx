@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Viewer, type ViewerInputs } from './viewer/Viewer'
-import { FrameWindow, LOCAL_SOURCE } from './core/frameWindow'
+import { FrameWindow, LOCAL_SOURCE, REMOTE_SOURCE } from './core/frameWindow'
 import type { Renderable, PickResult } from './viewer/scene'
 import { distance, angle, dihedral } from './core/measure'
 import { expandSelection, type PickLevel } from './core/select'
@@ -28,10 +28,13 @@ import {
 } from './core/transform'
 import { AtomBrowser } from './AtomBrowser'
 import { BuilderView } from './BuilderView'
-import { CommandsModal } from './CommandsModal'
+import { CommandsModal, type SubmitRemote } from './CommandsModal'
 import { JobsModal } from './JobsModal'
 import { KeywordsModal } from './KeywordsModal'
+import { ClustersModal } from './ClustersModal'
+import { RemoteOpenModal } from './RemoteOpenModal'
 import { liveKind, type JobRecord, type LiveKind } from './core/job'
+import type { ClusterProfile, RemoteJobRecord } from '../../main/remote/types'
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -74,8 +77,12 @@ export default function App() {
   const [measureMode, setMeasureMode] = useState<MeasureMode>('inspect')
   const [pickLevel, setPickLevel] = useState<PickLevel>('atom')
   const [picks, setPicks] = useState<PickResult[]>([])
-  const [modal, setModal] = useState<'commands' | 'keywords' | 'jobs' | 'graphics' | null>(null)
+  const [modal, setModal] = useState<
+    'commands' | 'keywords' | 'jobs' | 'graphics' | 'clusters' | 'remoteOpen' | null
+  >(null)
   const [jobs, setJobs] = useState<JobRecord[]>([])
+  const [clusters, setClusters] = useState<ClusterProfile[]>([])
+  const [remoteJobs, setRemoteJobs] = useState<RemoteJobRecord[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [atomsOpen, setAtomsOpen] = useState(false)
@@ -950,6 +957,8 @@ export default function App() {
     else if (action === 'commands') setModal('commands')
     else if (action === 'graphics') setModal('graphics')
     else if (action === 'jobs') setModal('jobs')
+    else if (action === 'clusters') setModal('clusters')
+    else if (action === 'openRemote') setModal('remoteOpen')
     else if (action === 'keywords') {
       setKeyText('')
       setModal('keywords')
@@ -977,6 +986,210 @@ export default function App() {
   useEffect(() => {
     void window.ffe?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
+
+  // Load configured clusters + remembered remote jobs, and keep the job list live.
+  useEffect(() => {
+    void window.ffe?.remote.listClusters().then(setClusters)
+    void window.ffe?.remote.listJobs().then(setRemoteJobs)
+    return window.ffe?.remote.onJobUpdate((job) => {
+      setRemoteJobs((prev) => {
+        const i = prev.findIndex((j) => j.id === job.id)
+        if (i < 0) return [job, ...prev]
+        const next = prev.slice()
+        next[i] = job
+        return next
+      })
+      // When a live job finishes, stop growing its streamed trajectory (one final
+      // refresh still happens on the next tick before the flag clears).
+      const terminal =
+        job.status === 'completed' || job.status === 'failed' || job.status === 'canceled'
+      if (terminal) {
+        setSystems((prev) =>
+          prev.map((s) =>
+            s.trajectory?.source?.jobId === job.id && s.trajectory.source.growing
+              ? { ...s, trajectory: { ...s.trajectory, source: { ...s.trajectory.source, growing: false } } }
+              : s
+          )
+        )
+      }
+    })
+  }, [])
+
+  // Grow remote live trajectories: re-index the still-writing remote file and
+  // raise the scrubbable frame count until the job that produces it finishes.
+  const growingKey = systems
+    .filter((s) => s.trajectory?.source?.remote && s.trajectory.source.growing)
+    .map((s) => s.trajectory!.source!.trajId)
+    .join(',')
+  useEffect(() => {
+    if (!growingKey) return
+    const ids = growingKey.split(',')
+    const iv = window.setInterval(() => {
+      for (const trajId of ids) {
+        void window.ffe.remote.refreshTrajectory(trajId).then((fc) => {
+          setSystems((prev) =>
+            prev.map((s) =>
+              s.trajectory?.source?.trajId === trajId && s.trajectory.frameCount !== fc
+                ? { ...s, trajectory: { ...s.trajectory, frameCount: fc } }
+                : s
+            )
+          )
+        })
+      }
+    }, 5000)
+    return () => window.clearInterval(iv)
+  }, [growingKey])
+
+  // Submit a Tinker job to a remote cluster. Builds the staged input files from
+  // the current system (or references files already on the host), then hands off
+  // to the main-process remote manager, which uploads, submits, and polls.
+  const submitRemote: SubmitRemote = async (opts) => {
+    setError(null)
+    const cluster = clusters.find((c) => c.id === opts.clusterId)
+    if (!cluster) {
+      setError('Unknown cluster.')
+      return false
+    }
+    try {
+      let req: Parameters<typeof window.ffe.remote.submit>[0]
+      if (opts.source === 'remote') {
+        // Run on files already present in a remote directory.
+        const outputFormat = opts.program === 'dynamic' ? 'arc' : null
+        req = {
+          clusterId: cluster.id,
+          program: opts.program,
+          jobName: opts.inputName || opts.program,
+          inputName: opts.inputName!,
+          remoteInputDir: opts.remoteInputDir,
+          stdin: opts.stdin,
+          variables: opts.variables,
+          outputFormat
+        }
+      } else {
+        // Upload the active system's coordinates (+ key) to a fresh job directory.
+        const system = active
+        if (opts.requiresStructure && !system) {
+          setError('Load a system to submit.')
+          return false
+        }
+        const staged = system ? buildRemoteFiles(system, opts.program) : null
+        req = {
+          clusterId: cluster.id,
+          program: opts.program,
+          jobName: staged?.stem ?? opts.program,
+          inputName: staged?.inputName ?? '',
+          files: staged?.files,
+          stdin: opts.stdin,
+          variables: opts.variables,
+          outputFormat: staged?.outputFormat ?? null
+        }
+      }
+      const job = await window.ffe.remote.submit(req)
+      setRemoteJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)])
+      return job.status !== 'failed'
+    } catch (e) {
+      setError(messageOf(e))
+      return false
+    }
+  }
+
+  // Open (or start streaming) a remote job's trajectory output into the viewer.
+  async function viewRemoteJob(job: RemoteJobRecord): Promise<void> {
+    setError(null)
+    try {
+      const res = await window.ffe.remote.openJobTrajectory(job.id)
+      let structure: Parsed['structure']
+      if (res.kind === 'arc' && res.firstFrameText) {
+        structure = parseTinkerXyz(res.firstFrameText)
+      } else {
+        // .dcd carries no topology — fetch the input .xyz to get atoms/bonds.
+        const input = await window.ffe.remote.openJobText(job.id, job.inputName ?? '')
+        structure = parseTinkerXyz(input.text)
+      }
+      const active = job.status === 'running' || job.status === 'pending' || job.status === 'submitting'
+      const id = nextSystemId()
+      const system: MolecularSystem = {
+        id,
+        name: `${job.program} · ${job.clusterName}${active ? ' (live)' : ''}`,
+        fileType: res.kind,
+        structure,
+        trajectory: {
+          frameCount: res.frameCount,
+          source: { trajId: res.trajId, remote: true, growing: active, jobId: job.id }
+        }
+      }
+      setSystems((prev) => [...prev, system])
+      setActiveId(id)
+      setVisibleIds(new Set([id]))
+      setFrameIndex(0)
+      setModal(null)
+    } catch (e) {
+      setError(messageOf(e))
+    }
+  }
+
+  // Download a finished job's optimized/result structure and open it locally.
+  async function openRemoteResult(job: RemoteJobRecord): Promise<void> {
+    setError(null)
+    try {
+      const files = await window.ffe.remote.listJobFiles(job.id)
+      const stem = (job.inputName ?? '').replace(/\.[^.]*$/, '')
+      // Prefer the highest Tinker cycle file (mol.xyz_N), else a plain result xyz.
+      const cycles = files
+        .filter((f) => new RegExp(`^${escapeRegExp(stem)}\\.xyz_\\d+$`).test(f))
+        .sort((a, b) => Number(b.split('_').pop()) - Number(a.split('_').pop()))
+      const pick = cycles[0] ?? (files.includes(`${stem}.xyz`) ? `${stem}.xyz` : job.inputName)
+      if (!pick) {
+        setError('No result coordinate file found in the job directory.')
+        return
+      }
+      const { name, text } = await window.ffe.remote.openJobText(job.id, pick)
+      addSystem(parseStructureFile(text, name), `${name} · ${job.clusterName}`)
+      setModal(null)
+    } catch (e) {
+      setError(messageOf(e))
+    }
+  }
+
+  // Open an arbitrary remote file: stream a .arc/.dcd, or load a structure text.
+  async function openRemotePath(clusterId: string, path: string): Promise<void> {
+    setError(null)
+    const cluster = clusters.find((c) => c.id === clusterId)
+    try {
+      if (/\.(arc|dcd)$/i.test(path)) {
+        const res = await window.ffe.remote.openTrajectory(clusterId, path)
+        let structure: Parsed['structure']
+        if (res.kind === 'arc' && res.firstFrameText) {
+          structure = parseTinkerXyz(res.firstFrameText)
+        } else {
+          // Need topology for a .dcd: read the sibling .xyz next to it.
+          const xyzPath = path.replace(/\.dcd$/i, '.xyz')
+          const input = await window.ffe.remote.openText(clusterId, xyzPath)
+          structure = parseTinkerXyz(input.text)
+        }
+        const id = nextSystemId()
+        setSystems((prev) => [
+          ...prev,
+          {
+            id,
+            name: `${path.split('/').pop()} · ${cluster?.name ?? 'remote'}`,
+            fileType: res.kind,
+            structure,
+            trajectory: { frameCount: res.frameCount, source: { trajId: res.trajId, remote: true } }
+          }
+        ])
+        setActiveId(id)
+        setVisibleIds(new Set([id]))
+        setFrameIndex(0)
+      } else {
+        const { name, text } = await window.ffe.remote.openText(clusterId, path)
+        addSystem(parseStructureFile(text, name), `${name} · ${cluster?.name ?? 'remote'}`)
+      }
+      setModal(null)
+    } catch (e) {
+      setError(messageOf(e))
+    }
+  }
 
   // As a streamed trajectory's background index grows, raise the scrubbable frame
   // count (so the already-indexed prefix is usable); on the final update mark it
@@ -1063,9 +1276,11 @@ export default function App() {
       frameWindowRef.current = new FrameWindow(
         src.trajId,
         natoms * 3 * 4,
-        (id, idx) => window.ffe.trajectory.frame(id, idx),
+        src.remote
+          ? (id, idx) => window.ffe.remote.trajFrame(id, idx)
+          : (id, idx) => window.ffe.trajectory.frame(id, idx),
         () => setFrameTick((t) => t + 1),
-        LOCAL_SOURCE
+        src.remote ? REMOTE_SOURCE : LOCAL_SOURCE
       )
     }
   }, [active?.id, active?.trajectory?.source?.trajId, active?.structure.atoms.length])
@@ -1549,7 +1764,10 @@ export default function App() {
           system={active}
           tinkerDir={tinkerDir}
           jobs={jobs}
+          clusters={clusters}
           onRunJob={startJob}
+          onSubmitRemote={submitRemote}
+          onManageClusters={() => setModal('clusters')}
           onStarted={() => setModal('jobs')}
           onClose={() => setModal(null)}
         />
@@ -1557,8 +1775,28 @@ export default function App() {
       {modal === 'jobs' && (
         <JobsModal
           jobs={jobs}
+          remoteJobs={remoteJobs}
           onCancel={(id) => void window.ffe.job.cancel(id)}
           onClear={clearJob}
+          onRemoteCancel={(id) => void window.ffe.remote.cancel(id)}
+          onRemoteForget={(id) => void window.ffe.remote.forgetJob(id).then(setRemoteJobs)}
+          onViewLive={(job) => void viewRemoteJob(job)}
+          onOpenResult={(job) => void openRemoteResult(job)}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === 'clusters' && (
+        <ClustersModal
+          clusters={clusters}
+          onChange={setClusters}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === 'remoteOpen' && (
+        <RemoteOpenModal
+          clusters={clusters}
+          onOpen={openRemotePath}
+          onManageClusters={() => setModal('clusters')}
           onClose={() => setModal(null)}
         />
       )}
@@ -1926,6 +2164,44 @@ function GraphicsModal({
 
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Build the files to stage for a remote job from the active system: a Tinker
+ * .xyz (basic-typed when the molecule is untyped) plus a sibling .key Tinker
+ * picks up automatically. Mirrors the local launch's typing logic, never
+ * mutating the in-memory system.
+ */
+function buildRemoteFiles(
+  system: MolecularSystem,
+  program: string
+): { files: { name: string; text: string }[]; inputName: string; outputFormat: 'arc' | 'dcd' | null; stem: string } {
+  const baked = bakeTransform(system.structure, system.transform)
+  const hasOwnParams = !!system.keyText && /^\s*parameters\b/im.test(system.keyText)
+  const useBasic = isUntyped(baked) && !hasOwnParams
+  const struct = useBasic ? withBasicTypes(baked) : baked
+  const stem =
+    (system.path ? system.path.split(/[\\/]/).pop()! : system.name)
+      .replace(/\.[^.]*$/, '')
+      .replace(/[^A-Za-z0-9._-]/g, '_') || 'structure'
+  const inputName = `${stem}.xyz`
+  const keyText =
+    system.keyText && system.keyText.trim()
+      ? system.keyText
+      : useBasic
+        ? 'parameters basic.prm\n'
+        : DEFAULT_KEY
+  const files = [
+    { name: inputName, text: writeTinkerXyz(struct) },
+    { name: `${stem}.key`, text: keyText }
+  ]
+  const dcd = program === 'dynamic' && /^\s*dcd-archive\b/im.test(keyText)
+  const outputFormat: 'arc' | 'dcd' | null = program === 'dynamic' ? (dcd ? 'dcd' : 'arc') : null
+  return { files, inputName, outputFormat, stem }
 }
 
 function hexColor(n: number): string {

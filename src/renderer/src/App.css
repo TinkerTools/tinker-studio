@@ -1331,3 +1331,343 @@ body {
   color: #ff8585;
   pointer-events: auto;
 }
+
+/* ---- Remote jobs / clusters ------------------------------------------- */
+
+/* Extra-large modals (clusters, jobs manager) for the denser remote UIs. */
+.modal.modal-xl {
+  width: 1040px;
+  max-width: 96vw;
+  height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Clusters modal: list + editor, same two-column shape as the commands modal. */
+.cluster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem;
+}
+
+.cluster-item {
+  display: flex;
+  flex-direction: column;
+  padding: 0.4rem 0.5rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.cluster-item:hover {
+  background: var(--panel-2);
+}
+
+.cluster-item.active {
+  background: rgba(91, 140, 255, 0.16);
+}
+
+.cluster-name {
+  font-size: 0.88rem;
+}
+
+.cluster-kind {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.cluster-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.cluster-detail {
+  overflow-y: auto;
+  padding-right: 0.4rem;
+}
+
+.cluster-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+/* Shared label/field rows used by cluster + remote forms. */
+.form-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.form-row.stacked {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.form-row > label {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.form-row input,
+.form-row select,
+.form-row textarea,
+.cluster-form textarea {
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.3rem 0.45rem;
+  width: 100%;
+}
+
+textarea.mono,
+input.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+}
+
+.form-section {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.form-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.var-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 0.35rem;
+}
+
+.var-row input {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.25rem 0.4rem;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.modal-btn.danger,
+.mini-btn.danger {
+  color: #ff8585;
+}
+
+.test-ok {
+  color: #6ee7a8;
+  font-size: 0.82rem;
+}
+
+.test-bad {
+  color: #ff8585;
+  font-size: 0.82rem;
+}
+
+/* "Run on" target selector + remote submit block in the commands modal. */
+.run-target {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.run-target select {
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.25rem 0.4rem;
+}
+
+.remote-submit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.run-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.remote-files,
+.remote-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* Jobs manager: list + detail. */
+.jobs-manager {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1rem;
+  min-height: 0;
+  flex: 1;
+}
+
+.jobs-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem;
+}
+
+.jobs-group-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  padding: 0.2rem 0.3rem;
+}
+
+.job-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: 'dot name' 'dot sub';
+  column-gap: 0.5rem;
+  align-items: center;
+  padding: 0.35rem 0.45rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.job-row:hover {
+  background: var(--panel-2);
+}
+
+.job-row.active {
+  background: rgba(91, 140, 255, 0.16);
+}
+
+.job-row .job-dot {
+  grid-area: dot;
+}
+
+.job-row-name {
+  grid-area: name;
+  font-size: 0.86rem;
+}
+
+.job-row-sub {
+  grid-area: sub;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.jobs-finished-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  padding: 0.4rem 0.3rem 0.2rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.3rem;
+}
+
+.jobs-finished-toggle:hover {
+  color: var(--text);
+}
+
+.jobs-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.job-subgrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  margin: 0.5rem 0;
+}
+
+.job-subgrid > span {
+  color: var(--text-dim);
+}
+
+.job-subgrid code {
+  word-break: break-all;
+}
+
+.job-subgrid code.err {
+  color: #ff8585;
+}
+
+.job-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem;
+  margin: 0.4rem 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.job-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
