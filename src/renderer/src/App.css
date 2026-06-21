@@ -1191,26 +1191,40 @@ body {
 .builder-bar {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 8px 14px;
+  gap: 12px;
+  padding: 8px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .builder-title {
   font-weight: 600;
-  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+/* The editing controls wrap within their own section; the Cancel/Done actions
+   stay pinned at the right and never get pushed onto a second line. */
+.builder-controls {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.builder-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .builder-group {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.builder-right {
-  margin-left: auto;
 }
 
 .builder-label {
@@ -1224,8 +1238,9 @@ body {
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 5px 10px;
+  padding: 5px 9px;
   cursor: pointer;
+  white-space: nowrap;
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 
@@ -1240,8 +1255,8 @@ body {
 }
 
 .builder-bar button.el {
-  min-width: 30px;
-  padding: 5px 8px;
+  min-width: 27px;
+  padding: 5px 6px;
   font-weight: 600;
 }
 
@@ -1258,6 +1273,22 @@ body {
   border-radius: 6px;
   padding: 5px 8px;
   cursor: pointer;
+}
+
+.builder-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.builder-check input {
+  cursor: pointer;
+  margin: 0;
 }
 
 .builder-done {

@@ -86,7 +86,7 @@ function buildApplicationMenu(): void {
         { label: 'Open Key File…', click: () => sendMenu('openKey') },
         { label: 'Apply Force Field (.prm)…', click: () => sendMenu('applyFF') },
         { type: 'separator' },
-        { label: 'Set Tinker Directory…', click: () => sendMenu('setTinkerDir') }
+        { label: 'Set Tinker Installation Folder…', click: () => sendMenu('setTinkerDir') }
       ]
     },
     {
@@ -194,6 +194,43 @@ function saveSettings(s: Settings): void {
 
 // Running Tinker jobs, keyed by an id chosen by the renderer.
 const jobs = new Map<string, ChildProcess>()
+
+/**
+ * Resolve a Tinker program from the configured Tinker directory. We now expect
+ * that directory to be the Tinker *root* (holding `bin/` and `params/`), but stay
+ * tolerant of installs that put binaries in a platform-specific `bin-macos/` etc.,
+ * or of a directory pointed straight at the binaries. Returns the first existing
+ * path, or null if none is found.
+ */
+function resolveTinkerExe(program: string): string | null {
+  const { tinkerDir } = loadSettings()
+  if (!tinkerDir) return null
+  const prog = process.platform === 'win32' ? `${program}.exe` : program
+  const platformBin =
+    process.platform === 'darwin' ? 'bin-macos' : process.platform === 'win32' ? 'bin-windows' : 'bin-linux'
+  const candidates = [
+    join(tinkerDir, 'bin', prog),
+    join(tinkerDir, platformBin, prog),
+    join(tinkerDir, prog) // legacy: pointed straight at the bin directory
+  ]
+  return candidates.find((c) => existsSync(c)) ?? null
+}
+
+/** Locate Tinker's `params/` directory under (or beside) the configured root. */
+function tinkerParamsDir(): string | null {
+  const { tinkerDir } = loadSettings()
+  if (!tinkerDir) return null
+  const candidates = [join(tinkerDir, 'params'), join(tinkerDir, '..', 'params')]
+  return candidates.find((c) => existsSync(c)) ?? null
+}
+
+/** Path to Tinker's bundled generic `basic.prm`, if present. */
+function basicPrmPath(): string | null {
+  const params = tinkerParamsDir()
+  if (!params) return null
+  const p = join(params, 'basic.prm')
+  return existsSync(p) ? p : null
+}
 
 /** Scratch directory for jobs on systems that aren't backed by a file on disk. */
 function workDir(): string {
@@ -479,14 +516,18 @@ function registerIpcHandlers(): void {
 
   // Write an in-memory system to a scratch .xyz (+ .key) so a Tinker job can run
   // on a system that wasn't loaded from a file on disk. Returns the .xyz path.
+  // When `basicKey` is set (an untyped molecule typed for basic.prm), the key
+  // points at Tinker's bundled basic.prm so the run actually has parameters.
   ipcMain.handle(
     'job:prepareStructure',
-    (_e, name: string, xyzText: string, keyText?: string): string => {
+    (_e, name: string, xyzText: string, keyText?: string, basicKey?: boolean): string => {
       const dir = workDir()
       const stem = (name.replace(/\.[^.]*$/, '') || 'structure').replace(/[^A-Za-z0-9._-]/g, '_')
       const path = join(dir, `${stem}.xyz`)
       writeFileSync(path, xyzText, 'utf8')
-      if (keyText != null) writeFileSync(join(dir, `${stem}.key`), keyText, 'utf8')
+      const basic = basicKey ? basicPrmPath() : null
+      if (basic) writeFileSync(join(dir, `${stem}.key`), `parameters "${basic}"\n`, 'utf8')
+      else if (keyText != null) writeFileSync(join(dir, `${stem}.key`), keyText, 'utf8')
       return path
     }
   )
@@ -630,11 +671,21 @@ function registerIpcHandlers(): void {
     return { text, format, name: q }
   })
 
-  // Settings: report current, or prompt for the Tinker binary directory.
-  ipcMain.handle('settings:get', () => loadSettings())
+  // Report settings plus whether the configured directory actually resolves the
+  // Tinker executables and bundled force fields (so the UI can confirm the choice).
+  function settingsWithStatus(): Settings & { hasExecutables: boolean; hasBasicPrm: boolean } {
+    return {
+      ...loadSettings(),
+      hasExecutables: resolveTinkerExe('minimize') != null || resolveTinkerExe('analyze') != null,
+      hasBasicPrm: basicPrmPath() != null
+    }
+  }
+  ipcMain.handle('settings:get', () => settingsWithStatus())
   ipcMain.handle('settings:chooseTinkerDir', async () => {
     const r = await dialog.showOpenDialog({
-      title: 'Select the Tinker Binary Directory',
+      title: 'Select your Tinker installation folder',
+      message: 'Choose the top-level Tinker folder.',
+      buttonLabel: 'Use This Folder',
       properties: ['openDirectory']
     })
     const s = loadSettings()
@@ -642,7 +693,7 @@ function registerIpcHandlers(): void {
       s.tinkerDir = r.filePaths[0]
       saveSettings(s)
     }
-    return s
+    return settingsWithStatus()
   })
 
   // Launch a Tinker program: spawn `<tinkerDir>/<program> <file> [args]` in the
@@ -663,10 +714,9 @@ function registerIpcHandlers(): void {
       }
     ) => {
       const { jobId, program, structurePath, extraArgs = [], stdin, watch, keyText } = req
-      const { tinkerDir } = loadSettings()
-      // Tinker binaries are <program>.exe on Windows; bare <program> elsewhere.
-      const prog = process.platform === 'win32' ? `${program}.exe` : program
-      const exe = tinkerDir ? join(tinkerDir, prog) : prog
+      // Resolve the binary under the Tinker root (bin/, bin-<platform>/, or direct);
+      // fall back to a bare name so a PATH-resolved Tinker still runs.
+      const exe = resolveTinkerExe(program) ?? (process.platform === 'win32' ? `${program}.exe` : program)
       // Commands with no coordinate input (e.g. protein/nucleic builders) run in
       // a scratch directory.
       const dir = structurePath ? dirname(structurePath) : workDir()
@@ -788,6 +838,25 @@ function registerIpcHandlers(): void {
     return r.filePath
   })
 
+  // Save a Tinker .xyz and, when `withKey` is set and Tinker's bundled basic.prm is
+  // available, drop a sibling .key alongside it referencing that force field — so
+  // the saved structure (typed for basic.prm) is immediately usable by Tinker.
+  ipcMain.handle(
+    'structure:saveTinkerXyz',
+    async (_e, req: { suggestedName: string; xyz: string; withKey: boolean }) => {
+      const r = await dialog.showSaveDialog({ defaultPath: req.suggestedName })
+      if (r.canceled || !r.filePath) return null
+      await writeFile(r.filePath, req.xyz, 'utf8')
+      let keyPath: string | undefined
+      const basic = req.withKey ? basicPrmPath() : null
+      if (basic) {
+        keyPath = join(dirname(r.filePath), `${basename(r.filePath).replace(/\.[^.]*$/, '')}.key`)
+        await writeFile(keyPath, `parameters "${basic}"\n`, 'utf8')
+      }
+      return { path: r.filePath, keyPath }
+    }
+  )
+
   // Open any text file (e.g. a .key file) and return its path + contents.
   ipcMain.handle(
     'file:openText',
@@ -821,32 +890,32 @@ function registerIpcHandlers(): void {
 
   // Is a usable `minimize` executable configured? (Gates the builder's optional
   // Tinker geometry clean-up.)
-  ipcMain.handle('tinker:hasMinimize', () => {
-    const { tinkerDir } = loadSettings()
-    if (!tinkerDir) return false
-    const prog = process.platform === 'win32' ? 'minimize.exe' : 'minimize'
-    return existsSync(join(tinkerDir, prog))
-  })
+  ipcMain.handle('tinker:hasMinimize', () => resolveTinkerExe('minimize') != null)
 
-  // Run Tinker `minimize` on a builder molecule, using the auto-generated minimal
-  // force field. Writes the .xyz/.key/.prm to a throwaway dir, runs to completion,
-  // and returns the optimized coordinates (Tinker's `<stem>.xyz_2`).
+  // Run Tinker `minimize` on a builder molecule. Prefers Tinker's bundled generic
+  // `basic.prm` (atom types = 10·Z + #neighbors, which the renderer writes into the
+  // .xyz); falls back to the renderer's generated minimal force field if basic.prm
+  // isn't found. Writes inputs to a throwaway dir and returns the optimized
+  // coordinates (Tinker's `<stem>.xyz_2`).
   ipcMain.handle(
     'builder:minimize',
     (_e, req: { xyz: string; prm: string; key: string }): Promise<{ ok: boolean; xyz?: string; error?: string }> => {
-      const { tinkerDir } = loadSettings()
-      if (!tinkerDir) return Promise.resolve({ ok: false, error: 'No Tinker directory configured.' })
-      const prog = process.platform === 'win32' ? 'minimize.exe' : 'minimize'
-      const exe = join(tinkerDir, prog)
-      if (!existsSync(exe)) {
-        return Promise.resolve({ ok: false, error: `'${prog}' not found in the Tinker directory.` })
+      const exe = resolveTinkerExe('minimize')
+      if (!exe) {
+        return Promise.resolve({ ok: false, error: 'minimize not found — set the Tinker directory.' })
       }
       const dir = mkdtempSync(join(app.getPath('temp'), 'ffe-min-'))
       const stem = 'builder'
       try {
         writeFileSync(join(dir, `${stem}.xyz`), req.xyz, 'utf8')
-        writeFileSync(join(dir, `${stem}.key`), req.key, 'utf8')
-        writeFileSync(join(dir, 'builder-generic.prm'), req.prm, 'utf8')
+        const basic = basicPrmPath()
+        if (basic) {
+          // Use Tinker's bundled basic force field directly.
+          writeFileSync(join(dir, `${stem}.key`), `parameters "${basic}"\n`, 'utf8')
+        } else {
+          writeFileSync(join(dir, `${stem}.key`), req.key, 'utf8')
+          writeFileSync(join(dir, 'builder-generic.prm'), req.prm, 'utf8')
+        }
       } catch (e) {
         rmSync(dir, { recursive: true, force: true })
         return Promise.resolve({ ok: false, error: e instanceof Error ? e.message : String(e) })

@@ -90,49 +90,58 @@ export function Viewer({
     handleRef.current = handle
 
     // Distinguish a click (pick) from a drag (rotate). In move mode, pressing on an
-    // atom grabs it: drags move the selection in the screen plane (camera locked).
+    // atom grabs it and drags it in the screen plane.
     let downX = 0
     let downY = 0
-    let atomDrag: { anchor: [number, number, number]; start: [number, number, number] } | null = null
-    const onDown = (e: PointerEvent): void => {
+    let draggingAtom = false
+    let winMove: ((e: PointerEvent) => void) | null = null
+    let winUp: (() => void) | null = null
+    const clearWin = (): void => {
+      if (winMove) window.removeEventListener('pointermove', winMove)
+      if (winUp) window.removeEventListener('pointerup', winUp)
+      winMove = null
+      winUp = null
+    }
+    // Capture phase, so we can grab an atom *before* the canvas's TrackballControls
+    // sees the pointerdown — stopping propagation prevents a camera rotation. On
+    // empty space we do nothing and let the trackball rotate as usual.
+    const onDownCapture = (e: PointerEvent): void => {
       downX = e.clientX
       downY = e.clientY
-      atomDrag = null
+      draggingAtom = false
       if (!moveModeRef.current) return
       const hit = handle.pick(e.clientX, e.clientY)
       if (!hit) return
+      e.stopPropagation()
+      draggingAtom = true
       onMoveBeginRef.current?.(hit.atomIndex, e.metaKey || e.ctrlKey)
-      atomDrag = { anchor: hit.position, start: handle.dragPlanePoint(e.clientX, e.clientY, hit.position) }
-      handle.setControlsEnabled(false)
-    }
-    const onMove = (e: PointerEvent): void => {
-      if (!atomDrag) return
-      const cur = handle.dragPlanePoint(e.clientX, e.clientY, atomDrag.anchor)
-      onMoveDeltaRef.current?.([
-        cur[0] - atomDrag.start[0],
-        cur[1] - atomDrag.start[1],
-        cur[2] - atomDrag.start[2]
-      ])
+      const anchor = hit.position
+      const start = handle.dragPlanePoint(e.clientX, e.clientY, anchor)
+      winMove = (me: PointerEvent): void => {
+        const cur = handle.dragPlanePoint(me.clientX, me.clientY, anchor)
+        onMoveDeltaRef.current?.([cur[0] - start[0], cur[1] - start[1], cur[2] - start[2]])
+      }
+      winUp = (): void => {
+        clearWin()
+        draggingAtom = false
+        onMoveEndRef.current?.()
+      }
+      window.addEventListener('pointermove', winMove)
+      window.addEventListener('pointerup', winUp)
     }
     const onUp = (e: PointerEvent): void => {
-      if (atomDrag) {
-        atomDrag = null
-        handle.setControlsEnabled(true)
-        onMoveEndRef.current?.()
-        return
-      }
+      if (draggingAtom) return // atom drag handled by the window listeners
       if (!pickingRef.current || !onPickRef.current) return
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
       onPickRef.current(handle.pick(e.clientX, e.clientY), e.metaKey || e.ctrlKey)
     }
-    container.addEventListener('pointerdown', onDown)
-    container.addEventListener('pointermove', onMove)
+    container.addEventListener('pointerdown', onDownCapture, true)
     container.addEventListener('pointerup', onUp)
 
     return () => {
-      container.removeEventListener('pointerdown', onDown)
-      container.removeEventListener('pointermove', onMove)
+      container.removeEventListener('pointerdown', onDownCapture, true)
       container.removeEventListener('pointerup', onUp)
+      clearWin()
       handle.dispose()
       handleRef.current = null
     }

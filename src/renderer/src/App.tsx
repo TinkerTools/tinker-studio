@@ -17,6 +17,7 @@ import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
 import { SAVE_FORMATS, type SaveFormat } from './core/writers'
 import { writeTinkerXyz } from './core/writeXyz'
+import { isUntyped, withBasicTypes } from './core/basicTypes'
 import { parsePrm, applyForceField } from './core/parsePrm'
 import {
   applyTransform,
@@ -302,6 +303,14 @@ export default function App() {
     const spec = SAVE_FORMATS.find((s) => s.id === format) ?? SAVE_FORMATS[0]
     const base = active.name.replace(/\s*\(.*\)$/, '').replace(/\.[^./\\]*$/, '') || 'structure'
     const structure = bakeTransform(active.structure, active.transform)
+    // Tinker .xyz of a force-field-less structure: assign basic.prm atom types
+    // (10·Z + neighbors) instead of zeros, and drop a sibling .key referencing
+    // basic.prm so the file is immediately usable by Tinker.
+    if (format === 'txyz' && isUntyped(structure)) {
+      const typed = withBasicTypes(structure)
+      void window.ffe.saveTinkerXyz(`${base}.xyz`, writeTinkerXyz(typed), true)
+      return
+    }
     void window.ffe.saveTextFile(`${base}.${spec.ext}`, spec.write(structure))
   }
 
@@ -616,10 +625,18 @@ export default function App() {
         structurePath = system.path
       } else {
         try {
+          // An untyped molecule (e.g. a download) gets basic.prm atom types and a
+          // key referencing basic.prm so the run has parameters — done only in the
+          // scratch file, never mutating the in-memory system. A system carrying a
+          // real key keeps it.
+          const baked = bakeTransform(system.structure, system.transform)
+          const hasOwnParams = !!system.keyText && /^\s*parameters\b/im.test(system.keyText)
+          const useBasic = isUntyped(baked) && !hasOwnParams
           structurePath = await window.ffe.job.prepareStructure(
             system.name,
-            writeTinkerXyz(bakeTransform(system.structure, system.transform)),
-            system.keyText ?? DEFAULT_KEY
+            writeTinkerXyz(useBasic ? withBasicTypes(baked) : baked),
+            system.keyText ?? DEFAULT_KEY,
+            useBasic
           )
         } catch (e) {
           setJobs((prev) =>
@@ -940,7 +957,17 @@ export default function App() {
     else if (action === 'openKey') void handleOpenKey()
     else if (action === 'applyFF') void handleApplyFF()
     else if (action === 'setTinkerDir') {
-      void window.ffe.settings.chooseTinkerDir().then((s) => setTinkerDir(s.tinkerDir))
+      void window.ffe.settings.chooseTinkerDir().then((s) => {
+        setTinkerDir(s.tinkerDir)
+        if (s.tinkerDir && !s.hasExecutables) {
+          setError(
+            "No Tinker executables found there. Pick the top-level Tinker folder — the one " +
+              'containing the "bin" and "params" subfolders, not "bin" itself.'
+          )
+        } else if (s.tinkerDir) {
+          setError(null)
+        }
+      })
     }
   }
   useEffect(() => {

@@ -15,6 +15,7 @@
 
 import type { BuilderMolecule } from './molecule'
 import { elementInfo } from '../elements'
+import { basicAtomType } from '../basicTypes'
 import { idealAngleDeg, idealBondLength } from './valence'
 
 const ATOMIC_NUMBER: Record<string, number> = {
@@ -26,9 +27,9 @@ const MASS: Record<string, number> = {
 }
 
 interface ClassDef {
-  id: number
+  id: number // == the basic.prm atom type (10·Z + neighbor count)
   element: string
-  maxOrder: number // 1 sp3, 2 sp2, 3 sp — drives the ideal angle
+  valence: number // number of attached atoms
 }
 
 export interface TinkerInput {
@@ -57,20 +58,25 @@ export function buildTinkerInput(mol: BuilderMolecule): TinkerInput {
   const idIndex = new Map<number, number>()
   mol.atoms.forEach((a, i) => idIndex.set(a.id, i + 1))
 
-  // Assign a class/type per (element, maxOrder). Type id == class id.
-  const classes: ClassDef[] = []
-  const classKey = new Map<string, number>()
+  // Atom degree (number of bonded neighbors) and the basic.prm atom type it maps
+  // to (10·Z + degree), so the .xyz is consumable by Tinker's bundled basic.prm.
+  const degree = new Map<number, number>()
+  for (const a of mol.atoms) degree.set(a.id, 0)
+  for (const b of mol.bonds) {
+    degree.set(b.a, (degree.get(b.a) ?? 0) + 1)
+    degree.set(b.b, (degree.get(b.b) ?? 0) + 1)
+  }
   const typeOf = new Map<number, number>()
+  const classes: ClassDef[] = []
+  const seenType = new Set<number>()
   for (const a of mol.atoms) {
-    const mo = order.get(a.id) ?? 1
-    const key = `${a.element}_${mo}`
-    let id = classKey.get(key)
-    if (id == null) {
-      id = classes.length + 1
-      classKey.set(key, id)
-      classes.push({ id, element: a.element, maxOrder: mo })
+    const deg = degree.get(a.id) ?? 0
+    const t = basicAtomType(a.element, deg)
+    typeOf.set(a.id, t)
+    if (!seenType.has(t)) {
+      seenType.add(t)
+      classes.push({ id: t, element: a.element, valence: deg })
     }
-    typeOf.set(a.id, id)
   }
 
   // --- .xyz (Tinker free format: index name x y z type bondedPartners…) -----
@@ -107,8 +113,7 @@ export function buildTinkerInput(mol: BuilderMolecule): TinkerInput {
   for (const c of classes) {
     const z = ATOMIC_NUMBER[c.element] ?? 6
     const mass = MASS[c.element] ?? 12.011
-    const valence = c.element === 'H' ? 1 : 4
-    prm.push(`atom ${c.id} ${c.id} ${c.element} "${c.element} class ${c.id}" ${z} ${mass.toFixed(3)} ${valence}`)
+    prm.push(`atom ${c.id} ${c.id} ${c.element} "${c.element} type ${c.id}" ${z} ${mass.toFixed(3)} ${c.valence}`)
   }
   prm.push('')
   for (const c of classes) {

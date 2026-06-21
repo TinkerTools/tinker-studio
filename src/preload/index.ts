@@ -54,6 +54,10 @@ export interface TrajectoryProgress {
 
 export interface AppSettings {
   tinkerDir?: string
+  /** True if Tinker executables resolve under the configured directory. */
+  hasExecutables?: boolean
+  /** True if Tinker's bundled basic.prm was found under the configured directory. */
+  hasBasicPrm?: boolean
 }
 
 export interface JobRunRequest {
@@ -142,9 +146,18 @@ const api = {
   job: {
     run: (req: JobRunRequest): Promise<JobRunResult> => ipcRenderer.invoke('job:run', req),
     cancel: (jobId: string): Promise<boolean> => ipcRenderer.invoke('job:cancel', jobId),
-    /** Write a path-less system to a scratch .xyz (+ .key); resolves to the path. */
-    prepareStructure: (name: string, xyzText: string, keyText?: string): Promise<string> =>
-      ipcRenderer.invoke('job:prepareStructure', name, xyzText, keyText),
+    /**
+     * Write a path-less system to a scratch .xyz (+ .key); resolves to the path.
+     * With `basicKey`, the .key references Tinker's bundled basic.prm (for an
+     * untyped molecule typed via the basic scheme).
+     */
+    prepareStructure: (
+      name: string,
+      xyzText: string,
+      keyText?: string,
+      basicKey?: boolean
+    ): Promise<string> =>
+      ipcRenderer.invoke('job:prepareStructure', name, xyzText, keyText, basicKey),
     /** After a job finishes, fetch the coordinate file Tinker produced (or null). */
     collectResult: (
       structurePath: string,
@@ -183,6 +196,16 @@ const api = {
   /** Save text (e.g. a .key file) to a user-chosen path; resolves to the path or null. */
   saveTextFile: (suggestedName: string, contents: string): Promise<string | null> =>
     ipcRenderer.invoke('file:saveText', { suggestedName, contents }),
+  /**
+   * Save a Tinker .xyz; when `withKey` is set, also writes a sibling .key pointing
+   * at Tinker's bundled basic.prm (if available). Resolves to the saved path(s) or null.
+   */
+  saveTinkerXyz: (
+    suggestedName: string,
+    xyz: string,
+    withKey: boolean
+  ): Promise<{ path: string; keyPath?: string } | null> =>
+    ipcRenderer.invoke('structure:saveTinkerXyz', { suggestedName, xyz, withKey }),
   /** Open a text file (optionally restricted by extension filters); resolves to its path/name/contents, or null. */
   openTextFile: (
     filters?: Array<{ name: string; extensions: string[] }>

@@ -832,6 +832,12 @@ export function createScene(container: HTMLElement): SceneHandle {
 
   let raf = 0
   const tick = (): void => {
+    raf = requestAnimationFrame(tick)
+    // Don't render while the viewport has no size (e.g. during mount/unmount or
+    // when hidden). Rendering to a 0×0 framebuffer floods the console with
+    // "Framebuffer is incomplete: Attachment has zero size"; the ResizeObserver
+    // resumes proper sizing once layout gives the container real dimensions.
+    if (container.clientWidth === 0 || container.clientHeight === 0) return
     controls.update()
     camera.updateMatrixWorld()
     camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
@@ -865,7 +871,6 @@ export function createScene(container: HTMLElement): SceneHandle {
       }
     }
     composer.render()
-    raf = requestAnimationFrame(tick)
   }
   tick()
 

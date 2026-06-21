@@ -81,6 +81,15 @@ export function symbolForAtomicNumber(z: number): string | undefined {
   return ATOMIC_SYMBOLS[z]
 }
 
+const ATOMIC_NUMBERS: Record<string, number> = Object.fromEntries(
+  ATOMIC_SYMBOLS.map((s, z) => [s, z]).filter(([s]) => s !== '')
+)
+
+/** Atomic number for an element symbol (0 if unknown). */
+export function atomicNumber(symbol: string): number {
+  return ATOMIC_NUMBERS[normalizeElement(symbol)] ?? 0
+}
+
 /** Normalize an element symbol to canonical case (e.g. "FE" -> "Fe", " c" -> "C"). */
 export function normalizeElement(symbol: string): string {
   const s = symbol.trim()

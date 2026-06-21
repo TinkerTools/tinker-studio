@@ -57,6 +57,14 @@ export function BuilderView({
   const [minimizeAvailable, setMinimizeAvailable] = useState(false)
   const [minimizing, setMinimizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Auto-minimize with Tinker after each edit (when available) — more robust than
+  // the built-in relaxer, so it's the default. Falls back to the relaxer otherwise.
+  const [autoMin, setAutoMin] = useState(true)
+  // Edit generation: bumped on every change so a slower Tinker result that finished
+  // after a newer edit (or manual move) is discarded instead of applied stale.
+  const editGenRef = useRef(0)
+  const autoTimerRef = useRef<number | undefined>(undefined)
+  const inFlightRef = useRef(0)
 
   const mol = molRef.current
 
@@ -108,11 +116,24 @@ export function BuilderView({
     [selected, version]
   )
 
-  /** Apply a mutation, relax, and refresh. */
+  /**
+   * Apply a mutation: run the built-in relaxer for instant feedback, then (if
+   * auto-minimize is on and Tinker is available) refine the geometry with a
+   * debounced Tinker minimize.
+   */
   function edit(fn: () => void): void {
     fn()
     relax(molRef.current)
+    editGenRef.current += 1
     setVersion((v) => v + 1)
+    scheduleAutoMin()
+  }
+
+  function scheduleAutoMin(): void {
+    if (!autoMin || !minimizeAvailable) return
+    if (autoTimerRef.current) window.clearTimeout(autoTimerRef.current)
+    // Debounce so a burst of quick edits triggers one minimize once it settles.
+    autoTimerRef.current = window.setTimeout(() => void minimizeNow(), 250)
   }
 
   function handlePick(result: PickResult | null, additive: boolean): void {
@@ -157,6 +178,9 @@ export function BuilderView({
       a.y = s.y + delta[1]
       a.z = s.z + delta[2]
     }
+    // A manual move invalidates any pending/in-flight auto-minimize so it can't
+    // snap the hand-placed atoms back; manual moves don't trigger a new one.
+    editGenRef.current += 1
     setVersion((v) => v + 1)
   }
 
@@ -170,34 +194,51 @@ export function BuilderView({
     void window.ffe?.builder?.hasMinimize().then(setMinimizeAvailable)
   }, [])
 
-  async function runMinimize(): Promise<void> {
-    if (minimizing || molRef.current.atoms.length === 0) return
+  /**
+   * Run Tinker minimize on the current molecule and copy the optimized coordinates
+   * back. Guarded by the edit generation: if the molecule changed while minimize
+   * was running, the (now stale) result is discarded. Used by both auto-minimize
+   * and the manual button.
+   */
+  async function minimizeNow(): Promise<void> {
+    if (molRef.current.atoms.length < 2) return
+    const gen = editGenRef.current
+    inFlightRef.current += 1
     setMinimizing(true)
-    setError(null)
     try {
       const res = await window.ffe.builder.minimize(buildTinkerInput(molRef.current))
-      if (!res.ok || !res.xyz) {
-        setError(`Tinker minimize failed — ${res.error ?? 'unknown error'}`)
-        return
-      }
-      // Minimized atoms are in the same order; copy coordinates back in place.
-      const min = parseTinkerXyz(res.xyz)
-      if (min.atoms.length === molRef.current.atoms.length) {
-        molRef.current.atoms.forEach((a, i) => {
-          a.x = min.atoms[i].x
-          a.y = min.atoms[i].y
-          a.z = min.atoms[i].z
-        })
-        setVersion((v) => v + 1)
+      if (gen !== editGenRef.current) return // superseded by a newer edit
+      if (res.ok && res.xyz) {
+        const min = parseTinkerXyz(res.xyz)
+        if (min.atoms.length === molRef.current.atoms.length) {
+          molRef.current.atoms.forEach((a, i) => {
+            a.x = min.atoms[i].x
+            a.y = min.atoms[i].y
+            a.z = min.atoms[i].z
+          })
+          setVersion((v) => v + 1)
+          setError(null)
+        }
       } else {
-        setError('Tinker minimize returned an unexpected atom count.')
+        setError(
+          `Tinker minimize failed — ${res.error ?? 'unknown error'}` +
+            (autoMin ? ' (showing approximate geometry)' : '')
+        )
       }
     } catch (e) {
       setError(`Tinker minimize error — ${e instanceof Error ? e.message : String(e)}`)
     } finally {
-      setMinimizing(false)
+      inFlightRef.current -= 1
+      if (inFlightRef.current === 0) setMinimizing(false)
     }
   }
+
+  // Drop any pending auto-minimize timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (autoTimerRef.current) window.clearTimeout(autoTimerRef.current)
+    }
+  }, [])
 
   function addElement(el: string): void {
     const parent = selected.length >= 1 ? selected[selected.length - 1] : null
@@ -300,8 +341,11 @@ export function BuilderView({
       <header className="builder-bar">
         <span className="builder-title">Molecule Builder</span>
 
-        <div className="builder-group" title="Click to grow from the selected atom (or place the first atom)">
-          <span className="builder-label">Add</span>
+        <div className="builder-controls">
+        <div
+          className="builder-group"
+          title="Add element: click to grow from the selected atom (or place the first atom)"
+        >
           {BUILDER_ELEMENTS.map((el) => (
             <button
               key={el}
@@ -357,7 +401,7 @@ export function BuilderView({
             className={moveMode ? 'on' : ''}
             disabled={atomCount === 0}
             onClick={() => setMoveMode((m) => !m)}
-            title="Move mode: drag selected atoms by hand (no auto-relax)"
+            title="Move mode: drag an atom to reposition it by hand (won't auto-minimize)"
           >
             Move
           </button>
@@ -368,17 +412,40 @@ export function BuilderView({
             Clear
           </button>
           {minimizeAvailable && (
-            <button
-              disabled={atomCount === 0 || minimizing}
-              onClick={runMinimize}
-              title="Clean up geometry with Tinker minimize (generated minimal force field)"
-            >
-              {minimizing ? 'Minimizing…' : 'Minimize'}
-            </button>
+            <>
+              <label
+                className="builder-check"
+                title="Refine geometry with Tinker minimize after every edit (uses basic.prm)"
+              >
+                <input
+                  type="checkbox"
+                  checked={autoMin}
+                  onChange={(e) => {
+                    setAutoMin(e.target.checked)
+                    // Turning it on cleans up the current geometry right away.
+                    if (e.target.checked && molRef.current.atoms.length >= 2) {
+                      if (autoTimerRef.current) window.clearTimeout(autoTimerRef.current)
+                      autoTimerRef.current = window.setTimeout(() => void minimizeNow(), 50)
+                    }
+                  }}
+                />
+                Auto-minimize
+              </label>
+              {(!autoMin || minimizing) && (
+                <button
+                  disabled={atomCount < 2 || minimizing}
+                  onClick={() => void minimizeNow()}
+                  title="Run Tinker minimize now"
+                >
+                  {minimizing ? 'Minimizing…' : 'Minimize'}
+                </button>
+              )}
+            </>
           )}
         </div>
+        </div>
 
-        <div className="builder-group builder-right">
+        <div className="builder-actions">
           <button className="builder-cancel" onClick={onCancel}>
             Cancel
           </button>
