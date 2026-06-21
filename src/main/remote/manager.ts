@@ -271,7 +271,8 @@ export class RemoteManager {
 
     // Working directory: a fresh per-job dir under the cluster base when staging
     // local files, or the existing remote directory when running files in place.
-    const workdir = req.remoteInputDir
+    // (A leading ~ is expanded to an absolute path below, once we know $HOME.)
+    let workdir = req.remoteInputDir
       ? req.remoteInputDir
       : `${c.remoteBaseDir.replace(/\/+$/, '')}/${jobName}`
 
@@ -298,6 +299,14 @@ export class RemoteManager {
     this.emit('remote:jobUpdate', record)
 
     try {
+      // 0. Expand a leading ~ to an absolute path using the remote's $HOME, so the
+      // workdir works everywhere — including inside the double-quoted `cd` in the
+      // submit/status templates and job.sh, where the shell would NOT expand ~.
+      const home = (await sshRun(target, 'printf %s "$HOME"')).stdout.trim()
+      workdir = expandTilde(workdir, home)
+      record.workdir = workdir
+      this.saveJobs()
+
       // 1. Ensure the working directory exists.
       const mk = await sshMkdirp(target, workdir)
       if (mk.code !== 0) throw new Error(mk.stderr.trim() || 'could not create remote working directory')
@@ -545,4 +554,12 @@ export class RemoteManager {
 
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/** Expand a leading ~ / ~/ to the remote home (best-effort; unchanged if home unknown). */
+function expandTilde(p: string, home: string): string {
+  if (!home) return p
+  if (p === '~') return home
+  if (p.startsWith('~/')) return home + p.slice(1)
+  return p
 }

@@ -15,7 +15,7 @@ import type { ClusterKind, ClusterProfile, ClusterTemplates, ClusterVariable } f
 export function sshDirectTemplates(): ClusterTemplates {
   return {
     submit:
-      'cd "{{workdir}}" && nohup sh job.sh > "{{job_name}}.log" 2>&1 & echo $!',
+      'cd "{{workdir}}" && { nohup sh job.sh > "{{job_name}}.log" 2>&1 & echo $!; }',
     status:
       'if kill -0 {{job_id}} 2>/dev/null; then echo RUNNING; ' +
       'elif [ -f "{{workdir}}/.ffe_exit" ]; then ' +
