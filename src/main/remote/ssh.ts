@@ -131,29 +131,40 @@ function baseArgs(target: SshTarget): string[] {
   return args
 }
 
-/** Run a command on the remote host; capture stdout/stderr as text. */
+/**
+ * Run a command on the remote host; capture stdout/stderr as text.
+ *
+ * The command is executed by a remote `/bin/sh` fed via stdin, NOT by the user's
+ * login shell. Otherwise our POSIX-sh command templates (`&&`, `{ …; }`, `2>&1`,
+ * `if…fi`) would be parsed by whatever login shell the account uses — a (t)csh
+ * login shell, for instance, doesn't understand `2>&1` and fails with
+ * "Ambiguous output redirect". Running `/bin/sh` makes the transport
+ * login-shell-agnostic. (Password auth uses SSH_ASKPASS, so stdin is free.)
+ */
 export function sshRun(target: SshTarget, command: string): Promise<RunResult> {
   return new Promise((resolve) => {
-    const child = spawn('ssh', [...baseArgs(target), target.host, command], { env: spawnEnv(target) })
+    const child = spawn('ssh', [...baseArgs(target), target.host, '/bin/sh'], { env: spawnEnv(target) })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (d) => (stdout += d.toString()))
     child.stderr.on('data', (d) => (stderr += d.toString()))
     child.on('error', (e) => resolve({ code: null, stdout, stderr: stderr + e.message }))
     child.on('close', (code) => resolve({ code, stdout, stderr }))
+    child.stdin.end(command)
   })
 }
 
 /** Run a command and capture stdout as raw bytes (for binary range reads). */
 export function sshRunBinary(target: SshTarget, command: string): Promise<{ code: number | null; data: Buffer; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn('ssh', [...baseArgs(target), target.host, command], { env: spawnEnv(target) })
+    const child = spawn('ssh', [...baseArgs(target), target.host, '/bin/sh'], { env: spawnEnv(target) })
     const chunks: Buffer[] = []
     let stderr = ''
     child.stdout.on('data', (d: Buffer) => chunks.push(d))
     child.stderr.on('data', (d) => (stderr += d.toString()))
     child.on('error', (e) => resolve({ code: null, data: Buffer.concat(chunks), stderr: stderr + e.message }))
     child.on('close', (code) => resolve({ code, data: Buffer.concat(chunks), stderr }))
+    child.stdin.end(command)
   })
 }
 
