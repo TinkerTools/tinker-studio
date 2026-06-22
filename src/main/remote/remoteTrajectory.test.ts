@@ -9,11 +9,18 @@ import { awkOffsetCommand, parseAwkOffsets } from './remoteTrajectory'
  * produces frame-start byte offsets. We can't reach a real cluster from CI, but
  * `awk` is the same program here — so run the EXACT command we'd send remotely
  * against a bundled sample and check the offsets match the trusted local indexer.
+ *
+ * These two cases shell out to a POSIX `/bin/sh` + `awk`, which Windows CI runners
+ * don't have, so they're skipped there. (The feature itself is unaffected on
+ * Windows: `awk` runs on the remote *nix cluster via ssh, never locally.) The
+ * pure parseAwkOffsets cases below run on every platform.
  */
+const posix = process.platform !== 'win32'
+
 describe('remote .arc awk offset indexing', () => {
   const arc = join(__dirname, '../../renderer/src/samples/nitrogen.arc')
 
-  it('produces offsets identical to the local indexer', () => {
+  it.skipIf(!posix)('produces offsets identical to the local indexer', () => {
     const local = indexArc(arc)
     const stride = 1 + (local.hasBox ? 1 : 0) + local.natoms
     // Run the remote command locally via /bin/sh (mirrors the remote shell).
@@ -25,7 +32,7 @@ describe('remote .arc awk offset indexing', () => {
     expect(offsets).toEqual(local.offsets)
   })
 
-  it('byte ranges from the awk offsets select whole frames', () => {
+  it.skipIf(!posix)('byte ranges from the awk offsets select whole frames', () => {
     const local = indexArc(arc)
     const stride = 1 + (local.hasBox ? 1 : 0) + local.natoms
     const stdout = execFileSync('/bin/sh', ['-c', awkOffsetCommand(arc, stride)], {
