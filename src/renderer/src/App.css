@@ -1649,6 +1649,50 @@ input.mono {
   margin: 0.5rem 0;
 }
 
+.job-name-input {
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 0.15rem 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.rename-btn {
+  margin-left: 0.35rem;
+  opacity: 0.6;
+}
+.rename-btn:hover {
+  opacity: 1;
+}
+
+.job-log-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.log-tab {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+}
+
+.log-tab.active {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--accent);
+}
+
 .job-subgrid > span {
   color: var(--text-dim);
 }

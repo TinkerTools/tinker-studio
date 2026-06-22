@@ -249,6 +249,18 @@ export class RemoteManager {
     return this.listJobs()
   }
 
+  /** Rename a job (UI label only; empty clears back to the program name). */
+  renameJob(id: string, label: string): RemoteJobRecord | undefined {
+    const j = this.jobs.get(id)
+    if (!j) return undefined
+    const trimmed = label.trim()
+    if (trimmed) j.label = trimmed
+    else delete j.label
+    this.saveJobs()
+    this.emit('remote:jobUpdate', j)
+    return j
+  }
+
   /** Sanitize a name into a shell- and path-safe token. */
   private safe(name: string): string {
     return (name.replace(/\.[^.]*$/, '') || 'job').replace(/[^A-Za-z0-9._-]/g, '_')

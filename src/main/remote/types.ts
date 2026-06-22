@@ -155,7 +155,10 @@ export interface RemoteJobRecord {
   clusterName: string
   /** Tinker program, e.g. "dynamic". */
   program: string
+  /** Remote working-dir stem / job name (also the .log basename). */
   jobName: string
+  /** User-facing label shown in the UI; defaults to the program when unset. */
+  label?: string
   /** Scheduler / PID id returned by the submit command. */
   remoteJobId?: string
   /** Remote working directory holding inputs, job.sh, and outputs. */

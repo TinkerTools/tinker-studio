@@ -307,6 +307,9 @@ const api = {
     poll: (id: string): Promise<RemoteJobState> => ipcRenderer.invoke('remote:poll', id),
     cancel: (id: string): Promise<void> => ipcRenderer.invoke('remote:cancel', id),
     forgetJob: (id: string): Promise<RemoteJobRecord[]> => ipcRenderer.invoke('remote:forgetJob', id),
+    /** Rename a job's UI label (empty restores the default program name). */
+    renameJob: (id: string, label: string): Promise<RemoteJobRecord | undefined> =>
+      ipcRenderer.invoke('remote:renameJob', id, label),
     listJobFiles: (id: string): Promise<string[]> => ipcRenderer.invoke('remote:listJobFiles', id),
     /** Download a remote job file to a user-chosen local path; resolves to the path or null. */
     saveJobFile: (id: string, name: string): Promise<string | null> =>

@@ -18,25 +18,32 @@ const REMOTE_ACTIVE: RemoteJobState[] = ['submitting', 'pending', 'running']
 export function JobsModal({
   jobs,
   remoteJobs,
+  initialRemoteId,
   onClose,
   onCancel,
   onClear,
   onRemoteCancel,
   onRemoteForget,
+  onRemoteRename,
   onViewLive,
   onOpenResult
 }: {
   jobs: JobRecord[]
   remoteJobs: RemoteJobRecord[]
+  /** Remote job to select on open (e.g. one just submitted). */
+  initialRemoteId?: string | null
   onClose: () => void
   onCancel: (jobId: string) => void
   onClear: (jobId: string) => void
   onRemoteCancel: (id: string) => void
   onRemoteForget: (id: string) => void
+  onRemoteRename: (id: string, label: string) => void
   onViewLive: (job: RemoteJobRecord) => void
   onOpenResult: (job: RemoteJobRecord) => void
 }) {
-  const [sel, setSel] = useState<Sel>(null)
+  const [sel, setSel] = useState<Sel>(
+    initialRemoteId ? { scope: 'remote', id: initialRemoteId } : null
+  )
   const [showFinished, setShowFinished] = useState(false)
 
   const localRunning = jobs.filter((j) => j.status === 'running')
@@ -136,6 +143,7 @@ export function JobsModal({
                   job={remoteSel}
                   onCancel={onRemoteCancel}
                   onForget={onRemoteForget}
+                  onRename={onRemoteRename}
                   onViewLive={onViewLive}
                   onOpenResult={onOpenResult}
                 />
@@ -171,7 +179,7 @@ function RemoteRow({
   return (
     <div className={active ? 'job-row active' : 'job-row'} onClick={onClick}>
       <span className={`job-dot ${remoteDot(job.status)}`} />
-      <span className="job-row-name">{job.program}</span>
+      <span className="job-row-name">{job.label || job.program}</span>
       <span className="job-row-sub">
         {job.clusterName} · {job.status}
       </span>
@@ -221,25 +229,36 @@ function RemoteDetail({
   job,
   onCancel,
   onForget,
+  onRename,
   onViewLive,
   onOpenResult
 }: {
   job: RemoteJobRecord
   onCancel: (id: string) => void
   onForget: (id: string) => void
+  onRename: (id: string, label: string) => void
   onViewLive: (job: RemoteJobRecord) => void
   onOpenResult: (job: RemoteJobRecord) => void
 }) {
   const logRef = useRef<HTMLPreElement>(null)
   const [files, setFiles] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
+  // Which log is shown: FFE's submit/status log, or the Tinker program output.
+  const [tab, setTab] = useState<'ffe' | 'tinker'>('ffe')
+  const [tinkerLog, setTinkerLog] = useState<string | null>(null)
+  const [tinkerBusy, setTinkerBusy] = useState(false)
+  // Inline rename of the job's display label.
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+
   useEffect(() => {
     const el = logRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [job.log])
+  }, [job.log, tinkerLog, tab])
 
   const active = REMOTE_ACTIVE.includes(job.status)
   const isDynamics = job.program.toLowerCase() === 'dynamic'
+  const logName = `${job.jobName}.log`
 
   async function loadFiles(): Promise<void> {
     setBusy(true)
@@ -252,19 +271,61 @@ function RemoteDetail({
     }
   }
 
+  async function loadTinkerLog(): Promise<void> {
+    setTab('tinker')
+    setTinkerBusy(true)
+    try {
+      const { text } = await window.ffe.remote.openJobText(job.id, logName)
+      setTinkerLog(text || '(log is empty)')
+    } catch (e) {
+      setTinkerLog(`Could not read ${logName}: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setTinkerBusy(false)
+    }
+  }
+
+  function commitName(): void {
+    setEditingName(false)
+    if (nameDraft !== (job.label ?? '')) onRename(job.id, nameDraft)
+  }
+
   return (
     <>
       <div className="job-meta">
-        <span className="job-meta-main">
-          <code>{job.program}</code> · {job.clusterName}
-        </span>
+        {editingName ? (
+          <input
+            className="job-name-input"
+            autoFocus
+            value={nameDraft}
+            placeholder={job.program}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitName()
+              if (e.key === 'Escape') setEditingName(false)
+            }}
+          />
+        ) : (
+          <span className="job-meta-main">
+            <b>{job.label || job.program}</b>
+            <button
+              className="mini-btn ghost rename-btn"
+              title="Rename job"
+              onClick={() => {
+                setNameDraft(job.label ?? '')
+                setEditingName(true)
+              }}
+            >
+              ✎
+            </button>
+          </span>
+        )}
         <span className={`job-status ${remoteDot(job.status)}`}>{remoteStatusLabel(job)}</span>
-        {active && (
+        {active ? (
           <button className="mini-btn" onClick={() => onCancel(job.id)}>
             Cancel
           </button>
-        )}
-        {!active && (
+        ) : (
           <button className="mini-btn" onClick={() => onForget(job.id)}>
             Remove
           </button>
@@ -272,10 +333,42 @@ function RemoteDetail({
       </div>
 
       <div className="job-subgrid">
+        <span>Program</span>
+        <code>{job.program}</code>
+        <span>Command</span>
+        <code>{job.commandLine ?? '—'}</code>
+        <span>Cluster</span>
+        <code>{job.clusterName}</code>
         <span>Remote id</span>
         <code>{job.remoteJobId ?? '—'}</code>
         <span>Working dir</span>
         <code>{job.workdir}</code>
+        {job.inputName && (
+          <>
+            <span>Input</span>
+            <code>{job.inputName}</code>
+          </>
+        )}
+        {job.outputName && (
+          <>
+            <span>Output</span>
+            <code>{job.outputName}</code>
+          </>
+        )}
+        <span>Submitted</span>
+        <code>{new Date(job.submittedAt).toLocaleString()}</code>
+        {job.finishedAt && (
+          <>
+            <span>Finished</span>
+            <code>{new Date(job.finishedAt).toLocaleString()}</code>
+          </>
+        )}
+        {job.exitCode != null && (
+          <>
+            <span>Exit code</span>
+            <code>{job.exitCode}</code>
+          </>
+        )}
         {job.error && (
           <>
             <span>Error</span>
@@ -314,8 +407,31 @@ function RemoteDetail({
         </div>
       )}
 
+      <div className="job-log-tabs">
+        <button
+          className={tab === 'ffe' ? 'log-tab active' : 'log-tab'}
+          onClick={() => setTab('ffe')}
+        >
+          FFE log
+        </button>
+        <button
+          className={tab === 'tinker' ? 'log-tab active' : 'log-tab'}
+          onClick={() => (tinkerLog == null ? void loadTinkerLog() : setTab('tinker'))}
+        >
+          Tinker output ({logName})
+        </button>
+        {tab === 'tinker' && (
+          <button className="mini-btn ghost" onClick={() => void loadTinkerLog()} disabled={tinkerBusy}>
+            {tinkerBusy ? 'Loading…' : 'Refresh'}
+          </button>
+        )}
+      </div>
       <pre ref={logRef} className="run-log job-log">
-        {job.log || '(no output captured yet)'}
+        {tab === 'ffe'
+          ? job.log || '(no output captured yet)'
+          : tinkerBusy && tinkerLog == null
+            ? 'Loading…'
+            : tinkerLog ?? '(not loaded)'}
       </pre>
     </>
   )

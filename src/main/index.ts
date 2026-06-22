@@ -994,6 +994,7 @@ function registerRemoteHandlers(mgr: RemoteManager): void {
   ipcMain.handle('remote:poll', (_e, id: string) => mgr.poll(id))
   ipcMain.handle('remote:cancel', (_e, id: string) => mgr.cancel(id))
   ipcMain.handle('remote:forgetJob', (_e, id: string) => mgr.forgetJob(id))
+  ipcMain.handle('remote:renameJob', (_e, id: string, label: string) => mgr.renameJob(id, label))
   ipcMain.handle('remote:listJobFiles', (_e, id: string) => mgr.listJobFiles(id))
 
   // Download a remote job file to a user-chosen local path.

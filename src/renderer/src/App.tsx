@@ -85,6 +85,8 @@ export default function App() {
   const [remoteJobs, setRemoteJobs] = useState<RemoteJobRecord[]>([])
   const [pwPrompt, setPwPrompt] = useState<{ clusterId: string; clusterName: string } | null>(null)
   const pwResolveRef = useRef<((ok: boolean) => void) | null>(null)
+  // Remote job to pre-select when the Jobs modal next opens (e.g. just submitted).
+  const [jobSelectId, setJobSelectId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [atomsOpen, setAtomsOpen] = useState(false)
@@ -98,6 +100,9 @@ export default function App() {
   const active = systems.find((s) => s.id === activeId) ?? null
   const trajectory = active?.trajectory ?? null
   const frameCount = trajectory?.frameCount ?? 0
+  // Latest active system, read inside async callbacks without a stale closure.
+  const activeRef = useRef(active)
+  activeRef.current = active
   const visibleSystems = systems.filter((s) => visibleIds.has(s.id))
   const mergeable = visibleSystems.filter((s) => !s.trajectory)
   const need = MEASURE_NEED[measureMode]
@@ -1036,6 +1041,12 @@ export default function App() {
                 : s
             )
           )
+          // Follow the latest frame as it streams in (like local live runs), but
+          // only for the active system so a background job doesn't yank the view.
+          if (fc > 0 && activeRef.current?.trajectory?.source?.trajId === trajId) {
+            frameIndexRef.current = fc - 1
+            setFrameIndex(fc - 1)
+          }
         })
       }
     }, 5000)
@@ -1116,6 +1127,8 @@ export default function App() {
       }
       const job = await window.ffe.remote.submit(req)
       setRemoteJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)])
+      // Pre-select this job so the Jobs modal (opened next by onStarted) shows it.
+      setJobSelectId(job.id)
       return job.status !== 'failed'
     } catch (e) {
       setError(messageOf(e))
@@ -1814,10 +1827,12 @@ export default function App() {
         <JobsModal
           jobs={jobs}
           remoteJobs={remoteJobs}
+          initialRemoteId={jobSelectId}
           onCancel={(id) => void window.ffe.job.cancel(id)}
           onClear={clearJob}
           onRemoteCancel={(id) => void window.ffe.remote.cancel(id)}
           onRemoteForget={(id) => void window.ffe.remote.forgetJob(id).then(setRemoteJobs)}
+          onRemoteRename={(id, label) => void window.ffe.remote.renameJob(id, label)}
           onViewLive={(job) => void viewRemoteJob(job)}
           onOpenResult={(job) => void openRemoteResult(job)}
           onClose={() => setModal(null)}
