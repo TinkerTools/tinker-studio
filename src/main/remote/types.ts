@@ -173,6 +173,8 @@ export interface RemoteJobRecord {
    * subsequent ssh op on this job (poll/cancel/download/stream), incl. after a
    * restart. */
   connectionVars?: Record<string, string>
+  /** All cluster-variable values used to submit this job (shown in job details). */
+  variables?: Record<string, string>
   submittedAt: number
   finishedAt?: number
   status: RemoteJobState

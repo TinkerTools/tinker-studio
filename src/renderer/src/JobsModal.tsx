@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { type JobRecord, jobStatusLabel } from './core/job'
 import type { RemoteJobRecord, RemoteJobState } from '../../main/remote/types'
 
@@ -262,8 +262,8 @@ function RemoteDetail({
   // Inline rename of the job's display label.
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
-  // Collapse the metadata grid to give the log box the vertical space.
-  const [metaOpen, setMetaOpen] = useState(true)
+  // Collapse the metadata grid by default; expanding it shrinks the log box.
+  const [metaOpen, setMetaOpen] = useState(false)
 
   useEffect(() => {
     const el = logRef.current
@@ -344,6 +344,11 @@ function RemoteDetail({
             Remove
           </button>
         )}
+        {job.outputFormat && (active || job.status === 'completed') && (
+          <button className="mini-btn" onClick={() => onViewLive(job)}>
+            {active ? 'View live' : 'Play trajectory'}
+          </button>
+        )}
         {job.outputName && (
           <button
             className="mini-btn"
@@ -355,11 +360,6 @@ function RemoteDetail({
       </div>
 
       <div className="run-buttons">
-        {job.outputFormat && (active || job.status === 'completed') && (
-          <button className="modal-btn" onClick={() => onViewLive(job)}>
-            {active ? 'View live' : 'Play trajectory'}
-          </button>
-        )}
         {(job.status === 'completed' || job.status === 'failed') && (
           <button className="modal-btn" onClick={() => onOpenResult(job)} disabled={!isDynamics && !job.inputName}>
             Open result
@@ -409,6 +409,15 @@ function RemoteDetail({
                 <code>{job.exitCode}</code>
               </>
             )}
+            {job.variables &&
+              Object.entries(job.variables)
+                .filter(([, v]) => v !== '')
+                .map(([k, v]) => (
+                  <Fragment key={k}>
+                    <span>{k}</span>
+                    <code>{v}</code>
+                  </Fragment>
+                ))}
             {job.error && (
               <>
                 <span>Error</span>

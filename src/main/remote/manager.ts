@@ -302,6 +302,7 @@ export class RemoteManager {
       outputFormat,
       outputName,
       connectionVars,
+      variables: Object.keys(allVars).length ? allVars : undefined,
       submittedAt: Date.now(),
       status: 'submitting',
       log: ''
