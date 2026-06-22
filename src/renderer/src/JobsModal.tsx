@@ -344,6 +344,14 @@ function RemoteDetail({
             Remove
           </button>
         )}
+        {job.outputName && (
+          <button
+            className="mini-btn"
+            onClick={() => void window.ffe.remote.saveJobFile(job.id, job.outputName!)}
+          >
+            Download {job.outputFormat ? job.outputFormat.toUpperCase() : 'output'}
+          </button>
+        )}
       </div>
 
       <div className="run-buttons">
@@ -355,14 +363,6 @@ function RemoteDetail({
         {(job.status === 'completed' || job.status === 'failed') && (
           <button className="modal-btn" onClick={() => onOpenResult(job)} disabled={!isDynamics && !job.inputName}>
             Open result
-          </button>
-        )}
-        {job.outputName && (
-          <button
-            className="modal-btn"
-            onClick={() => void window.ffe.remote.saveJobFile(job.id, job.outputName!)}
-          >
-            Download {job.outputFormat ? job.outputFormat.toUpperCase() : 'output'}
           </button>
         )}
       </div>
