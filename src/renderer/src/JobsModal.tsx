@@ -250,6 +250,8 @@ function RemoteDetail({
   // Inline rename of the job's display label.
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
+  // Collapse the metadata grid to give the log box the vertical space.
+  const [metaOpen, setMetaOpen] = useState(true)
 
   useEffect(() => {
     const el = logRef.current
@@ -332,6 +334,10 @@ function RemoteDetail({
         )}
       </div>
 
+      <button className="job-meta-toggle" onClick={() => setMetaOpen((o) => !o)}>
+        {metaOpen ? '▾' : '▸'} Details
+      </button>
+      {metaOpen && (
       <div className="job-subgrid">
         <span>Program</span>
         <code>{job.program}</code>
@@ -376,6 +382,7 @@ function RemoteDetail({
           </>
         )}
       </div>
+      )}
 
       <div className="run-buttons">
         {job.outputFormat && (active || job.status === 'completed') && (
