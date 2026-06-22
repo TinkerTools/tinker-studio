@@ -1586,7 +1586,7 @@ input.mono {
 .job-row {
   display: grid;
   grid-template-columns: auto 1fr;
-  grid-template-areas: 'dot name' 'dot sub';
+  grid-template-areas: 'dot name' 'dot sub' 'dot time';
   column-gap: 0.5rem;
   align-items: center;
   padding: 0.35rem 0.45rem;
@@ -1615,6 +1615,13 @@ input.mono {
   grid-area: sub;
   font-size: 0.72rem;
   color: var(--text-dim);
+}
+
+.job-row-time {
+  grid-area: time;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  opacity: 0.8;
 }
 
 .jobs-finished-toggle {

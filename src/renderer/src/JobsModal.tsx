@@ -157,12 +157,23 @@ export function JobsModal({
   )
 }
 
+/** Compact "Jun 21, 9:05 PM"-style timestamp for the sidebar. */
+function fmtTime(t: number): string {
+  return new Date(t).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
 function LocalRow({ job, active, onClick }: { job: JobRecord; active: boolean; onClick: () => void }) {
   return (
     <div className={active ? 'job-row active' : 'job-row'} onClick={onClick}>
       <span className={`job-dot ${job.status}`} />
       <span className="job-row-name">{job.program}</span>
       <span className="job-row-sub">local · {job.systemName}</span>
+      <span className="job-row-time">{fmtTime(job.startedAt)}</span>
     </div>
   )
 }
@@ -183,6 +194,7 @@ function RemoteRow({
       <span className="job-row-sub">
         {job.clusterName} · {job.status}
       </span>
+      <span className="job-row-time">{fmtTime(job.submittedAt)}</span>
     </div>
   )
 }
@@ -334,56 +346,6 @@ function RemoteDetail({
         )}
       </div>
 
-      <button className="job-meta-toggle" onClick={() => setMetaOpen((o) => !o)}>
-        {metaOpen ? '▾' : '▸'} Details
-      </button>
-      {metaOpen && (
-      <div className="job-subgrid">
-        <span>Program</span>
-        <code>{job.program}</code>
-        <span>Command</span>
-        <code>{job.commandLine ?? '—'}</code>
-        <span>Cluster</span>
-        <code>{job.clusterName}</code>
-        <span>Remote id</span>
-        <code>{job.remoteJobId ?? '—'}</code>
-        <span>Working dir</span>
-        <code>{job.workdir}</code>
-        {job.inputName && (
-          <>
-            <span>Input</span>
-            <code>{job.inputName}</code>
-          </>
-        )}
-        {job.outputName && (
-          <>
-            <span>Output</span>
-            <code>{job.outputName}</code>
-          </>
-        )}
-        <span>Submitted</span>
-        <code>{new Date(job.submittedAt).toLocaleString()}</code>
-        {job.finishedAt && (
-          <>
-            <span>Finished</span>
-            <code>{new Date(job.finishedAt).toLocaleString()}</code>
-          </>
-        )}
-        {job.exitCode != null && (
-          <>
-            <span>Exit code</span>
-            <code>{job.exitCode}</code>
-          </>
-        )}
-        {job.error && (
-          <>
-            <span>Error</span>
-            <code className="err">{job.error}</code>
-          </>
-        )}
-      </div>
-      )}
-
       <div className="run-buttons">
         {job.outputFormat && (active || job.status === 'completed') && (
           <button className="modal-btn" onClick={() => onViewLive(job)}>
@@ -395,23 +357,89 @@ function RemoteDetail({
             Open result
           </button>
         )}
-        <button className="modal-btn ghost" onClick={loadFiles} disabled={busy}>
-          {busy ? 'Listing…' : 'Files…'}
-        </button>
+        {job.outputName && (
+          <button
+            className="modal-btn"
+            onClick={() => void window.ffe.remote.saveJobFile(job.id, job.outputName!)}
+          >
+            Download {job.outputFormat ? job.outputFormat.toUpperCase() : 'output'}
+          </button>
+        )}
       </div>
 
-      {files && (
-        <div className="job-files">
-          {files.length === 0 && <span className="opt-desc">No files (or directory unavailable).</span>}
-          {files.map((f) => (
-            <div className="job-file-row" key={f}>
-              <code>{f}</code>
-              <button className="mini-btn ghost" onClick={() => void window.ffe.remote.saveJobFile(job.id, f)}>
-                Download
-              </button>
+      <button className="job-meta-toggle" onClick={() => setMetaOpen((o) => !o)}>
+        {metaOpen ? '▾' : '▸'} Details
+      </button>
+      {metaOpen && (
+        <>
+          <div className="job-subgrid">
+            <span>Program</span>
+            <code>{job.program}</code>
+            <span>Command</span>
+            <code>{job.commandLine ?? '—'}</code>
+            <span>Cluster</span>
+            <code>{job.clusterName}</code>
+            <span>Remote id</span>
+            <code>{job.remoteJobId ?? '—'}</code>
+            <span>Working dir</span>
+            <code>{job.workdir}</code>
+            {job.inputName && (
+              <>
+                <span>Input</span>
+                <code>{job.inputName}</code>
+              </>
+            )}
+            {job.outputName && (
+              <>
+                <span>Output</span>
+                <code>{job.outputName}</code>
+              </>
+            )}
+            <span>Submitted</span>
+            <code>{new Date(job.submittedAt).toLocaleString()}</code>
+            {job.finishedAt && (
+              <>
+                <span>Finished</span>
+                <code>{new Date(job.finishedAt).toLocaleString()}</code>
+              </>
+            )}
+            {job.exitCode != null && (
+              <>
+                <span>Exit code</span>
+                <code>{job.exitCode}</code>
+              </>
+            )}
+            {job.error && (
+              <>
+                <span>Error</span>
+                <code className="err">{job.error}</code>
+              </>
+            )}
+          </div>
+          <div className="run-buttons">
+            <button className="modal-btn ghost" onClick={loadFiles} disabled={busy}>
+              {busy ? 'Listing…' : 'Files…'}
+            </button>
+          </div>
+          {files && (
+            <div className="job-files">
+              {files.length === 0 && (
+                <span className="opt-desc">No files (or directory unavailable).</span>
+              )}
+              {files.map((f) => (
+                <div className="job-file-row" key={f}>
+                  <code>{f}</code>
+                  <button
+                    className="mini-btn ghost"
+                    onClick={() => void window.ffe.remote.saveJobFile(job.id, f)}
+                  >
+                    Download
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       <div className="job-log-tabs">
