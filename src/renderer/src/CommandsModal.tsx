@@ -463,7 +463,7 @@ function RunSection({
               {running ? 'Running…' : 'Run'}
             </button>
             {running && job && (
-              <button className="modal-btn ghost" onClick={() => window.ffe.job.cancel(job.id)}>
+              <button className="modal-btn ghost" onClick={() => window.tinker.job.cancel(job.id)}>
                 Cancel
               </button>
             )}

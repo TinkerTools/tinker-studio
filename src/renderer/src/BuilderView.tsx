@@ -10,6 +10,8 @@ import {
   bondAtoms,
   setBondOrder,
   deleteAtom,
+  replaceAtomWithElement,
+  replaceAtomWithFragment,
   findBond,
   toStructure,
   type BuilderMolecule
@@ -21,12 +23,25 @@ import { buildTinkerInput } from './core/builder/tinkerExport'
 import { parseTinkerXyz } from './core/parseXyz'
 
 /**
- * The molecule builder — a separate, full-screen mode that starts blank. You pick
- * an element and grow a molecule by bonding atoms to a selected atom; hydrogens
- * fill valences automatically, bond orders adjust them, and a self-contained
- * geometry engine relaxes the coordinates after every edit (no Tinker needed).
+ * The molecule builder — a separate, full-screen mode that starts blank. Spartan
+ * style: pick an element or ring/group as the active tool, then click an atom to
+ * replace it with that tool. Hydrogens are open valences, so clicking one grows the
+ * molecule there; clicking a heavy atom retypes it (or swaps it for a group).
+ * Hydrogens fill valences automatically, bond orders adjust them, and a
+ * self-contained geometry engine relaxes the coordinates after every edit (no Tinker
+ * needed). ⌘/Ctrl-click selects atoms for the Bond / bond-order / Delete controls.
  * On Done, the molecule is handed back to the main UI as a new system.
  */
+
+/**
+ * The active build tool: an element to type, a ring/group fragment to graft, or
+ * bond mode of a given order (click one atom then another to bond them; hydrogens
+ * are added/removed to satisfy the new valence).
+ */
+type Tool =
+  | { kind: 'element'; value: string }
+  | { kind: 'fragment'; id: string }
+  | { kind: 'bond'; order: 1 | 2 | 3 }
 
 // Builder rendering is fixed: ball-and-stick, hydrogens shown, no fog/effects.
 const BUILDER_OPTIONS: RenderOptions = {
@@ -50,7 +65,7 @@ export function BuilderView({
   const molRef = useRef<BuilderMolecule>(emptyMolecule())
   const [version, setVersion] = useState(0)
   const [selected, setSelected] = useState<number[]>([]) // builder atom ids
-  const [element, setElement] = useState<string>('C')
+  const [tool, setTool] = useState<Tool>({ kind: 'element', value: 'C' })
   const [moveMode, setMoveMode] = useState(false)
   // Snapshot of selected atom coords at the start of a manual drag.
   const moveSnapRef = useRef<Record<number, { x: number; y: number; z: number }>>({})
@@ -143,10 +158,74 @@ export function BuilderView({
     }
     const id = idForIndex[result.atomIndex]
     if (id == null) return
-    setSelected((prev) => {
-      if (additive) return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-      return prev.includes(id) && prev.length === 1 ? [] : [id]
+    // ⌘/Ctrl-click toggles selection for the bond-order / Delete controls.
+    if (additive) {
+      setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+      return
+    }
+    // Bond mode: first click marks an atom, second click bonds the two.
+    if (tool.kind === 'bond') {
+      bondPick(id)
+      return
+    }
+    // Plain click replaces the atom with the active tool (Spartan-style build).
+    applyTool(id)
+  }
+
+  /**
+   * Bond-mode pick: mark the first atom, then on the second click form a bond of the
+   * tool's order between the two — creating it, or re-ordering an existing bond.
+   * Hydrogens re-fill to the new valence (a double bond drops one H on each atom, a
+   * single adds it back).
+   */
+  function bondPick(id: number): void {
+    if (tool.kind !== 'bond') return
+    const m = molRef.current
+    const a = m.atoms.find((x) => x.id === id)
+    if (!a || a.element === 'H') return // hydrogens are auto-managed, not bondable
+    if (selected.length !== 1) {
+      setSelected([id]) // mark the first atom (highlighted as pending)
+      return
+    }
+    const first = selected[0]
+    if (first === id) {
+      setSelected([]) // clicked the same atom again → cancel
+      return
+    }
+    const order = tool.order
+    edit(() => {
+      if (findBond(m, first, id)) setBondOrder(m, first, id, order)
+      else bondAtoms(m, first, id, order)
     })
+    setSelected([])
+  }
+
+  /** Replace atom `id` with the active tool (element retype/promote, or graft a group). */
+  function applyTool(id: number): void {
+    const m = molRef.current
+    const clicked = m.atoms.find((a) => a.id === id)
+    if (!clicked) return
+    if (tool.kind === 'element') {
+      // No-op when the click wouldn't change the element (skip relax/minimize churn).
+      if (clicked.element === tool.value) return
+      edit(() => {
+        replaceAtomWithElement(m, id, tool.value)
+      })
+    } else if (tool.kind === 'fragment') {
+      const frag = FRAGMENTS.find((f) => f.id === tool.id)
+      if (!frag) return
+      // A fragment can't graft onto a bridging atom (2+ heavy neighbours); replace
+      // would be a no-op, so don't churn relax/minimize on it.
+      const heavyNeighbors = m.bonds
+        .filter((b) => b.a === id || b.b === id)
+        .map((b) => (b.a === id ? b.b : b.a))
+        .filter((n) => m.atoms.find((a) => a.id === n)?.element !== 'H')
+      if (clicked.element !== 'H' && heavyNeighbors.length > 1) return
+      edit(() => {
+        replaceAtomWithFragment(m, id, frag)
+      })
+    }
+    setSelected([])
   }
 
   // --- Manual atom dragging (move mode) ------------------------------------
@@ -191,7 +270,7 @@ export function BuilderView({
   // Optional Tinker geometry clean-up: available only when a `minimize` executable
   // is configured. Uses an auto-generated minimal force field (see tinkerExport).
   useEffect(() => {
-    void window.ffe?.builder?.hasMinimize().then(setMinimizeAvailable)
+    void window.tinker?.builder?.hasMinimize().then(setMinimizeAvailable)
   }, [])
 
   /**
@@ -206,7 +285,7 @@ export function BuilderView({
     inFlightRef.current += 1
     setMinimizing(true)
     try {
-      const res = await window.ffe.builder.minimize(buildTinkerInput(molRef.current))
+      const res = await window.tinker.builder.minimize(buildTinkerInput(molRef.current))
       if (gen !== editGenRef.current) return // superseded by a newer edit
       if (res.ok && res.xyz) {
         const min = parseTinkerXyz(res.xyz)
@@ -240,43 +319,42 @@ export function BuilderView({
     }
   }, [])
 
-  function addElement(el: string): void {
-    const parent = selected.length >= 1 ? selected[selected.length - 1] : null
-    // Adding the first heavy atom, or growing from the selected atom.
-    if (mol.atoms.length === 0 || parent != null || el !== 'H') {
-      let newId: number | null = null
+  /**
+   * Pick an element as the active tool. On an empty canvas there's nothing to click
+   * yet, so also seed the first atom (e.g. C → methane) to build from.
+   */
+  function pickElement(el: string): void {
+    setTool({ kind: 'element', value: el })
+    if (mol.atoms.length === 0 && el !== 'H') {
       edit(() => {
-        newId = addAtom(molRef.current, parent, el)
+        addAtom(molRef.current, null, el)
       })
-      // Chain growth: keep the new heavy atom selected so you can keep extending.
-      if (newId != null) setSelected([newId])
+      setSelected([])
     }
   }
 
-  function addStructure(fragId: string): void {
+  /** Pick a ring/group as the active tool; seed it standalone on an empty canvas. */
+  function pickFragment(fragId: string): void {
+    setTool({ kind: 'fragment', id: fragId })
     const frag = FRAGMENTS.find((f) => f.id === fragId)
-    if (!frag) return
-    // Attach to the single selected atom, or drop in standalone otherwise.
-    const parent = selected.length === 1 ? selected[0] : null
-    let attachId = 0
-    edit(() => {
-      attachId = addFragment(molRef.current, parent, frag)
-    })
-    setSelected([attachId])
+    if (frag && mol.atoms.length === 0) {
+      edit(() => {
+        addFragment(molRef.current, null, frag)
+      })
+      setSelected([])
+    }
   }
 
-  function bondSelected(): void {
-    if (selected.length !== 2) return
-    edit(() => {
-      bondAtoms(molRef.current, selected[0], selected[1])
-    })
+  /** Toggle bond mode on/off; entering defaults to single bonds, leaving returns to C. */
+  function toggleBondMode(): void {
+    setSelected([])
+    setTool((t) => (t.kind === 'bond' ? { kind: 'element', value: 'C' } : { kind: 'bond', order: 1 }))
   }
 
-  function orderSelected(order: number): void {
-    if (selected.length !== 2) return
-    edit(() => {
-      setBondOrder(molRef.current, selected[0], selected[1], order)
-    })
+  /** Enter bond mode of a given order (single/double/triple). */
+  function setBondOrderTool(order: 1 | 2 | 3): void {
+    setSelected([])
+    setTool({ kind: 'bond', order })
   }
 
   function deleteSelected(): void {
@@ -331,9 +409,6 @@ export function BuilderView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected])
 
-  // Relationship of the current selection, for enabling bond/order controls.
-  const twoSelected = selected.length === 2
-  const existingBond = twoSelected ? findBond(mol, selected[0], selected[1]) : undefined
   const atomCount = mol.atoms.length
 
   return (
@@ -344,16 +419,13 @@ export function BuilderView({
         <div className="builder-controls">
         <div
           className="builder-group"
-          title="Add element: click to grow from the selected atom (or place the first atom)"
+          title="Pick an element, then click an atom to replace it (click a hydrogen to grow)"
         >
           {BUILDER_ELEMENTS.map((el) => (
             <button
               key={el}
-              className={el === element ? 'el on' : 'el'}
-              onClick={() => {
-                setElement(el)
-                addElement(el)
-              }}
+              className={tool.kind === 'element' && tool.value === el ? 'el on' : 'el'}
+              onClick={() => pickElement(el)}
             >
               {el}
             </button>
@@ -362,14 +434,13 @@ export function BuilderView({
 
         <div
           className="builder-group"
-          title="Insert a ring or group — attached to the selected atom, or on its own"
+          title="Pick a ring or group, then click an atom to graft it there (click a hydrogen to grow)"
         >
           <select
             className="builder-frag"
-            value=""
+            value={tool.kind === 'fragment' ? tool.id : ''}
             onChange={(e) => {
-              if (e.target.value) addStructure(e.target.value)
-              e.target.value = ''
+              if (e.target.value) pickFragment(e.target.value)
             }}
           >
             <option value="">Add structure…</option>
@@ -381,17 +452,40 @@ export function BuilderView({
           </select>
         </div>
 
-        <div className="builder-group">
-          <button disabled={!twoSelected || !!existingBond} onClick={bondSelected} title="Bond the two selected atoms (closes rings)">
+        <div
+          className="builder-group"
+          title="Bond mode: pick an order, then click two atoms to bond them (closes rings)"
+        >
+          <button
+            className={tool.kind === 'bond' ? 'on' : ''}
+            disabled={atomCount < 2}
+            onClick={toggleBondMode}
+            title="Bond mode: click one atom, then another, to bond them (closes rings)"
+          >
             Bond
           </button>
-          <button disabled={!existingBond} onClick={() => orderSelected(1)} title="Single bond">
+          <button
+            className={tool.kind === 'bond' && tool.order === 1 ? 'on' : ''}
+            disabled={atomCount < 2}
+            onClick={() => setBondOrderTool(1)}
+            title="Single-bond mode: click two atoms"
+          >
             —
           </button>
-          <button disabled={!existingBond} onClick={() => orderSelected(2)} title="Double bond">
+          <button
+            className={tool.kind === 'bond' && tool.order === 2 ? 'on' : ''}
+            disabled={atomCount < 2}
+            onClick={() => setBondOrderTool(2)}
+            title="Double-bond mode: click two atoms"
+          >
             =
           </button>
-          <button disabled={!existingBond} onClick={() => orderSelected(3)} title="Triple bond">
+          <button
+            className={tool.kind === 'bond' && tool.order === 3 ? 'on' : ''}
+            disabled={atomCount < 2}
+            onClick={() => setBondOrderTool(3)}
+            title="Triple-bond mode: click two atoms"
+          >
             ≡
           </button>
         </div>
@@ -472,18 +566,25 @@ export function BuilderView({
           {atomCount === 0 ? (
             <p>
               Click an element to place the first atom, or pick <b>Add structure…</b> for a ring or
-              group. Hydrogens fill in automatically.
+              group. Hydrogens fill in automatically — then click them to grow.
             </p>
           ) : moveMode ? (
             <p>
               <b>Move mode:</b> drag an atom to reposition it (and any others selected with it) in the
               screen plane. No auto-relax — your placement sticks. Toggle <b>Move</b> off to edit.
             </p>
+          ) : tool.kind === 'bond' ? (
+            <p>
+              <b>Bond mode ({tool.order === 1 ? 'single' : tool.order === 2 ? 'double' : 'triple'}):</b>{' '}
+              click one atom, then another, to form that bond (or re-order an existing one) — hydrogens
+              adjust to fit. Pick <b>—</b>/<b>=</b>/<b>≡</b> to change the order; click <b>Bond</b> again
+              to leave.
+            </p>
           ) : (
             <p>
-              Select an atom and click an element to bond it on, or <b>Add structure…</b> to attach a
-              ring/group. ⌘/Ctrl-click a second atom, then <b>Bond</b> to connect them (or set{' '}
-              <b>=</b>/<b>≡</b> for double/triple).
+              Pick an element or <b>Add structure…</b>, then <b>click an atom to replace it</b> — click
+              a hydrogen to grow the molecule there. Use <b>Bond</b> / <b>—</b> / <b>=</b> / <b>≡</b> to
+              connect two atoms, or ⌘/Ctrl-click to select for <b>Delete</b>.
             </p>
           )}
           <p className="builder-count">{atomCount} atoms</p>

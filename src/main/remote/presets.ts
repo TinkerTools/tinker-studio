@@ -5,9 +5,9 @@ import type { ClusterKind, ClusterProfile, ClusterTemplates, ClusterVariable } f
  * into a new profile and remain fully editable — `custom` simply starts from the
  * ssh-direct set as a blank-ish canvas.
  *
- * All templates assume FFE has already created the remote working directory,
+ * All templates assume Tinker Studio has already created the remote working directory,
  * uploaded the inputs, and written `job.sh` (which cds in, runs the setup +
- * Tinker command, and records the exit code to `.ffe_exit`). The templates only
+ * Tinker command, and records the exit code to `.tinker_studio_exit`). The templates only
  * launch / query / cancel that script.
  */
 
@@ -18,8 +18,8 @@ export function sshDirectTemplates(): ClusterTemplates {
       'cd "{{workdir}}" && { nohup sh job.sh > "{{job_name}}.log" 2>&1 & echo $!; }',
     status:
       'if kill -0 {{job_id}} 2>/dev/null; then echo RUNNING; ' +
-      'elif [ -f "{{workdir}}/.ffe_exit" ]; then ' +
-      'c=$(cat "{{workdir}}/.ffe_exit"); ' +
+      'elif [ -f "{{workdir}}/.tinker_studio_exit" ]; then ' +
+      'c=$(cat "{{workdir}}/.tinker_studio_exit"); ' +
       'if [ "$c" = 0 ]; then echo COMPLETED; else echo "FAILED:$c"; fi; ' +
       'else echo UNKNOWN; fi',
     cancel: 'kill {{job_id}} 2>/dev/null; echo canceled',
@@ -72,7 +72,7 @@ export function newClusterProfile(kind: ClusterKind, name?: string): ClusterProf
     name: name ?? defaultName(kind),
     kind,
     host: '',
-    remoteBaseDir: '~/ffe-jobs',
+    remoteBaseDir: '~/tinker-studio-jobs',
     variables: variablesFor(kind),
     templates: templatesFor(kind)
   }

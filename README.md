@@ -1,4 +1,4 @@
-# Force Field Explorer
+# Tinker Studio
 
 A modern, from-scratch rebuild of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
 the molecular-modeling GUI for the [Tinker](https://github.com/TinkerTools/tinker)
@@ -40,7 +40,7 @@ src/
     trajectory.ts  lazy byte-offset indexing of large .arc files (frames on demand)
     dcd.ts         binary .dcd trajectory reader (fixed-size frames)
     liveJob.ts     stream a running minimize/dynamics job's growing output
-  preload/     the single, typed bridge (window.ffe) exposed to the renderer
+  preload/     the single, typed bridge (window.tinker) exposed to the renderer
   renderer/    the React UI
     src/
       App.tsx          root layout shell (sidebar + viewport, action dispatch)

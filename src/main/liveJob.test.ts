@@ -77,7 +77,7 @@ describe('splitArcFrames (incremental .arc framing)', () => {
 })
 
 describe('live .arc incremental indexing', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ffe-live-'))
+  const dir = mkdtempSync(join(tmpdir(), 'tinker-studio-live-'))
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
   // Mirror the main-process live watcher: read the file in arbitrary chunks,

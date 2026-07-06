@@ -156,12 +156,12 @@ export default function App() {
     opts: { silent?: boolean } = {}
   ): Promise<void> {
     const prevTrajId = systems.find((s) => s.id === systemId)?.trajectory?.source?.trajId
-    const res = await window.ffe.trajectory.openDcd(dcdPath, structure.atoms.length)
+    const res = await window.tinker.trajectory.openDcd(dcdPath, structure.atoms.length)
     if (!res.ok) {
       if (!opts.silent) setError(`Could not attach DCD — ${res.reason ?? 'unknown error'}.`)
       return
     }
-    if (prevTrajId) void window.ffe.trajectory.close(prevTrajId)
+    if (prevTrajId) void window.tinker.trajectory.close(prevTrajId)
     setSystems((prev) =>
       prev.map((s) =>
         s.id === systemId
@@ -195,13 +195,13 @@ export default function App() {
   async function handleOpen(): Promise<void> {
     setError(null)
     try {
-      const file = await window.ffe.openStructure()
+      const file = await window.tinker.openStructure()
       if (!file) return
       // .arc files are opened lazily: index on disk, fetch frames on demand.
       if (file.arc) {
         // First frame shows immediately; the frame count + full scrubbing unlock
         // when the background index finishes (trajectory:ready).
-        const t = await window.ffe.trajectory.open(file.path)
+        const t = await window.tinker.trajectory.open(file.path)
         const structure = parseTinkerXyz(t.firstFrameText)
         addSystem(
           {
@@ -259,7 +259,7 @@ export default function App() {
     setError(null)
     setDownloading(true)
     try {
-      const result = await window.ffe.download(source, query)
+      const result = await window.tinker.download(source, query)
       const structure = result.format === 'pdb' ? parsePdb(result.text) : parseSdf(result.text)
       addSystem({ structure, fileType: result.format }, `${result.name} (${source})`)
       setDownloadSource(null)
@@ -273,7 +273,7 @@ export default function App() {
   function closeSystem(id: string): void {
     // Release any streamed-trajectory index held in the main process.
     const trajId = systems.find((s) => s.id === id)?.trajectory?.source?.trajId
-    if (trajId) void window.ffe.trajectory.close(trajId)
+    if (trajId) void window.tinker.trajectory.close(trajId)
     setSystems((prev) => prev.filter((s) => s.id !== id))
     setVisibleIds((prev) => {
       const next = new Set(prev)
@@ -322,16 +322,16 @@ export default function App() {
     // basic.prm so the file is immediately usable by Tinker.
     if (format === 'txyz' && isUntyped(structure)) {
       const typed = withBasicTypes(structure)
-      void window.ffe.saveTinkerXyz(`${base}.xyz`, writeTinkerXyz(typed), true)
+      void window.tinker.saveTinkerXyz(`${base}.xyz`, writeTinkerXyz(typed), true)
       return
     }
-    void window.ffe.saveTextFile(`${base}.${spec.ext}`, spec.write(structure))
+    void window.tinker.saveTextFile(`${base}.${spec.ext}`, spec.write(structure))
   }
 
   async function handleOpenKey(): Promise<void> {
     setError(null)
     try {
-      const file = await window.ffe.openTextFile(KEY_FILE_FILTERS)
+      const file = await window.tinker.openTextFile(KEY_FILE_FILTERS)
       if (!file) return
       setKeyText(file.text)
       setModal('keywords')
@@ -344,7 +344,7 @@ export default function App() {
     if (!active) return
     setError(null)
     try {
-      const file = await window.ffe.openTextFile()
+      const file = await window.tinker.openTextFile()
       if (!file) return
       const newStructure = applyForceField(active.structure, parsePrm(file.text))
       setSystems((prev) =>
@@ -369,7 +369,7 @@ export default function App() {
     const job = jobsRef.current.find((j) => j.id === jobId)
     if (!job?.structurePath) return
     try {
-      const result = await window.ffe.job.collectResult(job.structurePath, job.startedAt)
+      const result = await window.tinker.job.collectResult(job.structurePath, job.startedAt)
       if (!result) return
       addSystem(parseStructureFile(result.text, result.name), `${job.program} · ${result.name}`, {
         path: result.path,
@@ -458,7 +458,7 @@ export default function App() {
     if (!active) return
     setError(null)
     try {
-      const chosen = await window.ffe.chooseFile(ATTACH_FILTERS)
+      const chosen = await window.tinker.chooseFile(ATTACH_FILTERS)
       if (!chosen) return
       const ext = (chosen.name.split('.').pop() ?? '').toLowerCase()
       // .dcd is binary and may be huge — hand its path to the trajectory API
@@ -467,7 +467,7 @@ export default function App() {
         await attachDcd(active.id, active.structure, chosen.path)
         return
       }
-      const text = await window.ffe.readTextFile(chosen.path)
+      const text = await window.tinker.readTextFile(chosen.path)
       if (ext === 'seq') {
         setSystems((prev) =>
           prev.map((s) =>
@@ -479,7 +479,7 @@ export default function App() {
       } else {
         // .key (default)
         setSystemKey(active.id, chosen.name, text)
-        const ff = await window.ffe.resolveForceFieldFromKey(text, chosen.path)
+        const ff = await window.tinker.resolveForceFieldFromKey(text, chosen.path)
         if (ff.prmText && ff.prmName) applyFFToSystem(active.id, ff.prmText, ff.prmName)
       }
     } catch (e) {
@@ -499,12 +499,12 @@ export default function App() {
   // Tinker jobs are owned here (not in the Commands modal) so their output is
   // retained after the modal closes and can be reviewed in the Job Output window.
   useEffect(() => {
-    const offOut = window.ffe.job.onOutput((o) =>
+    const offOut = window.tinker.job.onOutput((o) =>
       setJobs((prev) =>
         prev.map((j) => (j.id === o.jobId ? { ...j, output: j.output + o.chunk } : j))
       )
     )
-    const offExit = window.ffe.job.onExit((e) => {
+    const offExit = window.tinker.job.onExit((e) => {
       setJobs((prev) =>
         prev.map((j) =>
           j.id === e.jobId
@@ -529,7 +529,7 @@ export default function App() {
     // Minimize streams discrete cycle files as one-frame appends. The count is
     // bounded (a minimization converges in a modest number of cycles), so these
     // are kept in memory; dynamics instead streams via onLiveArc (disk-backed).
-    const offLive = window.ffe.job.onLive((m) => {
+    const offLive = window.tinker.job.onLive((m) => {
       const live = liveRef.current
       if (!live || live.jobId !== m.jobId) return
       {
@@ -560,7 +560,7 @@ export default function App() {
     // follow the latest frame; the windowed frame path fetches coordinates from
     // disk on demand (bounded memory), so the whole run stays scrubbable without
     // holding every frame in RAM.
-    const offLiveArc = window.ffe.job.onLiveArc(({ jobId, trajId, frameCount }) => {
+    const offLiveArc = window.tinker.job.onLiveArc(({ jobId, trajId, frameCount }) => {
       const live = liveRef.current
       if (!live || live.jobId !== jobId) return
       live.frameCount = frameCount
@@ -578,7 +578,7 @@ export default function App() {
       setFrameIndex(frameCount - 1)
     })
 
-    const offLiveEnd = window.ffe.job.onLiveEnd((m) => {
+    const offLiveEnd = window.tinker.job.onLiveEnd((m) => {
       const live = liveRef.current
       if (!live || live.jobId !== m.jobId) return
       // Attached DCD dynamics: the .dcd stays attached to the existing system and
@@ -646,7 +646,7 @@ export default function App() {
           const baked = bakeTransform(system.structure, system.transform)
           const hasOwnParams = !!system.keyText && /^\s*parameters\b/im.test(system.keyText)
           const useBasic = isUntyped(baked) && !hasOwnParams
-          structurePath = await window.ffe.job.prepareStructure(
+          structurePath = await window.tinker.job.prepareStructure(
             system.name,
             writeTinkerXyz(useBasic ? withBasicTypes(baked) : baked),
             system.keyText ?? DEFAULT_KEY,
@@ -668,7 +668,7 @@ export default function App() {
       const dcdOutput = kind === 'dynamics' && /^\s*dcd-archive\b/im.test(system.keyText ?? '')
       if (dcdOutput) {
         const prevTrajId = system.trajectory?.source?.trajId
-        if (prevTrajId) void window.ffe.trajectory.close(prevTrajId)
+        if (prevTrajId) void window.tinker.trajectory.close(prevTrajId)
         setActiveId(system.id)
         setVisibleIds((prev) => new Set(prev).add(system.id))
         liveRef.current = {
@@ -702,7 +702,7 @@ export default function App() {
       liveJobIdsRef.current.add(id)
     }
 
-    const res = await window.ffe.job.run({
+    const res = await window.tinker.job.run({
       jobId: id,
       program,
       structurePath,
@@ -730,9 +730,9 @@ export default function App() {
 
   // Representation/color from the Display panel apply to the current selection;
   // with nothing selected they become the global default (and clear per-atom
-  // overrides, so everything reverts). 'tube' is whole-structure only.
+  // overrides, so everything reverts).
   function applyRepresentation(rep: Representation): void {
-    if (active && rep !== 'tube' && selectedInActive.size > 0) {
+    if (active && selectedInActive.size > 0) {
       setSystems((prev) =>
         prev.map((s) => {
           if (s.id !== active.id) return s
@@ -920,6 +920,7 @@ export default function App() {
     options.colorMode === 'uniform' ? options.uniformColor : '',
     options.ballScale,
     options.bondScale,
+    options.wireWidth,
     options.showHydrogens ? 'h' : '',
     options.showBox ? 'box' : '',
     options.restrictToSelection ? 'r' : '',
@@ -973,7 +974,7 @@ export default function App() {
     else if (action === 'openKey') void handleOpenKey()
     else if (action === 'applyFF') void handleApplyFF()
     else if (action === 'setTinkerDir') {
-      void window.ffe.settings.chooseTinkerDir().then((s) => {
+      void window.tinker.settings.chooseTinkerDir().then((s) => {
         setTinkerDir(s.tinkerDir)
         if (s.tinkerDir && !s.hasExecutables) {
           setError(
@@ -987,18 +988,18 @@ export default function App() {
     }
   }
   useEffect(() => {
-    return window.ffe?.onMenu((action) => menuHandlerRef.current(action))
+    return window.tinker?.onMenu((action) => menuHandlerRef.current(action))
   }, [])
 
   useEffect(() => {
-    void window.ffe?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
+    void window.tinker?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
 
   // Load configured clusters + remembered remote jobs, and keep the job list live.
   useEffect(() => {
-    void window.ffe?.remote.listClusters().then(setClusters)
-    void window.ffe?.remote.listJobs().then(setRemoteJobs)
-    return window.ffe?.remote.onJobUpdate((job) => {
+    void window.tinker?.remote.listClusters().then(setClusters)
+    void window.tinker?.remote.listJobs().then(setRemoteJobs)
+    return window.tinker?.remote.onJobUpdate((job) => {
       setRemoteJobs((prev) => {
         const i = prev.findIndex((j) => j.id === job.id)
         if (i < 0) return [job, ...prev]
@@ -1033,7 +1034,7 @@ export default function App() {
     const ids = growingKey.split(',')
     const iv = window.setInterval(() => {
       for (const trajId of ids) {
-        void window.ffe.remote.refreshTrajectory(trajId).then((fc) => {
+        void window.tinker.remote.refreshTrajectory(trajId).then((fc) => {
           setSystems((prev) =>
             prev.map((s) =>
               s.trajectory?.source?.trajId === trajId && s.trajectory.frameCount !== fc
@@ -1057,7 +1058,7 @@ export default function App() {
   // (and optionally remember it, encrypted). Resolves true once a password is set,
   // false if the user cancels. Key-auth clusters resolve immediately.
   async function ensurePassword(clusterId: string): Promise<boolean> {
-    if (!(await window.ffe.remote.needsPassword(clusterId))) return true
+    if (!(await window.tinker.remote.needsPassword(clusterId))) return true
     const cluster = clusters.find((c) => c.id === clusterId)
     return new Promise<boolean>((resolve) => {
       pwResolveRef.current = resolve
@@ -1067,7 +1068,7 @@ export default function App() {
 
   async function submitPassword(password: string, remember: boolean): Promise<void> {
     const prompt = pwPrompt
-    if (prompt) await window.ffe.remote.setPassword(prompt.clusterId, password, remember)
+    if (prompt) await window.tinker.remote.setPassword(prompt.clusterId, password, remember)
     setPwPrompt(null)
     pwResolveRef.current?.(true)
     pwResolveRef.current = null
@@ -1091,7 +1092,7 @@ export default function App() {
     }
     if (!(await ensurePassword(cluster.id))) return false
     try {
-      let req: Parameters<typeof window.ffe.remote.submit>[0]
+      let req: Parameters<typeof window.tinker.remote.submit>[0]
       if (opts.source === 'remote') {
         // Run on files already present in a remote directory.
         const outputFormat = opts.program === 'dynamic' ? 'arc' : null
@@ -1125,7 +1126,7 @@ export default function App() {
           outputFormat: staged?.outputFormat ?? null
         }
       }
-      const job = await window.ffe.remote.submit(req)
+      const job = await window.tinker.remote.submit(req)
       setRemoteJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)])
       // Pre-select this job so the Jobs modal (opened next by onStarted) shows it.
       setJobSelectId(job.id)
@@ -1141,13 +1142,13 @@ export default function App() {
     setError(null)
     if (!(await ensurePassword(job.clusterId))) return
     try {
-      const res = await window.ffe.remote.openJobTrajectory(job.id)
+      const res = await window.tinker.remote.openJobTrajectory(job.id)
       let structure: Parsed['structure']
       if (res.kind === 'arc' && res.firstFrameText) {
         structure = parseTinkerXyz(res.firstFrameText)
       } else {
         // .dcd carries no topology — fetch the input .xyz to get atoms/bonds.
-        const input = await window.ffe.remote.openJobText(job.id, job.inputName ?? '')
+        const input = await window.tinker.remote.openJobText(job.id, job.inputName ?? '')
         structure = parseTinkerXyz(input.text)
       }
       const active = job.status === 'running' || job.status === 'pending' || job.status === 'submitting'
@@ -1177,7 +1178,7 @@ export default function App() {
     setError(null)
     if (!(await ensurePassword(job.clusterId))) return
     try {
-      const files = await window.ffe.remote.listJobFiles(job.id)
+      const files = await window.tinker.remote.listJobFiles(job.id)
       const stem = (job.inputName ?? '').replace(/\.[^.]*$/, '')
       // Prefer the highest Tinker cycle file (mol.xyz_N), else a plain result xyz.
       const cycles = files
@@ -1188,7 +1189,7 @@ export default function App() {
         setError('No result coordinate file found in the job directory.')
         return
       }
-      const { name, text } = await window.ffe.remote.openJobText(job.id, pick)
+      const { name, text } = await window.tinker.remote.openJobText(job.id, pick)
       addSystem(parseStructureFile(text, name), `${name} · ${job.clusterName}`)
       setModal(null)
     } catch (e) {
@@ -1208,14 +1209,14 @@ export default function App() {
     if (!(await ensurePassword(clusterId))) return
     try {
       if (/\.(arc|dcd)$/i.test(path)) {
-        const res = await window.ffe.remote.openTrajectory(clusterId, path, vars)
+        const res = await window.tinker.remote.openTrajectory(clusterId, path, vars)
         let structure: Parsed['structure']
         if (res.kind === 'arc' && res.firstFrameText) {
           structure = parseTinkerXyz(res.firstFrameText)
         } else {
           // Need topology for a .dcd: read the sibling .xyz next to it.
           const xyzPath = path.replace(/\.dcd$/i, '.xyz')
-          const input = await window.ffe.remote.openText(clusterId, xyzPath, vars)
+          const input = await window.tinker.remote.openText(clusterId, xyzPath, vars)
           structure = parseTinkerXyz(input.text)
         }
         const id = nextSystemId()
@@ -1233,7 +1234,7 @@ export default function App() {
         setVisibleIds(new Set([id]))
         setFrameIndex(0)
       } else {
-        const { name, text } = await window.ffe.remote.openText(clusterId, path, vars)
+        const { name, text } = await window.tinker.remote.openText(clusterId, path, vars)
         addSystem(parseStructureFile(text, name), `${name} · ${cluster?.name ?? 'remote'}`)
       }
       setModal(null)
@@ -1246,12 +1247,12 @@ export default function App() {
   // count (so the already-indexed prefix is usable); on the final update mark it
   // done, or drop the trajectory if it turned out to have only one frame.
   useEffect(() => {
-    return window.ffe?.trajectory.onProgress(({ trajId, frameCount, done }) => {
+    return window.tinker?.trajectory.onProgress(({ trajId, frameCount, done }) => {
       setSystems((prev) =>
         prev.map((s) => {
           if (s.trajectory?.source?.trajId !== trajId) return s
           if (done && frameCount <= 1) {
-            void window.ffe.trajectory.close(trajId)
+            void window.tinker.trajectory.close(trajId)
             return { ...s, trajectory: undefined }
           }
           return { ...s, trajectory: { ...s.trajectory, frameCount, indexing: !done } }
@@ -1263,7 +1264,7 @@ export default function App() {
   // Only PDB-derived systems carry the residue/chain data PDB needs, so gate
   // the "Save as PDB" menu item on the active system's format.
   useEffect(() => {
-    window.ffe?.setPdbExportEnabled(active?.fileType === 'pdb')
+    window.tinker?.setPdbExportEnabled(active?.fileType === 'pdb')
   }, [active?.fileType])
 
   // Reset playback and selection when the active system changes.
@@ -1328,8 +1329,8 @@ export default function App() {
         src.trajId,
         natoms * 3 * 4,
         src.remote
-          ? (id, idx) => window.ffe.remote.trajFrame(id, idx)
-          : (id, idx) => window.ffe.trajectory.frame(id, idx),
+          ? (id, idx) => window.tinker.remote.trajFrame(id, idx)
+          : (id, idx) => window.tinker.trajectory.frame(id, idx),
         () => setFrameTick((t) => t + 1),
         src.remote ? REMOTE_SOURCE : LOCAL_SOURCE
       )
@@ -1347,9 +1348,9 @@ export default function App() {
   // Under the headless screenshot harness, load the example automatically (once).
   const autoLoadedRef = useRef(false)
   useEffect(() => {
-    if (window.ffe?.captureMode && !autoLoadedRef.current) {
+    if (window.tinker?.captureMode && !autoLoadedRef.current) {
       autoLoadedRef.current = true
-      if (window.ffe.captureBuilder) setBuilderOpen(true)
+      if (window.tinker.captureBuilder) setBuilderOpen(true)
       else handleExample()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1360,9 +1361,16 @@ export default function App() {
   if (builderOpen) {
     return (
       <BuilderView
-        demo={!!window.ffe?.captureBuilder}
+        demo={!!window.tinker?.captureBuilder}
         onDone={(structure) => {
-          addSystem({ structure, fileType: 'xyz' }, 'New molecule')
+          // A built molecule has no force field, so give it Tinker basic.prm atom
+          // types (10·Z + attached atoms) and a sibling .key that points at
+          // basic.prm — so the new system is immediately usable with that force
+          // field (jobs/saves see its own types + parameters line, not zeros).
+          addSystem({ structure: withBasicTypes(structure), fileType: 'xyz' }, 'New molecule', {
+            keyName: 'basic.key',
+            keyText: BUILDER_KEY
+          })
           setBuilderOpen(false)
         }}
         onCancel={() => setBuilderOpen(false)}
@@ -1373,7 +1381,7 @@ export default function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="sidebar-brand">Force Field Explorer</div>
+        <div className="sidebar-brand">Tinker Studio</div>
 
         <section className="panel">
           <h2>Systems</h2>
@@ -1828,11 +1836,11 @@ export default function App() {
           jobs={jobs}
           remoteJobs={remoteJobs}
           initialRemoteId={jobSelectId}
-          onCancel={(id) => void window.ffe.job.cancel(id)}
+          onCancel={(id) => void window.tinker.job.cancel(id)}
           onClear={clearJob}
-          onRemoteCancel={(id) => void window.ffe.remote.cancel(id)}
-          onRemoteForget={(id) => void window.ffe.remote.forgetJob(id).then(setRemoteJobs)}
-          onRemoteRename={(id, label) => void window.ffe.remote.renameJob(id, label)}
+          onRemoteCancel={(id) => void window.tinker.remote.cancel(id)}
+          onRemoteForget={(id) => void window.tinker.remote.forgetJob(id).then(setRemoteJobs)}
+          onRemoteRename={(id, label) => void window.tinker.remote.renameJob(id, label)}
           onViewLive={(job) => void viewRemoteJob(job)}
           onOpenResult={(job) => void openRemoteResult(job)}
           onClose={() => setModal(null)}
@@ -1935,7 +1943,11 @@ const MEASURE_MODES: ReadonlyArray<{ value: MeasureMode; label: string }> = [
 const KEY_FILE_FILTERS = [{ name: 'Tinker Key Files', extensions: ['key'] }]
 const ATTACH_FILTERS = [{ name: 'Tinker Files', extensions: ['key', 'seq', 'prm', 'dcd'] }]
 // Used when running a command on a system that has no key attached.
-const DEFAULT_KEY = '# Force Field Explorer: no key file attached\n'
+const DEFAULT_KEY = '# Tinker Studio: no key file attached\n'
+// Attached to a freshly built molecule: its basic.prm atom types (10·Z + attached
+// atoms) pair with this key so Tinker runs against its bundled basic.prm.
+const BUILDER_KEY =
+  '# Tinker Studio: molecule built with basic.prm atom types\nparameters basic.prm\n'
 
 const MOVE_MODES: ReadonlyArray<{ value: 'translate' | 'rotate'; label: string }> = [
   { value: 'translate', label: 'Translate' },
@@ -2044,6 +2056,18 @@ function GraphicsModal({
             onChange={(e) => set({ bondScale: Number(e.target.value) })}
           />
           <span className="gfx-val">{options.bondScale.toFixed(2)}×</span>
+        </div>
+        <div className="gfx-row">
+          <label title="Line width for the Wireframe representation">Wire width</label>
+          <input
+            type="range"
+            min={1}
+            max={8}
+            step={0.5}
+            value={options.wireWidth}
+            onChange={(e) => set({ wireWidth: Number(e.target.value) })}
+          />
+          <span className="gfx-val">{options.wireWidth.toFixed(1)} px</span>
         </div>
         <div className="gfx-row">
           <label>Contrast</label>
@@ -2198,6 +2222,7 @@ function GraphicsModal({
               set({
                 ballScale: 1,
                 bondScale: 1,
+                wireWidth: 1,
                 backgroundColor: DEFAULT_BACKGROUND,
                 backgroundGradient: false,
                 contrast: CONTRAST_DEFAULT,

@@ -26,17 +26,17 @@ export interface SshTarget {
 }
 
 /**
- * A tiny askpass helper that prints $FFE_SSH_PW. ssh runs it (when SSH_ASKPASS +
- * SSH_ASKPASS_REQUIRE=force are set) to obtain the password without a TTY. Written
- * once to a 0700 temp file; the password itself is passed per-call via the child's
- * environment, never written to disk.
+ * A tiny askpass helper that prints $TINKER_STUDIO_SSH_PW. ssh runs it (when
+ * SSH_ASKPASS + SSH_ASKPASS_REQUIRE=force are set) to obtain the password without a
+ * TTY. Written once to a 0700 temp file; the password itself is passed per-call via
+ * the child's environment, never written to disk.
  */
 let askpassPath: string | null = null
 function ensureAskpass(): string {
   if (askpassPath) return askpassPath
-  const dir = mkdtempSync(join(tmpdir(), 'ffe-askpass-'))
+  const dir = mkdtempSync(join(tmpdir(), 'tinker-studio-askpass-'))
   const p = join(dir, 'askpass.sh')
-  writeFileSync(p, '#!/bin/sh\nprintf \'%s\\n\' "$FFE_SSH_PW"\n', { mode: 0o700 })
+  writeFileSync(p, '#!/bin/sh\nprintf \'%s\\n\' "$TINKER_STUDIO_SSH_PW"\n', { mode: 0o700 })
   chmodSync(p, 0o700)
   askpassPath = p
   return p
@@ -51,7 +51,7 @@ function spawnEnv(target: SshTarget): NodeJS.ProcessEnv {
     // OpenSSH 8.4+: use askpass even with a tty and without DISPLAY.
     SSH_ASKPASS_REQUIRE: 'force',
     DISPLAY: process.env.DISPLAY || ':0',
-    FFE_SSH_PW: target.password
+    TINKER_STUDIO_SSH_PW: target.password
   }
 }
 
@@ -83,7 +83,7 @@ function controlPath(): string | null {
   if (controlDir === undefined) {
     try {
       const uid = typeof process.getuid === 'function' ? process.getuid() : 0
-      const d = join('/tmp', `ffe-cm-${uid}`)
+      const d = join('/tmp', `tinker-studio-cm-${uid}`)
       mkdirSync(d, { recursive: true, mode: 0o700 })
       controlDir = d
     } catch {
@@ -227,7 +227,7 @@ export async function remoteSize(target: SshTarget, remotePath: string): Promise
 
 /** Quick reachability check: run `true` and report success or the ssh error. */
 export async function testConnection(target: SshTarget): Promise<{ ok: boolean; message: string }> {
-  const r = await sshRun(target, 'echo ffe-ok')
-  if (r.code === 0 && r.stdout.includes('ffe-ok')) return { ok: true, message: 'Connected.' }
+  const r = await sshRun(target, 'echo tinker-studio-ok')
+  if (r.code === 0 && r.stdout.includes('tinker-studio-ok')) return { ok: true, message: 'Connected.' }
   return { ok: false, message: r.stderr.trim() || r.stdout.trim() || `ssh exited ${r.code}` }
 }

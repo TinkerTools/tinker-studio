@@ -1,10 +1,10 @@
 /**
  * User-facing rendering choices, shared between the React UI (which sets them)
  * and the Three.js scene (which applies them). Ports the heart of the original
- * Force Field Explorer's Display and Color menus.
+ * Tinker-FFE's Display and Color menus.
  */
 
-export type Representation = 'ball-and-stick' | 'spacefill' | 'sticks' | 'wireframe' | 'tube'
+export type Representation = 'ball-and-stick' | 'spacefill' | 'tube' | 'wireframe'
 
 export type ColorMode = 'element' | 'uniform' | 'residue' | 'chain' | 'charge'
 
@@ -28,6 +28,8 @@ export interface RenderOptions {
   ballScale: number
   /** Bond cylinder radius multiplier (application-level graphics setting). */
   bondScale: number
+  /** Wireframe line width in screen pixels (Wireframe representation only). */
+  wireWidth: number
   /** Viewport background color. */
   backgroundColor: number
   /**
@@ -83,6 +85,7 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   fov: FOV_DEFAULT,
   ballScale: 1,
   bondScale: 1,
+  wireWidth: 1,
   backgroundColor: DEFAULT_BACKGROUND,
   contrast: CONTRAST_DEFAULT,
   glossiness: GLOSSINESS_DEFAULT,
@@ -101,9 +104,8 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
 export const REPRESENTATIONS: ReadonlyArray<{ value: Representation; label: string }> = [
   { value: 'ball-and-stick', label: 'Ball & Stick' },
   { value: 'spacefill', label: 'Spacefill' },
-  { value: 'sticks', label: 'Sticks' },
-  { value: 'wireframe', label: 'Wireframe' },
-  { value: 'tube', label: 'Tube' }
+  { value: 'tube', label: 'Tube' },
+  { value: 'wireframe', label: 'Wireframe' }
 ]
 
 export const COLOR_MODES: ReadonlyArray<{ value: ColorMode; label: string }> = [

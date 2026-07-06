@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { emptyMolecule, addAtom, addFragment, type BuilderMolecule } from './molecule'
+import { emptyMolecule, addAtom, addFragment, toStructure, type BuilderMolecule } from './molecule'
+import { relax } from './relax'
 import { FRAGMENTS } from './fragments'
 
 const frag = (id: string) => FRAGMENTS.find((f) => f.id === id)!
@@ -45,6 +46,34 @@ describe('builder fragments', () => {
       (b) => (b.a === c && b.b === attachId) || (b.a === attachId && b.b === c)
     )
     expect(bondedToMethyl).toBe(true)
+  })
+
+  it('gives cyclopropane two distinct H on every ring carbon (no overlap)', () => {
+    // Regression: the two geminal hydrogens of the planar CH₂ were placed in the
+    // same outward direction and landed on the exact same point — a degenerate
+    // overlap relaxation could not split (the H–C–H angle spring vanishes at zero
+    // separation and geminal pairs are excluded from clash). Each ring carbon
+    // then appeared to have only one H.
+    const mol = emptyMolecule()
+    addFragment(mol, null, frag('cyclopropane'))
+    expect(counts(mol)).toEqual({ C: 3, H: 6 })
+    relax(mol, 600)
+    const s = toStructure(mol)
+    // No two atoms coincide (a real C–H bond is ~1.09 Å; H···H is larger still).
+    let minPair = Infinity
+    for (let i = 0; i < s.atoms.length; i++) {
+      for (let j = i + 1; j < s.atoms.length; j++) {
+        const a = s.atoms[i]
+        const b = s.atoms[j]
+        minPair = Math.min(minPair, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z))
+      }
+    }
+    expect(minPair).toBeGreaterThan(0.7)
+    // Every ring carbon carries exactly two hydrogens (cyclopropane is C₃H₆).
+    for (const c of s.atoms.filter((a) => a.element === 'C')) {
+      const h = c.bonds.filter((n) => s.atoms[n - 1].element === 'H').length
+      expect(h).toBe(2)
+    }
   })
 
   it('carboxyl carries one C=O and one O–H', () => {

@@ -169,7 +169,20 @@ function placementDir(mol: BuilderMolecule, parentId: number, seed: number): Vec
   const sum: Vec = dirs.reduce<Vec>((a, e) => [a[0] + e[0], a[1] + e[1], a[2] + e[2]], [0, 0, 0])
   if (Math.hypot(sum[0], sum[1], sum[2]) > 0.35) {
     // Bonds are lopsided — the open slot is opposite their average.
-    return norm([-sum[0], -sum[1], -sum[2]])
+    const d = norm([-sum[0], -sum[1], -sum[2]])
+    // If that slot is (nearly) collinear with a bond the atom already has, a
+    // second substituent placed here lands exactly on the first — e.g. the two
+    // geminal hydrogens of a symmetric ring CH₂ see the same neighbour sum and
+    // resolve to the same outward direction. That exact overlap is one the
+    // relaxation can never split (the H–C–H angle spring vanishes at zero
+    // separation, and geminal pairs are excluded from clash repulsion), so nudge
+    // it off-axis with the seeded jitter. Slots that point into open space (a
+    // benzene/carbonyl C–H) are anti-parallel to their neighbours and left exactly
+    // as-is, preserving their planar geometry.
+    if (dirs.some((e) => dot(e, d) > 0.98)) {
+      return norm([d[0] + j[0] * 0.3, d[1] + j[1] * 0.3, d[2] + j[2] * 0.3])
+    }
+    return d
   }
   // Bonds are balanced/coplanar — go along the plane normal (out of plane). Use
   // the most non-parallel pair to define it; sign chosen by the jitter.
@@ -365,6 +378,69 @@ export function deleteAtom(mol: BuilderMolecule, id: number): void {
   delete mol.hDelta[id]
   void heavyNeighbors // their valence is freed; reconcile re-adds their hydrogens
   reconcileHydrogens(mol)
+}
+
+/**
+ * Replace atom `id` with `element` in place (Spartan-style substitution): the atom
+ * keeps its heavy bonds and position, only its element changes, and hydrogens
+ * re-fill to the new element's valence. Clicking a hydrogen this way promotes it to
+ * a heavy atom — growing the molecule at that open valence — while clicking a heavy
+ * atom simply retypes it. Replacing with 'H' instead means "cap this position with
+ * hydrogen": the atom is removed and its former neighbours regain the freed valence
+ * as H (i.e. `deleteAtom`), since a hydrogen can't stand in for a multiply-bonded
+ * atom. No-op (returns false) when the atom already is that element.
+ */
+export function replaceAtomWithElement(
+  mol: BuilderMolecule,
+  id: number,
+  element: string
+): boolean {
+  const a = atom(mol, id)
+  if (!a || a.element === element) return false
+  if (element === 'H') {
+    deleteAtom(mol, id)
+    return true
+  }
+  a.element = element
+  // A retype resets any manual hydrogen bumps — the new element's valence decides.
+  delete mol.hDelta[id]
+  reconcileHydrogens(mol)
+  return true
+}
+
+/**
+ * Replace atom `id` with a fragment (ring/group), Spartan-style. The fragment's
+ * attach atom takes the clicked atom's place, bonding to the atom's single heavy
+ * neighbour: clicking a hydrogen grows the fragment off its parent (the hydrogen is
+ * the consumed open valence); clicking a terminal heavy atom swaps that atom for the
+ * fragment; clicking with an empty/lone atom drops the fragment in standalone.
+ * Returns the new attach-atom id, or null for a bridging atom (2+ heavy neighbours),
+ * which has no single site to graft onto.
+ */
+export function replaceAtomWithFragment(
+  mol: BuilderMolecule,
+  id: number,
+  frag: Fragment
+): number | null {
+  const a = atom(mol, id)
+  if (!a) return null
+  if (a.element === 'H') {
+    // A hydrogen is an open valence: graft the fragment onto its parent, which
+    // consumes exactly this valence (addFragment's substitution drops the surplus
+    // H). Leaving the delete to reconcile avoids double-counting via hDelta.
+    const parent =
+      bondsOf(mol, id)
+        .map((bd) => neighborId(bd, id))
+        .find((n) => !isH(mol, n)) ?? null
+    return addFragment(mol, parent, frag)
+  }
+  const heavyNeighbors = bondsOf(mol, id)
+    .map((bd) => neighborId(bd, id))
+    .filter((n) => !isH(mol, n))
+  if (heavyNeighbors.length > 1) return null // bridging atom: no single graft site
+  const parent = heavyNeighbors[0] ?? null
+  deleteAtom(mol, id) // remove the clicked atom (+ its H shell); re-caps the parent
+  return addFragment(mol, parent, frag)
 }
 
 /**

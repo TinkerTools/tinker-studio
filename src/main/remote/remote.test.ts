@@ -42,7 +42,7 @@ describe('buildJobScript / buildSetup', () => {
     expect(s).toContain('cd "/scratch/run" || exit 1')
     expect(s).toContain('export PATH="/opt/tinker/bin:$PATH"')
     expect(s).toContain('dynamic mol.xyz 1000 1.0 1.0 2 298')
-    expect(s).toContain('echo $? > .ffe_exit')
+    expect(s).toContain('echo $? > .tinker_studio_exit')
   })
 
   it('omits an empty setup block', () => {
@@ -65,7 +65,7 @@ describe('buildJobScript / buildSetup', () => {
 describe('composeTinkerCommand', () => {
   it('passes the coordinate file as an argument and answers via heredoc', () => {
     const cmd = composeTinkerCommand({ program: 'minimize', input: 'mol.xyz', stdin: '0.01\n' })
-    expect(cmd).toBe("minimize mol.xyz <<'FFE_EOF'\n0.01\nFFE_EOF")
+    expect(cmd).toBe("minimize mol.xyz <<'TINKER_STUDIO_EOF'\n0.01\nTINKER_STUDIO_EOF")
   })
 
   it('emits a bare command line when there are no stdin answers', () => {

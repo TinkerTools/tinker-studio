@@ -34,7 +34,7 @@ export function templateVars(template: string): string[] {
 }
 
 /**
- * Build the remote `job.sh` FFE writes into the working directory. It is fully
+ * Build the remote `job.sh` Tinker Studio writes into the working directory. It is fully
  * rendered here (no placeholders left): cd into the workdir, run the setup
  * lines, run the Tinker command, then record the exit code so a background
  * (non-scheduler) run can report success/failure.
@@ -54,7 +54,7 @@ export function buildJobScript(opts: {
     `cd "${opts.workdir}" || exit 1`,
     ...(setup ? [setup] : []),
     opts.tinkerCmd,
-    'echo $? > .ffe_exit',
+    'echo $? > .tinker_studio_exit',
     ''
   ].join('\n')
 }
@@ -98,7 +98,7 @@ export function composeTinkerCommand(opts: {
     .filter(Boolean)
     .join(' ')
   const stdin = (opts.stdin ?? '').replace(/\n+$/, '')
-  if (stdin) return `${base} <<'FFE_EOF'\n${stdin}\nFFE_EOF`
+  if (stdin) return `${base} <<'TINKER_STUDIO_EOF'\n${stdin}\nTINKER_STUDIO_EOF`
   return base
 }
 

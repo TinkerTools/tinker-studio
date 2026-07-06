@@ -4,7 +4,7 @@ import type { RemoteJobState } from './types'
  * Normalize the stdout of a cluster's status command into a canonical job state.
  *
  * Handles three flavors with one classifier:
- *  - FFE's own ssh-direct templates, which print `RUNNING` / `COMPLETED` /
+ *  - Tinker Studio's own ssh-direct templates, which print `RUNNING` / `COMPLETED` /
  *    `FAILED:<code>` / `UNKNOWN`;
  *  - SLURM `sacct` State words (RUNNING, COMPLETED, FAILED, PENDING, CANCELLED,
  *    TIMEOUT, OUT_OF_MEMORY, NODE_FAIL, …);

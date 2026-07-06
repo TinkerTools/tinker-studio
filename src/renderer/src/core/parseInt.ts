@@ -8,7 +8,7 @@ import { guessElement } from './elements'
  * extra bonds to add and bonds to remove.
  *
  * Coordinates are reconstructed with `intToXyz`, a direct port of Tinker's
- * routine (also used by the original Force Field Explorer).
+ * routine (also used by the original Tinker-FFE).
  */
 
 type Vec3 = [number, number, number]

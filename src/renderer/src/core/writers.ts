@@ -43,7 +43,7 @@ export function writeMol(structure: Structure): string {
   const bonds = structure.bonds
   const lines: string[] = [
     structure.title ?? '',
-    '  FFE     3D',
+    '  TinkStud3D',
     '',
     `${i3(atoms.length)}${i3(bonds.length)}  0  0  0  0  0  0  0  0999 V2000`
   ]

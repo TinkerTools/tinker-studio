@@ -5,7 +5,7 @@
  * to the renderer for the configuration UI without pulling main-process code
  * into the renderer bundle. The runtime that uses them lives in main/remote/.
  *
- * Design: FFE owns *what* to run (the Tinker program + its input files + key);
+ * Design: Tinker Studio owns *what* to run (the Tinker program + its input files + key);
  * a ClusterProfile owns *how/where* it runs (the connection, the scheduler
  * wrapper, where Tinker lives on the remote). The two meet through a small set
  * of `{{variable}}` placeholders the templates can reference (see template.ts).
@@ -38,8 +38,8 @@ export interface ClusterVariable {
 }
 
 /**
- * The three orchestration commands FFE runs over SSH. Each is a shell snippet
- * with `{{variable}}` placeholders substituted before sending. FFE first writes
+ * The three orchestration commands Tinker Studio runs over SSH. Each is a shell snippet
+ * with `{{variable}}` placeholders substituted before sending. Tinker Studio first writes
  * a `job.sh` into the remote working directory (containing the setup + Tinker
  * command); these templates only launch / query / cancel it.
  */

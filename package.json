@@ -1,7 +1,7 @@
 {
-  "name": "force-field-explorer",
+  "name": "tinker-studio",
   "version": "0.1.0",
-  "description": "Force Field Explorer — a modern molecular modeling GUI for Tinker",
+  "description": "Tinker Studio — a modern molecular modeling GUI for Tinker",
   "main": "./out/main/index.js",
   "author": "Jay Ponder Lab",
   "license": "Apache-2.0",

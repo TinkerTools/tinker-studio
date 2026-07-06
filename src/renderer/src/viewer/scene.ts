@@ -6,6 +6,9 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { OUTLINE_SHADER, AO_SHADER } from './postShaders'
 import type { Structure } from '../core/types'
 import { applyTransform, type Transform } from '../core/transform'
@@ -158,28 +161,21 @@ function repSpec(rep: Representation): RepSpec {
   switch (rep) {
     case 'spacefill':
       return { atomRadius: (vdw) => vdw, bond: 'none', bondRadius: 0 }
-    case 'sticks':
-      // The cap sphere must be a touch larger than the bond cylinder. If they
-      // were exactly equal their surfaces would be tangent along the whole
-      // joint, and since the spheres are GPU impostors (writing gl_FragDepth)
-      // while the bonds are real cylinder meshes, the depth buffer fights along
-      // that ring — the moiré "wave" at the caps. A slightly larger sphere
-      // subsumes the cylinder end and reads as a clean rounded joint.
-      return { atomRadius: () => 0.2, bond: 'cylinder', bondRadius: 0.18 }
+    case 'tube':
+      // A uniform-diameter tube: the atom sphere and the bond cylinder share the
+      // same radius, so each atom reads as a rounded joint flush with its bonds.
+      // With ballScale/bondScale at their default 1 the rendered diameters are
+      // exactly equal. (Equal radii make the sphere and cylinder surfaces tangent
+      // at the joint; if that ever shows z-fighting moiré between the impostor
+      // spheres and the cylinder meshes, nudge the sphere a hair larger.)
+      return { atomRadius: () => 0.18, bond: 'cylinder', bondRadius: 0.18 }
     case 'wireframe':
       // No atom spheres in wireframe — just the bond lines.
       return { atomRadius: () => 0, bond: 'line', bondRadius: 0 }
     case 'ball-and-stick':
-    case 'tube': // tube falls back to ball-and-stick until the backbone tracer lands
     default:
       return { atomRadius: (vdw) => Math.max(vdw * 0.3, 0.25), bond: 'cylinder', bondRadius: 0.1 }
   }
-}
-
-// Per-atom rep spec. 'tube' is a whole-structure representation, so an atom
-// tagged tube in a mixed scene falls back to ball-and-stick.
-function atomRepSpec(rep: Representation): RepSpec {
-  return repSpec(rep === 'tube' ? 'ball-and-stick' : rep)
 }
 
 // Distinct cycling palette for residue / chain coloring; stable per key.
@@ -428,7 +424,7 @@ export function createScene(container: HTMLElement): SceneHandle {
   let atomMesh: THREE.Mesh | null = null
   let atomCenters: Float32Array | null = null
   let cylMesh: THREE.InstancedMesh | null = null
-  let lineMesh: THREE.LineSegments | null = null
+  let lineMesh: LineSegments2 | null = null
   const builtById = new Map<string, BuiltSystem>()
 
   // Move/rotate gizmo. It drives a proxy object (not a render group); dragging it
@@ -483,6 +479,10 @@ export function createScene(container: HTMLElement): SceneHandle {
 
   function clearGroups(): void {
     gizmo.detach()
+    // The fat-line material is a fresh ShaderMaterial per build (unlike the shared
+    // impostor material), so disposeGroup — which deliberately skips ShaderMaterials
+    // — won't free it. Dispose it explicitly to avoid leaking a program each rebuild.
+    lineMesh?.material.dispose()
     for (const g of groups) {
       scene.remove(g)
       disposeGroup(g)
@@ -521,15 +521,6 @@ export function createScene(container: HTMLElement): SceneHandle {
       const colors = computeAtomColors(r.structure, options, r.colorByAtom)
       const visible = computeVisibility(r.structure, options, r.selected)
 
-      // Tube is a whole-structure representation — its own group, coords baked.
-      if (options.representation === 'tube' && reps.every((x) => x === 'tube')) {
-        const tube = buildBackboneTube(r.structure, r.coords, r.transform)
-        if (tube) {
-          merged.add(tube)
-          continue
-        }
-      }
-
       const built: BuiltSystem = {
         atomStart: centers.length / 3,
         atomSlots: [],
@@ -545,7 +536,7 @@ export function createScene(container: HTMLElement): SceneHandle {
         const base = atomPos(r.structure, r.coords, i)
         const w = r.transform ? applyTransform(base, r.transform) : base
         const radius =
-          atomRepSpec(reps[i]).atomRadius(elementInfo(atom.element).vdwRadius) * options.ballScale
+          repSpec(reps[i]).atomRadius(elementInfo(atom.element).vdwRadius) * options.ballScale
         built.atomSlots.push(i)
         centers.push(w[0], w[1], w[2])
         radii.push(radius)
@@ -569,8 +560,8 @@ export function createScene(container: HTMLElement): SceneHandle {
 
       for (const b of r.structure.bonds) {
         if (!visible[b.a - 1] || !visible[b.b - 1]) continue
-        const sa = atomRepSpec(reps[b.a - 1])
-        const sb = atomRepSpec(reps[b.b - 1])
+        const sa = repSpec(reps[b.a - 1])
+        const sb = repSpec(reps[b.b - 1])
         const baseA = atomPos(r.structure, r.coords, b.a - 1)
         const baseB = atomPos(r.structure, r.coords, b.b - 1)
         const wa = r.transform ? applyTransform(baseA, r.transform) : baseA
@@ -619,7 +610,7 @@ export function createScene(container: HTMLElement): SceneHandle {
       merged.add(cylMesh)
     }
     if (lin.length > 0) {
-      lineMesh = buildLineBonds(lin)
+      lineMesh = buildLineBonds(lin, options.wireWidth, renderer.getSize(_lineRes))
       merged.add(lineMesh)
     }
     if (options.showBox) {
@@ -718,8 +709,11 @@ export function createScene(container: HTMLElement): SceneHandle {
     }
 
     if (lineMesh && built.lineBonds.length > 0) {
-      const pos = lineMesh.geometry.getAttribute('position') as THREE.BufferAttribute
-      const arr = pos.array as Float32Array
+      // Fat-line geometry packs each segment's two endpoints into one interleaved
+      // instance buffer (stride 6: start.xyz, end.xyz), so two segments per bond =
+      // 12 floats laid out exactly like the old flat position array — same indexing.
+      const inst = lineMesh.geometry.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute
+      const arr = inst.data.array as Float32Array
       for (let k = 0; k < built.lineBonds.length; k++) {
         const bd = built.lineBonds[k]
         worldInto(_waScratch, bd.a)
@@ -741,7 +735,7 @@ export function createScene(container: HTMLElement): SceneHandle {
         arr[base + 10] = _wbScratch[1]
         arr[base + 11] = _wbScratch[2]
       }
-      pos.needsUpdate = true
+      inst.data.needsUpdate = true
     }
 
     // Keep the stored renderable in sync so recenter / gizmo use fresh positions.
@@ -823,6 +817,8 @@ export function createScene(container: HTMLElement): SceneHandle {
     renderer.setSize(w, h)
     composer.setSize(w, h)
     depthRT.setSize(w * pixelRatio, h * pixelRatio)
+    // Fat lines convert their pixel width using this resolution — keep it in sync.
+    if (lineMesh) lineMesh.material.resolution.set(w, h)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
     controls.handleResize()
@@ -984,48 +980,6 @@ function atomPos(structure: Structure, coords: Float32Array | null, i: number): 
   return [a.x, a.y, a.z]
 }
 
-// A smooth tube through the backbone (CA atoms) of each chain — a simple protein
-// cartoon stand-in. Returns null if there is no protein backbone. The transform
-// (if any) is baked into the curve points, since tubes aren't in a merged mesh.
-function buildBackboneTube(
-  structure: Structure,
-  coords: Float32Array | null,
-  transform?: Transform
-): THREE.Group | null {
-  // Trace the protein backbone (alpha carbons, "CA") or the nucleic-acid backbone
-  // (phosphates, "P") per chain — whichever the chain has.
-  type Pt = { seq: number; pos: THREE.Vector3 }
-  const byChain = new Map<string, { ca: Pt[]; p: Pt[] }>()
-  structure.atoms.forEach((a, i) => {
-    const isCA = a.name === 'CA'
-    const isP = a.name === 'P'
-    if (!isCA && !isP) return
-    const base = atomPos(structure, coords, i)
-    const [x, y, z] = transform ? applyTransform(base, transform) : base
-    const chain = a.chain ?? ''
-    const entry = byChain.get(chain) ?? { ca: [], p: [] }
-    entry[isCA ? 'ca' : 'p'].push({ seq: a.residueSeq ?? i, pos: new THREE.Vector3(x, y, z) })
-    byChain.set(chain, entry)
-  })
-  if (byChain.size === 0) return null
-
-  const group = new THREE.Group()
-  for (const [chain, { ca, p }] of byChain) {
-    const pts = ca.length >= 2 ? ca : p
-    if (pts.length < 2) continue
-    pts.sort((u, v) => u.seq - v.seq)
-    const curve = new THREE.CatmullRomCurve3(pts.map((c) => c.pos))
-    const geometry = new THREE.TubeGeometry(curve, Math.max(pts.length * 4, 8), 0.35, 10, false)
-    const material = new THREE.MeshStandardMaterial({
-      color: paletteColor(`chain:${chain}`),
-      roughness: 0.4,
-      metalness: 0.0
-    })
-    group.add(new THREE.Mesh(geometry, material))
-  }
-  return group.children.length ? group : null
-}
-
 // Shared scratch for placing cylinder instance matrices (single-threaded).
 const _dummy = new THREE.Object3D()
 const _dir = new THREE.Vector3()
@@ -1036,6 +990,8 @@ const _up = new THREE.Vector3(0, 1, 0)
 const _midScratch: Vec3 = [0, 0, 0]
 const _waScratch: Vec3 = [0, 0, 0]
 const _wbScratch: Vec3 = [0, 0, 0]
+// Scratch for reading the renderer size when building the wireframe's fat lines.
+const _lineRes = new THREE.Vector2()
 
 function placeCylinder(mesh: THREE.InstancedMesh, slot: number, from: Vec3, to: Vec3, radius: number): void {
   _dir.set(to[0] - from[0], to[1] - from[1], to[2] - from[2])
@@ -1127,9 +1083,19 @@ function buildCylinderBonds(drawn: WorldBond[]): THREE.InstancedMesh {
   return mesh
 }
 
-// Each bond is two line segments meeting at the midpoint, each a solid color
-// (no gradient) so it reads like the half-cylinder bonds. 12 floats per bond.
-function buildLineBonds(drawn: WorldBond[]): THREE.LineSegments {
+// Each bond is two line segments meeting at the midpoint, each a solid color (no
+// gradient) so it reads like the half-cylinder bonds. 12 floats per bond.
+//
+// Rendered as "fat lines" (LineSegments2/LineMaterial) rather than GL LINES so the
+// width is honored: WebGL's LineBasicMaterial.linewidth is clamped to 1px on macOS
+// and most platforms, whereas LineMaterial draws quads whose `linewidth` (screen
+// pixels here) is adjustable. `resolution` must track the viewport for the px→clip
+// conversion; per-frame playback rewrites the interleaved endpoint buffer in place.
+function buildLineBonds(
+  drawn: WorldBond[],
+  wireWidth: number,
+  resolution: THREE.Vector2
+): LineSegments2 {
   const positions = new Float32Array(drawn.length * 12)
   const colors = new Float32Array(drawn.length * 12)
   const color = new THREE.Color()
@@ -1142,15 +1108,19 @@ function buildLineBonds(drawn: WorldBond[]): THREE.LineSegments {
     const cb = [color.r, color.g, color.b]
     colors.set([...ca, ...ca, ...cb, ...cb], k * 12)
   })
-  const geometry = new THREE.BufferGeometry()
-  // position is rewritten every frame during playback — mark dynamic to avoid
-  // the driver buffer-orphaning growth (see the aCenter note in impostorSpheres).
-  const pos = new THREE.BufferAttribute(positions, 3)
-  pos.setUsage(THREE.DynamicDrawUsage)
-  geometry.setAttribute('position', pos)
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  const material = new THREE.LineBasicMaterial({ vertexColors: true })
-  return new THREE.LineSegments(geometry, material)
+  const geometry = new LineSegmentsGeometry()
+  geometry.setPositions(positions)
+  geometry.setColors(colors)
+  const material = new LineMaterial({
+    vertexColors: true,
+    linewidth: Math.max(1, wireWidth), // screen pixels (worldUnits stays off)
+    resolution: resolution.clone()
+  })
+  const mesh = new LineSegments2(geometry, material)
+  // Endpoints are rewritten every frame during playback without recomputing the
+  // bounding volume, so skip frustum culling (the merged group is always on screen).
+  mesh.frustumCulled = false
+  return mesh
 }
 
 /** Wireframe of a Tinker periodic box (a,b,c,α,β,γ), centered at the origin. */

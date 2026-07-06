@@ -8,7 +8,7 @@ import type {
 } from '../main/remote/types'
 
 // Re-export the remote data model so the renderer can type the config UI through
-// the single window.ffe surface (env.d.ts already imports FFEApi from here).
+// the single window.tinker surface (env.d.ts already imports TinkerApi from here).
 export type { ClusterProfile, ClusterKind, RemoteJobRecord, RemoteJobState, RemoteSubmitRequest }
 
 /** Result of opening a remote trajectory for streamed playback. */
@@ -141,10 +141,10 @@ const api = {
     chrome: process.versions.chrome,
     node: process.versions.node
   },
-  /** True only under the headless screenshot harness (FFE_CAPTURE set). */
-  captureMode: Boolean(process.env['FFE_CAPTURE']),
+  /** True only under the headless screenshot harness (TINKER_STUDIO_CAPTURE set). */
+  captureMode: Boolean(process.env['TINKER_STUDIO_CAPTURE']),
   /** Capture harness: open the molecule builder with a demo molecule instead of the example. */
-  captureBuilder: Boolean(process.env['FFE_CAPTURE_BUILDER']),
+  captureBuilder: Boolean(process.env['TINKER_STUDIO_CAPTURE_BUILDER']),
   /** Prompt the user for a Tinker file; resolves to its contents, or null if cancelled. */
   openStructure: (): Promise<OpenedFile | null> => ipcRenderer.invoke('structure:open'),
   /** Download a structure from an online database (pubchem | nci | pdb). */
@@ -349,6 +349,6 @@ const api = {
   }
 }
 
-export type FFEApi = typeof api
+export type TinkerApi = typeof api
 
-contextBridge.exposeInMainWorld('ffe', api)
+contextBridge.exposeInMainWorld('tinker', api)

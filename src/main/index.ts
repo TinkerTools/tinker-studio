@@ -35,6 +35,7 @@ import {
   type TrajectoryIndex
 } from './trajectory'
 import { openDcd, readDcdFrame, type DcdIndex } from './dcd'
+import { resolveKeyParameterPaths } from './tinkerKey'
 import { RemoteManager } from './remote/manager'
 import { newClusterProfile } from './remote/presets'
 import type { ClusterProfile, ClusterKind, RemoteSubmitRequest } from './remote/types'
@@ -128,7 +129,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    title: 'Force Field Explorer',
+    title: 'Tinker Studio',
     backgroundColor: '#12141a',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -155,11 +156,11 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // Headless screenshot harness (dev/verification only): when FFE_CAPTURE points
-  // at a path, the renderer auto-loads the example, we wait for it to render, grab
-  // the window to a PNG, and quit. Lets us verify rendering without a person at
+  // Headless screenshot harness (dev/verification only): when TINKER_STUDIO_CAPTURE
+  // points at a path, the renderer auto-loads the example, we wait for it to render,
+  // grab the window to a PNG, and quit. Lets us verify rendering without a person at
   // the screen. No effect during normal use.
-  const capturePath = process.env['FFE_CAPTURE']
+  const capturePath = process.env['TINKER_STUDIO_CAPTURE']
   if (capturePath) {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
@@ -237,9 +238,18 @@ function basicPrmPath(): string | null {
   return existsSync(p) ? p : null
 }
 
+/**
+ * Rewrite bare `parameters <name>` lines in a key to absolute paths in the Tinker
+ * params directory, so getprm can open them from our scratch work dir instead of
+ * prompting and dying on EOF. See `resolveKeyParameterPaths` for the details.
+ */
+function resolveParameterPaths(keyText: string): string {
+  return resolveKeyParameterPaths(keyText, tinkerParamsDir(), existsSync)
+}
+
 /** Scratch directory for jobs on systems that aren't backed by a file on disk. */
 function workDir(): string {
-  const d = join(app.getPath('temp'), 'force-field-explorer')
+  const d = join(app.getPath('temp'), 'tinker-studio')
   mkdirSync(d, { recursive: true })
   return d
 }
@@ -252,8 +262,8 @@ interface LiveWatch {
   format: 'arc' | 'dcd'
   dir: string
   inputName: string // original coordinate file name, e.g. mol.xyz
-  watchStem: string // stem whose cycle files we watch (mol or mol_ffelive)
-  temp: boolean // did we create throwaway _ffelive files
+  watchStem: string // stem whose cycle files we watch (mol or mol_tslive)
+  temp: boolean // did we create throwaway _tslive files
   sent: Set<string> // cycle file names already sent (minimize)
   arcOffset: number // bytes of the .arc already read (dynamics)
   arcBuffer: string // read-but-not-yet-framed .arc tail (dynamics)
@@ -402,7 +412,7 @@ function endLive(jobId: string, _ok: boolean): void {
 /**
  * Final poll, emit the result name, and clean up throwaway temp files. For a
  * temp-key minimize run, copy the last cycle file to Tinker's normal versioned
- * output name (`mol.xyz_2`) and delete all `<stem>_ffelive.*` files.
+ * output name (`mol.xyz_2`) and delete all `<stem>_tslive.*` files.
  */
 function finalizeLive(event: IpcMainInvokeEvent, jobId: string, ok: boolean): void {
   const w = liveWatches.get(jobId)
@@ -532,7 +542,8 @@ function registerIpcHandlers(): void {
       writeFileSync(path, xyzText, 'utf8')
       const basic = basicKey ? basicPrmPath() : null
       if (basic) writeFileSync(join(dir, `${stem}.key`), `parameters "${basic}"\n`, 'utf8')
-      else if (keyText != null) writeFileSync(join(dir, `${stem}.key`), keyText, 'utf8')
+      else if (keyText != null)
+        writeFileSync(join(dir, `${stem}.key`), resolveParameterPaths(keyText), 'utf8')
       return path
     }
   )
@@ -739,7 +750,8 @@ function registerIpcHandlers(): void {
           } else {
             const watchStem = `${stem}${LIVE_SUFFIX}`
             copyFileSync(structurePath, join(dir, `${watchStem}.xyz`))
-            writeFileSync(join(dir, `${watchStem}.key`), buildLiveKey(keyText), 'utf8')
+            const liveKey = buildLiveKey(keyText != null ? resolveParameterPaths(keyText) : keyText)
+            writeFileSync(join(dir, `${watchStem}.key`), liveKey, 'utf8')
             runName = `${watchStem}.xyz`
             live = makeLiveWatch('minimize', dir, inputName, watchStem, true)
           }
@@ -909,7 +921,7 @@ function registerIpcHandlers(): void {
       if (!exe) {
         return Promise.resolve({ ok: false, error: 'minimize not found — set the Tinker directory.' })
       }
-      const dir = mkdtempSync(join(app.getPath('temp'), 'ffe-min-'))
+      const dir = mkdtempSync(join(app.getPath('temp'), 'tinker-studio-min-'))
       const stem = 'builder'
       try {
         writeFileSync(join(dir, `${stem}.xyz`), req.xyz, 'utf8')

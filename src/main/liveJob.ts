@@ -8,12 +8,12 @@
  *    iteration (`<stem>.001`, `<stem>.002`, …)
  *
  * When SAVE-CYCLE is not already in the system's key we run on a throwaway
- * `<stem>_ffelive.*` copy with a temp key that adds it, so the user's real key
+ * `<stem>_tslive.*` copy with a temp key that adds it, so the user's real key
  * and directory stay clean; those temp files are removed when the job ends.
  */
 
 /** Suffix appended to the input stem for throwaway live-run files. */
-export const LIVE_SUFFIX = '_ffelive'
+export const LIVE_SUFFIX = '_tslive'
 
 /** True if the key file already enables per-iteration coordinate output. */
 export function hasSaveCycle(keyText?: string): boolean {

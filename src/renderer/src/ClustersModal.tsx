@@ -4,7 +4,7 @@ import type { ClusterProfile, ClusterKind, ClusterVariable } from '../../main/re
 /**
  * Manage the remote clusters jobs can be submitted to. Each profile is a
  * connection (an ssh destination honoring ~/.ssh/config) plus the command
- * templates that wrap FFE's Tinker command into a submission for that site.
+ * templates that wrap Tinker Studio's Tinker command into a submission for that site.
  * Built-in `ssh-direct` and `slurm` kinds seed sensible templates; `custom`
  * starts from the ssh-direct set as a blank canvas. Everything stays editable.
  */
@@ -27,13 +27,13 @@ export function ClustersModal({
 
   async function addCluster(kind: ClusterKind): Promise<void> {
     // Create a draft only — not persisted until Save.
-    const profile = await window.ffe.remote.newProfile(kind)
+    const profile = await window.tinker.remote.newProfile(kind)
     setList((l) => [...l, profile])
     setSelectedId(profile.id)
   }
 
   async function save(profile: ClusterProfile): Promise<void> {
-    const next = await window.ffe.remote.saveCluster(profile)
+    const next = await window.tinker.remote.saveCluster(profile)
     setList((l) => l.map((c) => (c.id === profile.id ? profile : c)))
     setSavedIds((s) => new Set(s).add(profile.id))
     onChange(next)
@@ -42,7 +42,7 @@ export function ClustersModal({
   async function remove(id: string): Promise<void> {
     // Persisted clusters are deleted on disk; an unsaved draft is just dropped.
     if (savedIds.has(id)) {
-      const next = await window.ffe.remote.deleteCluster(id)
+      const next = await window.tinker.remote.deleteCluster(id)
       onChange(next)
     }
     setList((l) => l.filter((c) => c.id !== id))
@@ -161,7 +161,7 @@ function ClusterEditor({
     setTesting(true)
     setTestMsg(null)
     try {
-      const r = await window.ffe.remote.testProfile(draft, undefined, password || undefined)
+      const r = await window.tinker.remote.testProfile(draft, undefined, password || undefined)
       setTestMsg({ ok: r.ok, text: r.message })
     } catch (e) {
       setTestMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -175,7 +175,7 @@ function ClusterEditor({
     setDirty(false)
     // Persist/refresh the session password after the cluster exists.
     if (draft.auth === 'password' && password) {
-      await window.ffe.remote.setPassword(draft.id, password, rememberPw)
+      await window.tinker.remote.setPassword(draft.id, password, rememberPw)
       setPassword('')
     }
   }
@@ -251,7 +251,7 @@ function ClusterEditor({
       <div className="form-row">
         <label>Remote job dir</label>
         <input
-          placeholder="~/ffe-jobs"
+          placeholder="~/tinker-studio-jobs"
           value={draft.remoteBaseDir}
           onChange={(e) => set('remoteBaseDir', e.target.value)}
         />
@@ -332,7 +332,7 @@ function ClusterEditor({
           <p className="opt-desc">
             Variables available: <code>{'{{workdir}}'}</code>, <code>{'{{job_name}}'}</code>,{' '}
             <code>{'{{job_id}}'}</code>, <code>{'{{program}}'}</code>, <code>{'{{input}}'}</code>,
-            plus your variables. FFE first uploads inputs and a <code>job.sh</code> (which runs the
+            plus your variables. Tinker Studio first uploads inputs and a <code>job.sh</code> (which runs the
             setup + Tinker command and records the exit code); these only launch / query / cancel it.
           </p>
           <TemplateField

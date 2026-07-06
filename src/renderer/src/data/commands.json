@@ -604,7 +604,7 @@
         "name": "Title",
         "description": "Enter title",
         "gui": "TEXTFIELD",
-        "default": "Built by Force Field Explorer",
+        "default": "Built by Tinker Studio",
         "values": [],
         "conditionals": []
       },
@@ -825,7 +825,7 @@
         "name": "Title",
         "description": "Enter title",
         "gui": "TEXTFIELD",
-        "default": "Built by Force Field Explorer",
+        "default": "Built by Tinker Studio",
         "values": [],
         "conditionals": []
       },

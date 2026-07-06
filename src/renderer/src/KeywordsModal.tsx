@@ -98,7 +98,7 @@ export function KeywordsModal({
               <button
                 className="modal-btn ghost kw-save"
                 disabled={!draft.trim()}
-                onClick={() => void window.ffe.saveTextFile('tinker.key', draft)}
+                onClick={() => void window.tinker.saveTextFile('tinker.key', draft)}
               >
                 Save Key File…
               </button>

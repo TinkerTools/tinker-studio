@@ -48,7 +48,7 @@ function buildDcd(natom: number, frames: number[][], le = true): Buffer {
 }
 
 describe('dcd reader', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ffe-dcd-'))
+  const dir = mkdtempSync(join(tmpdir(), 'tinker-studio-dcd-'))
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
   const frames = [

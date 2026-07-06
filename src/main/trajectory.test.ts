@@ -21,7 +21,7 @@ describe('trajectory indexing', () => {
     expect(Array.from(parseFrameCoords(text, 2, true))).toEqual([1, 2, 3, 4, 5, 6])
   })
 
-  const dir = mkdtempSync(join(tmpdir(), 'ffe-traj-'))
+  const dir = mkdtempSync(join(tmpdir(), 'tinker-studio-traj-'))
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
   it('indexes a multi-frame archive and reads frames by offset', () => {

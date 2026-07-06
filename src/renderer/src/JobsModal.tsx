@@ -255,8 +255,8 @@ function RemoteDetail({
   const logRef = useRef<HTMLPreElement>(null)
   const [files, setFiles] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
-  // Which log is shown: FFE's submit/status log, or the Tinker program output.
-  const [tab, setTab] = useState<'ffe' | 'tinker'>('ffe')
+  // Which log is shown: Tinker Studio's submit/status log, or the Tinker program output.
+  const [tab, setTab] = useState<'studio' | 'tinker'>('studio')
   const [tinkerLog, setTinkerLog] = useState<string | null>(null)
   const [tinkerBusy, setTinkerBusy] = useState(false)
   // Inline rename of the job's display label.
@@ -277,7 +277,7 @@ function RemoteDetail({
   async function loadFiles(): Promise<void> {
     setBusy(true)
     try {
-      setFiles(await window.ffe.remote.listJobFiles(job.id))
+      setFiles(await window.tinker.remote.listJobFiles(job.id))
     } catch {
       setFiles([])
     } finally {
@@ -289,7 +289,7 @@ function RemoteDetail({
     setTab('tinker')
     setTinkerBusy(true)
     try {
-      const { text } = await window.ffe.remote.openJobText(job.id, logName)
+      const { text } = await window.tinker.remote.openJobText(job.id, logName)
       setTinkerLog(text || '(log is empty)')
     } catch (e) {
       setTinkerLog(`Could not read ${logName}: ${e instanceof Error ? e.message : String(e)}`)
@@ -352,7 +352,7 @@ function RemoteDetail({
         {job.outputName && (
           <button
             className="mini-btn"
-            onClick={() => void window.ffe.remote.saveJobFile(job.id, job.outputName!)}
+            onClick={() => void window.tinker.remote.saveJobFile(job.id, job.outputName!)}
           >
             Download {job.outputFormat ? job.outputFormat.toUpperCase() : 'output'}
           </button>
@@ -440,7 +440,7 @@ function RemoteDetail({
                   <code>{f}</code>
                   <button
                     className="mini-btn ghost"
-                    onClick={() => void window.ffe.remote.saveJobFile(job.id, f)}
+                    onClick={() => void window.tinker.remote.saveJobFile(job.id, f)}
                   >
                     Download
                   </button>
@@ -453,10 +453,10 @@ function RemoteDetail({
 
       <div className="job-log-tabs">
         <button
-          className={tab === 'ffe' ? 'log-tab active' : 'log-tab'}
-          onClick={() => setTab('ffe')}
+          className={tab === 'studio' ? 'log-tab active' : 'log-tab'}
+          onClick={() => setTab('studio')}
         >
-          FFE log
+          Tinker Studio log
         </button>
         <button
           className={tab === 'tinker' ? 'log-tab active' : 'log-tab'}
@@ -471,7 +471,7 @@ function RemoteDetail({
         )}
       </div>
       <pre ref={logRef} className="run-log job-log">
-        {tab === 'ffe'
+        {tab === 'studio'
           ? job.log || '(no output captured yet)'
           : tinkerBusy && tinkerLog == null
             ? 'Loading…'
