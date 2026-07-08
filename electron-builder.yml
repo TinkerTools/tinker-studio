@@ -12,6 +12,13 @@ directories:
 files:
   - out/**
 
+# Ship the bundled Tinker parameter file(s) verbatim into the app's resources dir
+# (Contents/Resources on macOS), located at runtime by bundledBasicPrmPath(). To
+# update basic.prm, just replace resources/basic.prm (see resources/README.md).
+extraResources:
+  - from: resources/basic.prm
+    to: basic.prm
+
 # Icons follow the buildResources convention: build/icon.icns (mac, present),
 # build/icon.ico (Windows), build/icon.png (Linux, >=512px). Dropping a single
 # 512x512 build/icon.png lets electron-builder generate the .ico / Linux icons

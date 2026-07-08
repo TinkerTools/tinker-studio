@@ -230,8 +230,31 @@ function tinkerParamsDir(): string | null {
   return candidates.find((c) => existsSync(c)) ?? null
 }
 
-/** Path to Tinker's bundled generic `basic.prm`, if present. */
+/**
+ * Path to the copy of `basic.prm` shipped *inside* Tinker Studio. Tries the packaged
+ * location (electron-builder `extraResources` → Contents/Resources) first, then the
+ * source-tree `resources/` folder used in development. Returns null only if the file
+ * is somehow missing from the app. To update it, replace `resources/basic.prm` (see
+ * resources/README.md).
+ */
+function bundledBasicPrmPath(): string | null {
+  const candidates = [
+    join(process.resourcesPath, 'basic.prm'), // packaged app (extraResources)
+    join(app.getAppPath(), 'resources', 'basic.prm'), // dev: project root
+    join(__dirname, '../../resources/basic.prm') // dev fallback: relative to out/main
+  ]
+  return candidates.find((p) => existsSync(p)) ?? null
+}
+
+/**
+ * Path to the `basic.prm` Tinker Studio should use. Prefers the copy bundled with the
+ * app (stable, always present, and easy to update in one place) over whatever the
+ * user's local Tinker install happens to ship, falling back to the install only if
+ * the bundled copy is somehow absent.
+ */
 function basicPrmPath(): string | null {
+  const bundled = bundledBasicPrmPath()
+  if (bundled) return bundled
   const params = tinkerParamsDir()
   if (!params) return null
   const p = join(params, 'basic.prm')
@@ -239,12 +262,39 @@ function basicPrmPath(): string | null {
 }
 
 /**
- * Rewrite bare `parameters <name>` lines in a key to absolute paths in the Tinker
- * params directory, so getprm can open them from our scratch work dir instead of
- * prompting and dying on EOF. See `resolveKeyParameterPaths` for the details.
+ * Prepare a job's key text and provision the parameter files it names into the job's
+ * working directory `dir`, so Tinker's getprm can open them from there.
+ *
+ *  - `basic.prm` → copy the bundled copy (see `basicPrmPath`) into `dir` and keep the
+ *    reference *bare*, so getprm opens `./basic.prm`. Using a plain name rather than
+ *    an absolute path keeps it robust to app-bundle paths that contain spaces and
+ *    independent of the user's Tinker install.
+ *  - any other bare name → resolve to an absolute path in the user's Tinker params
+ *    dir (stable, space-free) so getprm can open it directly.
+ *  - a name that already includes a path, or can't be placed, is left as written.
+ *
+ * (Tinker resolves a bare parameter name relative to its current directory; when it
+ * can't find the file it falls back to an interactive prompt, which — with our closed
+ * stdin — dies with an "end of file" error. Provisioning the file avoids that.)
  */
-function resolveParameterPaths(keyText: string): string {
-  return resolveKeyParameterPaths(keyText, tinkerParamsDir(), existsSync)
+function provisionJobKey(keyText: string, dir: string): string {
+  return resolveKeyParameterPaths(keyText, (name) => {
+    const file = /\.prm$/i.test(name) ? name : `${name}.prm`
+    if (file.toLowerCase() === 'basic.prm') {
+      const bundled = basicPrmPath()
+      if (!bundled) return null
+      try {
+        copyFileSync(bundled, join(dir, 'basic.prm'))
+        return null // leave `parameters basic.prm` bare — now resolvable in `dir`
+      } catch {
+        return bundled // couldn't copy; fall back to the absolute path
+      }
+    }
+    const params = tinkerParamsDir()
+    if (!params) return null
+    const p = join(params, file)
+    return existsSync(p) ? p : null
+  })
 }
 
 /** Scratch directory for jobs on systems that aren't backed by a file on disk. */
@@ -532,7 +582,7 @@ function registerIpcHandlers(): void {
   // Write an in-memory system to a scratch .xyz (+ .key) so a Tinker job can run
   // on a system that wasn't loaded from a file on disk. Returns the .xyz path.
   // When `basicKey` is set (an untyped molecule typed for basic.prm), the key
-  // points at Tinker's bundled basic.prm so the run actually has parameters.
+  // references Tinker Studio's bundled basic.prm so the run actually has parameters.
   ipcMain.handle(
     'job:prepareStructure',
     (_e, name: string, xyzText: string, keyText?: string, basicKey?: boolean): string => {
@@ -540,10 +590,10 @@ function registerIpcHandlers(): void {
       const stem = (name.replace(/\.[^.]*$/, '') || 'structure').replace(/[^A-Za-z0-9._-]/g, '_')
       const path = join(dir, `${stem}.xyz`)
       writeFileSync(path, xyzText, 'utf8')
-      const basic = basicKey ? basicPrmPath() : null
-      if (basic) writeFileSync(join(dir, `${stem}.key`), `parameters "${basic}"\n`, 'utf8')
-      else if (keyText != null)
-        writeFileSync(join(dir, `${stem}.key`), resolveParameterPaths(keyText), 'utf8')
+      // basicKey ⇒ use the bundled basic.prm; otherwise the system's own key. Either
+      // way, provisionJobKey drops any referenced parameter file into `dir`.
+      const key = basicKey ? 'parameters basic.prm\n' : keyText
+      if (key != null) writeFileSync(join(dir, `${stem}.key`), provisionJobKey(key, dir), 'utf8')
       return path
     }
   )
@@ -750,7 +800,7 @@ function registerIpcHandlers(): void {
           } else {
             const watchStem = `${stem}${LIVE_SUFFIX}`
             copyFileSync(structurePath, join(dir, `${watchStem}.xyz`))
-            const liveKey = buildLiveKey(keyText != null ? resolveParameterPaths(keyText) : keyText)
+            const liveKey = buildLiveKey(keyText != null ? provisionJobKey(keyText, dir) : keyText)
             writeFileSync(join(dir, `${watchStem}.key`), liveKey, 'utf8')
             runName = `${watchStem}.xyz`
             live = makeLiveWatch('minimize', dir, inputName, watchStem, true)

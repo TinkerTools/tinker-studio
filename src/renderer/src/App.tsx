@@ -261,7 +261,19 @@ export default function App() {
     try {
       const result = await window.tinker.download(source, query)
       const structure = result.format === 'pdb' ? parsePdb(result.text) : parseSdf(result.text)
-      addSystem({ structure, fileType: result.format }, `${result.name} (${source})`)
+      // Small-molecule sources (PubChem/NCI) get basic.prm atom types (10·Z + attached
+      // atoms) and a key pointing at the bundled basic.prm, so they're immediately
+      // usable — same treatment as a built molecule. A PDB (protein/nucleic) download
+      // is left untyped for the user to apply a real force field.
+      if (source === 'pdb') {
+        addSystem({ structure, fileType: result.format }, `${result.name} (${source})`)
+      } else {
+        addSystem(
+          { structure: withBasicTypes(structure), fileType: result.format },
+          `${result.name} (${source})`,
+          { keyName: BASIC_KEY_NAME, keyText: BASIC_KEY }
+        )
+      }
       setDownloadSource(null)
     } catch (e) {
       setError(messageOf(e))
@@ -1368,8 +1380,8 @@ export default function App() {
           // basic.prm — so the new system is immediately usable with that force
           // field (jobs/saves see its own types + parameters line, not zeros).
           addSystem({ structure: withBasicTypes(structure), fileType: 'xyz' }, 'New molecule', {
-            keyName: 'basic.key',
-            keyText: BUILDER_KEY
+            keyName: BASIC_KEY_NAME,
+            keyText: BASIC_KEY
           })
           setBuilderOpen(false)
         }}
@@ -1944,10 +1956,13 @@ const KEY_FILE_FILTERS = [{ name: 'Tinker Key Files', extensions: ['key'] }]
 const ATTACH_FILTERS = [{ name: 'Tinker Files', extensions: ['key', 'seq', 'prm', 'dcd'] }]
 // Used when running a command on a system that has no key attached.
 const DEFAULT_KEY = '# Tinker Studio: no key file attached\n'
-// Attached to a freshly built molecule: its basic.prm atom types (10·Z + attached
-// atoms) pair with this key so Tinker runs against its bundled basic.prm.
-const BUILDER_KEY =
-  '# Tinker Studio: molecule built with basic.prm atom types\nparameters basic.prm\n'
+// Attached to a Builder / PubChem / NCI system: its basic.prm atom types (10·Z +
+// attached atoms) pair with this parameters line, which Tinker Studio resolves to
+// its bundled basic.prm at run time — unless the user attaches a key naming a
+// different parameter file, which then takes precedence.
+const BASIC_KEY = '# Tinker Studio: basic.prm atom types (10*Z + attached atoms)\nparameters basic.prm\n'
+// The .key filename shown for those auto-typed systems.
+const BASIC_KEY_NAME = 'basic.key'
 
 const MOVE_MODES: ReadonlyArray<{ value: 'translate' | 'rotate'; label: string }> = [
   { value: 'translate', label: 'Translate' },

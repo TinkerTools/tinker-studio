@@ -1,16 +1,13 @@
 /**
  * Helpers for the Tinker `.key` files we hand to spawned Tinker programs.
  *
- * Kept free of Electron/`fs` (paths and an existence predicate are injected) so the
- * logic is pure and unit-testable; the main process wires in the real params dir and
- * `existsSync`.
+ * Kept free of Electron/`fs` (the path lookup is injected) so the logic is pure and
+ * unit-testable; the main process wires in the real resolver.
  */
-
-import { join } from 'node:path'
 
 /**
  * Rewrite any `parameters <name>` line that names a Tinker parameter file by a bare
- * filename (no directory) to an absolute path in the Tinker params directory.
+ * filename (no directory) to an absolute path.
  *
  * Tinker's getprm resolves such a name relative to the program's current directory.
  * Our jobs run in a scratch work dir where e.g. `basic.prm` doesn't exist, so getprm
@@ -18,19 +15,17 @@ import { join } from 'node:path'
  * stdin and close it, that read hits EOF and Tinker aborts with an "end of file"
  * error in getprm. Pointing the keyword at the real file avoids the prompt entirely.
  *
- * A bare name is tried both as given and with a `.prm` extension. Names that already
- * contain a path separator, or that don't resolve in the params dir, are left
- * untouched (Tinker may still find them, or will report a clear error of its own).
+ * The actual lookup is injected as `resolve` (so the policy — bundled `basic.prm` vs.
+ * the user's Tinker params dir — lives in the caller and this stays pure/testable).
+ * Names that already contain a path separator, or that `resolve` can't place, are
+ * left untouched (Tinker may still find them, or will report a clear error).
  *
- * @param paramsDir Tinker's params directory, or null if it isn't known.
- * @param exists    Predicate reporting whether an absolute path exists (injected).
+ * @param resolve Maps a bare parameter-file name to an absolute path, or null.
  */
 export function resolveKeyParameterPaths(
   keyText: string,
-  paramsDir: string | null,
-  exists: (p: string) => boolean
+  resolve: (name: string) => string | null
 ): string {
-  if (!paramsDir) return keyText
   return keyText
     .split('\n')
     .map((line) => {
@@ -38,12 +33,8 @@ export function resolveKeyParameterPaths(
       if (!m) return line
       const value = m[2].trim().replace(/^["']|["']$/g, '') // strip surrounding quotes
       if (value === '' || /[\\/]/.test(value)) return line // already a path (or empty)
-      const names = value.toLowerCase().endsWith('.prm') ? [value] : [value, `${value}.prm`]
-      for (const n of names) {
-        const abs = join(paramsDir, n)
-        if (exists(abs)) return `${m[1]}"${abs}"`
-      }
-      return line
+      const abs = resolve(value)
+      return abs ? `${m[1]}"${abs}"` : line
     })
     .join('\n')
 }
