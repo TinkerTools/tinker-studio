@@ -50,7 +50,9 @@ import {
   type Representation,
   type ColorMode
 } from './viewer/renderOptions'
-import ethanolSample from './samples/ethanol.xyz?raw'
+// The shape returned by openStructure / openSample (typed through window.tinker,
+// so we don't import across the preload project boundary).
+type OpenedFile = NonNullable<Awaited<ReturnType<Window['tinker']['openStructure']>>>
 
 /**
  * Root layout: a sidebar (systems, active-system info + atom browser, trajectory
@@ -192,64 +194,81 @@ export default function App() {
     setEditingId(null)
   }
 
+  // Add a system from an opened file (dialog) or a bundled example (same shape):
+  // stream a .arc lazily, otherwise parse the text and auto-apply any sibling force
+  // field / attach sibling .key / .seq / .dcd. `label` overrides the system's display
+  // name (e.g. "… (example)"); the real `file.name` is kept for format detection so
+  // its extension isn't mangled.
+  async function loadOpenedFile(file: OpenedFile, label?: string): Promise<void> {
+    const displayName = label ?? file.name
+    // .arc files are opened lazily: index on disk, fetch frames on demand.
+    if (file.arc) {
+      // First frame shows immediately; the frame count + full scrubbing unlock
+      // when the background index finishes (trajectory:ready).
+      const t = await window.tinker.trajectory.open(file.path)
+      const structure = parseTinkerXyz(t.firstFrameText)
+      addSystem(
+        {
+          structure,
+          fileType: 'arc',
+          trajectory: {
+            frameCount: 0,
+            source: { trajId: t.trajId },
+            indexing: true,
+            estimate: t.estimate
+          }
+        },
+        displayName,
+        { path: file.path }
+      )
+      return
+    }
+    const parsed = parseStructureFile(file.text, file.name)
+    // Auto-pick-up sibling .key and .seq files.
+    const meta = {
+      keyName: file.keyName,
+      keyText: file.keyText,
+      seqName: file.seqName,
+      seqText: file.seqText
+    }
+    // Auto-apply the force field found via a sibling .key's PARAMETERS line.
+    let id: string
+    if (file.prmText) {
+      const structure = applyForceField(parsed.structure, parsePrm(file.prmText))
+      id = addSystem({ ...parsed, structure }, displayName, {
+        path: file.path,
+        ffName: file.prmName,
+        ...meta
+      })
+    } else {
+      id = addSystem(parsed, displayName, { path: file.path, ...meta })
+    }
+    // Auto-attach a sibling .dcd trajectory if one lines up with this structure.
+    if (file.dcdPath) void attachDcd(id, parsed.structure, file.dcdPath, { silent: true })
+  }
+
   async function handleOpen(): Promise<void> {
     setError(null)
     try {
       const file = await window.tinker.openStructure()
-      if (!file) return
-      // .arc files are opened lazily: index on disk, fetch frames on demand.
-      if (file.arc) {
-        // First frame shows immediately; the frame count + full scrubbing unlock
-        // when the background index finishes (trajectory:ready).
-        const t = await window.tinker.trajectory.open(file.path)
-        const structure = parseTinkerXyz(t.firstFrameText)
-        addSystem(
-          {
-            structure,
-            fileType: 'arc',
-            trajectory: {
-              frameCount: 0,
-              source: { trajId: t.trajId },
-              indexing: true,
-              estimate: t.estimate
-            }
-          },
-          file.name,
-          { path: file.path }
-        )
-        return
-      }
-      const parsed = parseStructureFile(file.text, file.name)
-      // Auto-pick-up sibling .key and .seq files.
-      const meta = {
-        keyName: file.keyName,
-        keyText: file.keyText,
-        seqName: file.seqName,
-        seqText: file.seqText
-      }
-      // Auto-apply the force field found via a sibling .key's PARAMETERS line.
-      let id: string
-      if (file.prmText) {
-        const structure = applyForceField(parsed.structure, parsePrm(file.prmText))
-        id = addSystem({ ...parsed, structure }, file.name, {
-          path: file.path,
-          ffName: file.prmName,
-          ...meta
-        })
-      } else {
-        id = addSystem(parsed, file.name, { path: file.path, ...meta })
-      }
-      // Auto-attach a sibling .dcd trajectory if one lines up with this structure.
-      if (file.dcdPath) void attachDcd(id, parsed.structure, file.dcdPath, { silent: true })
+      if (file) await loadOpenedFile(file)
     } catch (e) {
       setError(messageOf(e))
     }
   }
 
-  function handleExample(): void {
+  // Load a bundled example by filename. Loads exactly like opening that file, so a
+  // sibling .key in the samples dir (e.g. ethanol.key → parameters basic.prm) is
+  // auto-applied; .arc examples stream lazily like any trajectory.
+  async function handleExample(name: string): Promise<void> {
     setError(null)
     try {
-      addSystem(parseStructureFile(ethanolSample, 'ethanol.xyz'), 'ethanol.xyz (example)')
+      const file = await window.tinker.openSample(name)
+      if (!file) {
+        setError(`Example "${name}" could not be found.`)
+        return
+      }
+      await loadOpenedFile(file, `${file.name} (example)`)
     } catch (e) {
       setError(messageOf(e))
     }
@@ -969,7 +988,7 @@ export default function App() {
   menuHandlerRef.current = (action: string): void => {
     if (action === 'open') void handleOpen()
     else if (action === 'build') setBuilderOpen(true)
-    else if (action === 'loadExample') handleExample()
+    else if (action.startsWith('loadExample:')) void handleExample(action.slice('loadExample:'.length))
     else if (action === 'close' && activeId) closeSystem(activeId)
     else if (action === 'download:pubchem') setDownloadSource('pubchem')
     else if (action === 'download:nci') setDownloadSource('nci')
@@ -1363,7 +1382,7 @@ export default function App() {
     if (window.tinker?.captureMode && !autoLoadedRef.current) {
       autoLoadedRef.current = true
       if (window.tinker.captureBuilder) setBuilderOpen(true)
-      else handleExample()
+      else void handleExample('ethanol.xyz')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

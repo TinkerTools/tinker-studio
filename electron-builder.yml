@@ -18,6 +18,10 @@ files:
 extraResources:
   - from: resources/basic.prm
     to: basic.prm
+  # Bundled example structures (+ any sibling .key/.prm/.seq). The Load Example
+  # submenu is generated from whatever ships here (see listSampleFiles / samplesDir).
+  - from: src/renderer/src/samples
+    to: samples
 
 # Icons follow the buildResources convention: build/icon.icns (mac, present),
 # build/icon.ico (Windows), build/icon.png (Linux, >=512px). Dropping a single

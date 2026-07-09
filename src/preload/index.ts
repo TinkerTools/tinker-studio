@@ -147,6 +147,11 @@ const api = {
   captureBuilder: Boolean(process.env['TINKER_STUDIO_CAPTURE_BUILDER']),
   /** Prompt the user for a Tinker file; resolves to its contents, or null if cancelled. */
   openStructure: (): Promise<OpenedFile | null> => ipcRenderer.invoke('structure:open'),
+  /** Bundled example structure filenames for the Load Example menu/UI. */
+  listSamples: (): Promise<string[]> => ipcRenderer.invoke('samples:list'),
+  /** Load a bundled example by filename; same shape as openStructure. */
+  openSample: (name: string): Promise<OpenedFile | null> =>
+    ipcRenderer.invoke('samples:open', name),
   /** Download a structure from an online database (pubchem | nci | pdb). */
   download: (
     source: string,

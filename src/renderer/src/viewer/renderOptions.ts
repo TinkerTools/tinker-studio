@@ -76,7 +76,7 @@ export const HIGHLIGHT_COLOR_DEFAULT = 0xffd400
 export const LABEL_COLOR_DEFAULT = 0xffe066
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
-  representation: 'ball-and-stick',
+  representation: 'tube',
   colorMode: 'element',
   uniformColor: 0xc8ccd4,
   showHydrogens: true,

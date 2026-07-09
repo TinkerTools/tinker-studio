@@ -45,6 +45,21 @@ function sendMenu(action: string): void {
   BrowserWindow.getFocusedWindow()?.webContents.send('menu', action)
 }
 
+/**
+ * The File ▸ Load Example item: a submenu with one entry per bundled example found in
+ * the samples directory (see `listSampleFiles`), so the menu reflects whatever ships
+ * in that folder. Each entry sends `loadExample:<filename>` to the renderer. Falls
+ * back to a disabled item when no examples are present.
+ */
+function buildLoadExampleItem(): MenuItemConstructorOptions {
+  const files = listSampleFiles()
+  if (files.length === 0) return { label: 'Load Example', enabled: false }
+  return {
+    label: 'Load Example',
+    submenu: files.map((f) => ({ label: f, click: () => sendMenu(`loadExample:${f}`) }))
+  }
+}
+
 /** Build the native application menu. Open / Load Example live here now. */
 function buildApplicationMenu(): void {
   const isMac = process.platform === 'darwin'
@@ -55,7 +70,7 @@ function buildApplicationMenu(): void {
       submenu: [
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
         { label: 'Open Remote…', accelerator: 'CmdOrCtrl+Shift+O', click: () => sendMenu('openRemote') },
-        { label: 'New Molecule (Builder)…', accelerator: 'CmdOrCtrl+N', click: () => sendMenu('build') },
+        { label: 'Molecule Builder…', accelerator: 'CmdOrCtrl+N', click: () => sendMenu('build') },
         {
           label: 'Save Structure As',
           submenu: [
@@ -65,7 +80,7 @@ function buildApplicationMenu(): void {
             { id: 'save-pdb', label: 'PDB (.pdb)', click: () => sendMenu('save:pdb') }
           ]
         },
-        { label: 'Load Example', click: () => sendMenu('loadExample') },
+        buildLoadExampleItem(),
         {
           label: 'Download',
           submenu: [
@@ -259,6 +274,40 @@ function basicPrmPath(): string | null {
   if (!params) return null
   const p = join(params, 'basic.prm')
   return existsSync(p) ? p : null
+}
+
+/**
+ * Directory of bundled example structures. Tries the packaged location (shipped via
+ * electron-builder `extraResources`) first, then the source tree used in development.
+ * The `Load Example` submenu is generated from whatever this directory contains, so
+ * adding/removing an example file there is picked up on the next build (no code
+ * change needed). Returns null if the directory can't be found.
+ */
+function samplesDir(): string | null {
+  const candidates = [
+    join(process.resourcesPath, 'samples'), // packaged app (extraResources)
+    join(app.getAppPath(), 'src/renderer/src/samples'), // dev: project root
+    join(__dirname, '../../src/renderer/src/samples') // dev fallback: relative to out/main
+  ]
+  return candidates.find((d) => existsSync(d)) ?? null
+}
+
+// Structure file types the app can open (and therefore offer as examples). Sibling
+// files like .key/.prm/.seq/.dcd in the samples dir are picked up on load but are not
+// themselves listed as examples.
+const STRUCTURE_EXTENSIONS = ['xyz', 'txyz', 'arc', 'pdb', 'int', 'sdf', 'mol']
+
+/** Example structure filenames found in the samples dir, sorted for a stable menu. */
+function listSampleFiles(): string[] {
+  const dir = samplesDir()
+  if (!dir) return []
+  try {
+    return readdirSync(dir)
+      .filter((f) => STRUCTURE_EXTENSIONS.includes(f.split('.').pop()?.toLowerCase() ?? ''))
+      .sort((a, b) => a.localeCompare(b))
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -554,7 +603,11 @@ async function resolveForceFieldFromKey(
 
   const fileName = basename(param)
   const { tinkerDir } = loadSettings()
+  // `basic.prm` resolves to Tinker Studio's bundled copy first, so a system keyed to
+  // it picks up the same parameters the app runs against — no local Tinker required.
+  const bundledBasic = fileName.toLowerCase() === 'basic.prm' ? bundledBasicPrmPath() : null
   const candidates = [
+    ...(bundledBasic ? [bundledBasic] : []),
     param, // absolute path
     join(dir, param), // relative to the structure
     ...(tinkerDir
@@ -570,6 +623,27 @@ async function resolveForceFieldFromKey(
     if (prmText) return { prmText, prmName: fileName }
   }
   return {}
+}
+
+/**
+ * Describe a structure file at `path` for the renderer to load: its text (or an
+ * `arc` flag for large trajectories, which the renderer opens lazily by path) plus
+ * any auto-detected sibling force field (.key/.prm), sequence (.seq), and trajectory
+ * (.dcd). Shared by the Open dialog and the Load Example submenu.
+ */
+async function describeStructureFile(path: string): Promise<Record<string, unknown>> {
+  // .arc files can be huge — don't read them whole; the renderer streams them.
+  if (path.toLowerCase().endsWith('.arc')) {
+    return { path, name: basename(path), text: '', arc: true }
+  }
+  const text = await readFile(path, 'utf8')
+  const ff = await findAssociatedForceField(path)
+  const stem = basename(path).replace(/\.[^.]*$/, '')
+  const seqText = await readIfExists(join(dirname(path), `${stem}.seq`))
+  const seq = seqText != null ? { seqName: `${stem}.seq`, seqText } : {}
+  const sibDcd = join(dirname(path), `${stem}.dcd`)
+  const dcd = /\.(xyz|txyz)$/i.test(path) && existsSync(sibDcd) ? { dcdPath: sibDcd } : {}
+  return { path, name: basename(path), text, ...ff, ...seq, ...dcd }
 }
 
 /** Privileged operations exposed to the renderer over IPC. */
@@ -609,23 +683,20 @@ function registerIpcHandlers(): void {
       ]
     })
     if (result.canceled || result.filePaths.length === 0) return null
-    const path = result.filePaths[0]
-    // .arc files can be huge — don't read them whole. Flag them so the renderer
-    // opens them lazily via the streamed-trajectory API instead.
-    if (path.toLowerCase().endsWith('.arc')) {
-      return { path, name: basename(path), text: '', arc: true }
-    }
-    const text = await readFile(path, 'utf8')
-    const ff = await findAssociatedForceField(path)
-    // Pick up a sibling .seq file (same stem) if present.
-    const stem = basename(path).replace(/\.[^.]*$/, '')
-    const seqText = await readIfExists(join(dirname(path), `${stem}.seq`))
-    const seq = seqText != null ? { seqName: `${stem}.seq`, seqText } : {}
-    // For a Tinker .xyz, note a sibling .dcd trajectory (same stem) so the renderer
-    // can offer to attach + play it (the parser validates the atom count).
-    const sibDcd = join(dirname(path), `${stem}.dcd`)
-    const dcd = /\.(xyz|txyz)$/i.test(path) && existsSync(sibDcd) ? { dcdPath: sibDcd } : {}
-    return { path, name: basename(path), text, ...ff, ...seq, ...dcd }
+    return describeStructureFile(result.filePaths[0])
+  })
+
+  // List the bundled example structures for the Load Example submenu / UI.
+  ipcMain.handle('samples:list', () => listSampleFiles())
+
+  // Load one bundled example by filename (same shape as structure:open). The name is
+  // reduced to a basename and must be a known example, so it can't escape the dir.
+  ipcMain.handle('samples:open', (_e, name: string) => {
+    const dir = samplesDir()
+    if (!dir) return null
+    const file = basename(name)
+    if (!listSampleFiles().includes(file)) return null
+    return describeStructureFile(join(dir, file))
   })
 
   // Lazy streamed-trajectory API for large .arc files: index once, then read
