@@ -1,10 +1,10 @@
 # Tinker Studio
 
-A modern, from-scratch rebuild of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
-intended as a molecular modeling GUI for the [Tinker](https://github.com/TinkerTools/tinker)
-package. It aims to provide all the functionality of the original FFE Java/Java3D application
-with a modern, customizable look — and to keep running on Linux, macOS, and Windows with
-minimal maintenance.
+A modern, complete rethinking of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
+intended as a molecular modeling GUI for [Tinker](https://github.com/TinkerTools/tinker).
+Implemented in Typescript, Tinker Studio aims to provide all the functionality of the
+original FFE Java/Java3D application with a modern, customizable look — and available
+to run on Linux, macOS, and Windows with minimal maintenance.
 
 ## Software Stack
 
@@ -67,7 +67,9 @@ src/
 
 ## Maintainability Principles
 
-The original FFE app became hard to maintain because it depended on niche, proprietary and non-standard components (Java3D, install4j, a JNI shim, `sun.misc`). To avoid that situation Tinker Studio aims to:
+The original FFE app became hard to maintain because it depended on niche, proprietary
+and non-standard components (Java3D, install4j, JNI shim, `sun.misc`). To avoid that
+situation Tinker Studio aims to:
 
 1. **Own the core.** Parsers, the molecular model, and rendering shaders are our
    own code on top of frozen web standards (WebGL2) — nothing niche underneath
@@ -81,7 +83,8 @@ The original FFE app became hard to maintain because it depended on niche, propr
 
 ## Current Status
 
-At present, Tinker Studio is a working application, with most of the original FFE's functionality in place:
+At present, Tinker Studio is a working application, with most of the original FFE's
+functionality in place:
 
 - **Open / save** Tinker XYZ & ARC, PDB, MDL SDF/MOL, and INT (z-matrix), with
   automatic bond perception and force-field (`.prm`) pickup from a sibling
@@ -104,4 +107,5 @@ At present, Tinker Studio is a working application, with most of the original FF
   they're written, and load the result back in as a new system.
 - **Packaging**: native installers for macOS, Windows, and Linux, built in CI.
 
-To be implemented: per-atom vector display (force/velocity/induced-dipole arrows from `.dyn` / `.uind`), molecular surfaces, and real secondary-structure cartoons.
+To be implemented: per-atom vector display (force/velocity/induced-dipole arrows
+from `.dyn` / `.uind`), molecular surfaces, and secondary-structure cartoons.

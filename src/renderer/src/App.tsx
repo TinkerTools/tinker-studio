@@ -1133,6 +1133,11 @@ export default function App() {
 
   useEffect(() => {
     void window.tinker?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
+    // The main process can change settings itself (e.g. the startup prompt to
+    // adopt a $HOME/tinker install) — re-read them when it says so.
+    return window.tinker?.settings.onChanged(() => {
+      void window.tinker?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
+    })
   }, [])
 
   // Load configured clusters and react to remote job updates. The remote job list

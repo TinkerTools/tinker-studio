@@ -338,6 +338,61 @@ function saveSettings(s: Settings): void {
   }
 }
 
+/** The conventional per-user Tinker location we probe at startup: $HOME/tinker. */
+function homeTinkerDir(): string {
+  return join(homedir(), 'tinker')
+}
+
+/**
+ * True when $HOME/tinker/bin exists and holds at least one recognizable Tinker
+ * executable. We look for a handful of core program names (with a `.exe` suffix on
+ * Windows) so an unrelated `bin` directory isn't mistaken for a Tinker install.
+ */
+function homeTinkerHasExecutables(): boolean {
+  const bin = join(homeTinkerDir(), 'bin')
+  if (!existsSync(bin)) return false
+  const suffix = process.platform === 'win32' ? '.exe' : ''
+  const known = ['analyze', 'minimize', 'dynamic', 'pdbxyz', 'newton', 'xyzedit']
+  try {
+    return known.some((p) => existsSync(join(bin, `${p}${suffix}`)))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Startup convenience: if the user hasn't configured a Tinker directory yet and a
+ * Tinker installation with executables is present at $HOME/tinker/bin, ask (yes/no)
+ * whether Tinker Studio should adopt it. On "yes", save it as the Tinker directory
+ * and tell the renderer to refresh. If nothing is found, do nothing.
+ */
+async function maybeOfferHomeTinkerInstall(): Promise<void> {
+  if (process.env['TINKER_STUDIO_CAPTURE']) return // never prompt under the capture harness
+  if (loadSettings().tinkerDir) return // a Tinker directory is already configured
+  if (!homeTinkerHasExecutables()) return // no usable install at $HOME/tinker/bin
+
+  const dir = homeTinkerDir()
+  const opts = {
+    type: 'question' as const,
+    buttons: ['Yes', 'No'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'Tinker Installation Found',
+    message: 'Use this Tinker installation?',
+    detail: `Tinker Studio found a Tinker installation at:\n${dir}\n\nUse it with Tinker Studio?`
+  }
+  const { response } =
+    mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showMessageBox(mainWindow, opts)
+      : await dialog.showMessageBox(opts)
+  if (response !== 0) return // "No" (or dismissed)
+
+  const s = loadSettings()
+  s.tinkerDir = dir
+  saveSettings(s)
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings:changed')
+}
+
 // Running Tinker jobs, keyed by an id chosen by the renderer.
 const jobs = new Map<string, ChildProcess>()
 
@@ -1442,6 +1497,8 @@ app.whenReady().then(() => {
   registerRemoteHandlers(remote)
   remote.resumePolling()
   createWindow()
+  // Offer to adopt a $HOME/tinker install if one exists and none is configured.
+  void maybeOfferHomeTinkerInstall()
 
   app.on('activate', () => {
     // macOS: re-create a window when the dock icon is clicked and none are open.
