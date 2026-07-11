@@ -6,7 +6,7 @@ package. It aims to provide all the functionality of the original FFE Java/Java3
 with a modern, customizable look — and to keep running on Linux, macOS, and Windows with
 minimal maintenance.
 
-## Stack
+## Software Stack
 
 - **Electron** — cross-platform desktop shell (bundles its own Chromium, so
   rendering is identical on every OS and unaffected by OS updates).
@@ -16,11 +16,11 @@ minimal maintenance.
 - **electron-vite** — dev server (HMR) and build pipeline.
 - **electron-builder** — native installers (`.dmg` / `.AppImage`+`.deb` / `.exe`).
 
-## Requirements
+## Build Requirements
 
 - Node.js 18+ (developed on Node 23).
 
-## Commands
+## Launch Commands
 
 ```bash
 npm install        # install dependencies
@@ -30,7 +30,7 @@ npm run build      # production build into out/
 npm run package    # build + produce a native installer for the current OS
 ```
 
-## Project layout
+## Project Organization
 
 ```
 src/
@@ -65,9 +65,9 @@ src/
       samples/         bundled example structures (ethanol, crambin, …)
 ```
 
-## Maintainability principles (non-negotiable)
+## Maintainability Principles
 
-The original FFE app became hard to maintain because it depended on niche/proprietary and non-standard components (Java3D, install4j, a JNI shim, `sun.misc`). To avoid that situation Tinker Studio aims to:
+The original FFE app became hard to maintain because it depended on niche, proprietary and non-standard components (Java3D, install4j, a JNI shim, `sun.misc`). To avoid that situation Tinker Studio aims to:
 
 1. **Own the core.** Parsers, the molecular model, and rendering shaders are our
    own code on top of frozen web standards (WebGL2) — nothing niche underneath
@@ -79,7 +79,7 @@ The original FFE app became hard to maintain because it depended on niche/propri
 5. **Test parsers against real Tinker files** so the data layer stays provably
    correct.
 
-## Status
+## Current Status
 
 At present, Tinker Studio is a working application, with most of the original FFE's functionality in place:
 
@@ -104,4 +104,4 @@ At present, Tinker Studio is a working application, with most of the original FF
   they're written, and load the result back in as a new system.
 - **Packaging**: native installers for macOS, Windows, and Linux, built in CI.
 
-Still to be implemented: per-atom vector display (force/velocity/induced-dipole arrows from `.dyn` / `.uind`), molecular surfaces, and real secondary-structure cartoons.
+To be implemented: per-atom vector display (force/velocity/induced-dipole arrows from `.dyn` / `.uind`), molecular surfaces, and real secondary-structure cartoons.
