@@ -1,16 +1,24 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { tinkerCommands, type TinkerCommand, type TinkerOption } from './data/tinkerCatalog'
-import type { MolecularSystem } from './core/system'
-import { liveKind, type JobRecord } from './core/job'
+import { liveKind } from './core/job'
 import type { ClusterProfile } from '../../main/remote/types'
 
-type RunJob = (
+/**
+ * The fields of the active system this panel needs. The full MolecularSystem lives
+ * in the main window; only this lightweight summary is relayed to the detached
+ * Commands window (which forwards launches back to run against the real system).
+ */
+export type SystemSummary = { name: string; fileType: string; hasKey: boolean }
+
+/** Launch a Tinker program locally against the main window's active system. */
+type RunLocal = (
   program: string,
-  system: MolecularSystem | null,
   stdin: string,
   watch: boolean,
-  requiresStructure: boolean
-) => Promise<{ id: string; ok: boolean }>
+  requiresStructure: boolean,
+  /** Load a converter's result when it finishes: 'xyz' (pdbxyz) or 'pdb' (xyzpdb). */
+  loadResult?: 'xyz' | 'pdb'
+) => void
 
 /** Submit a job to a remote cluster. Returns true on a successful submission. */
 export type SubmitRemote = (opts: {
@@ -43,24 +51,25 @@ function needsStructure(command: TinkerCommand): boolean {
 export function CommandsModal({
   system,
   tinkerDir,
-  jobs,
   clusters,
-  onRunJob,
+  embedded = false,
+  onRun,
   onSubmitRemote,
   onManageClusters,
   onStarted,
   onClose
 }: {
-  system: MolecularSystem | null
+  system: SystemSummary | null
   tinkerDir?: string
-  jobs: JobRecord[]
   clusters: ClusterProfile[]
-  onRunJob: RunJob
+  /** Render to fill its own window (no modal backdrop/×) instead of as an overlay. */
+  embedded?: boolean
+  onRun: RunLocal
   onSubmitRemote: SubmitRemote
   onManageClusters: () => void
-  /** Called when a command is launched — used to jump to the Job Output view. */
+  /** Called when a command is launched — used to jump to the Jobs view. */
   onStarted: () => void
-  onClose: () => void
+  onClose?: () => void
 }) {
   const ft = system?.fileType.toUpperCase()
   const commands = useMemo(() => {
@@ -74,44 +83,55 @@ export function CommandsModal({
   const [selected, setSelected] = useState(commands[0]?.name ?? '')
   const command = commands.find((c) => c.name === selected) ?? commands[0]
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3>Tinker Modeling Commands{ft ? ` · ${ft}` : ''}</h3>
+  const body = (
+    <>
+      <div className="modal-head">
+        <h3>Tinker Modeling Commands{ft ? ` · ${ft}` : ''}</h3>
+        {!embedded && (
           <button className="modal-x" onClick={onClose}>
             ×
           </button>
+        )}
+      </div>
+      <div className="cmd-body">
+        <ul className="cmd-list">
+          {commands.map((c) => (
+            <li
+              key={c.name}
+              className={c.name === command?.name ? 'cmd-item active' : 'cmd-item'}
+              onClick={() => setSelected(c.name)}
+            >
+              {c.name}
+            </li>
+          ))}
+        </ul>
+        <div className="cmd-detail">
+          {command && (
+            <CommandDetail
+              key={command.name}
+              command={command}
+              system={system}
+              tinkerDir={tinkerDir}
+              clusters={clusters}
+              onRun={onRun}
+              onSubmitRemote={onSubmitRemote}
+              onManageClusters={onManageClusters}
+              onStarted={onStarted}
+            />
+          )}
         </div>
-        <div className="cmd-body">
-          <ul className="cmd-list">
-            {commands.map((c) => (
-              <li
-                key={c.name}
-                className={c.name === command?.name ? 'cmd-item active' : 'cmd-item'}
-                onClick={() => setSelected(c.name)}
-              >
-                {c.name}
-              </li>
-            ))}
-          </ul>
-          <div className="cmd-detail">
-            {command && (
-              <CommandDetail
-                key={command.name}
-                command={command}
-                system={system}
-                tinkerDir={tinkerDir}
-                jobs={jobs}
-                clusters={clusters}
-                onRunJob={onRunJob}
-                onSubmitRemote={onSubmitRemote}
-                onManageClusters={onManageClusters}
-                onStarted={onStarted}
-              />
-            )}
-          </div>
-        </div>
+      </div>
+    </>
+  )
+
+  if (embedded) {
+    return <div className="commands-window">{body}</div>
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+        {body}
       </div>
     </div>
   )
@@ -121,19 +141,17 @@ function CommandDetail({
   command,
   system,
   tinkerDir,
-  jobs,
   clusters,
-  onRunJob,
+  onRun,
   onSubmitRemote,
   onManageClusters,
   onStarted
 }: {
   command: TinkerCommand
-  system: MolecularSystem | null
+  system: SystemSummary | null
   tinkerDir?: string
-  jobs: JobRecord[]
   clusters: ClusterProfile[]
-  onRunJob: RunJob
+  onRun: RunLocal
   onSubmitRemote: SubmitRemote
   onManageClusters: () => void
   onStarted: () => void
@@ -166,9 +184,8 @@ function CommandDetail({
         command={command}
         system={system}
         tinkerDir={tinkerDir}
-        jobs={jobs}
         clusters={clusters}
-        onRunJob={onRunJob}
+        onRun={onRun}
         onSubmitRemote={onSubmitRemote}
         onManageClusters={onManageClusters}
         onStarted={onStarted}
@@ -255,28 +272,23 @@ function RunSection({
   command,
   system,
   tinkerDir,
-  jobs,
   clusters,
-  onRunJob,
+  onRun,
   onSubmitRemote,
   onManageClusters,
   onStarted,
   buildStdin
 }: {
   command: TinkerCommand
-  system: MolecularSystem | null
+  system: SystemSummary | null
   tinkerDir?: string
-  jobs: JobRecord[]
   clusters: ClusterProfile[]
-  onRunJob: RunJob
+  onRun: RunLocal
   onSubmitRemote: SubmitRemote
   onManageClusters: () => void
   onStarted: () => void
   buildStdin: () => string
 }) {
-  // The job started from this panel; its output/status are read from the shared
-  // App-level job list so they survive the modal closing.
-  const [jobId, setJobId] = useState<string | null>(null)
   const [watchLive, setWatchLive] = useState(true)
   // 'local' or a cluster id.
   const [target, setTarget] = useState('local')
@@ -287,22 +299,33 @@ function RunSection({
   const [vars, setVars] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitMsg, setSubmitMsg] = useState<string | null>(null)
+  // Brief guard so a double-click doesn't launch two jobs (progress is shown in
+  // the Jobs window, so the Run button has no long-lived running state of its own).
+  const [justLaunched, setJustLaunched] = useState(false)
+  const launchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => void (launchTimer.current && clearTimeout(launchTimer.current)), [])
 
   const program = command.name.toLowerCase()
-  const job = jobs.find((j) => j.id === jobId) ?? null
-  const running = job?.status === 'running'
   const requires = needsStructure(command)
   const kind = liveKind(program)
-  const noKeyWarning = requires && system != null && !system.keyText
+  const noKeyWarning = requires && system != null && !system.hasKey
   const cluster = clusters.find((c) => c.id === target) ?? null
   const isRemote = cluster != null
+  // A converter (pdbxyz / xyzpdb) declares the result to load back via its action.
+  const loadResult: 'xyz' | 'pdb' | undefined = command.actions.includes('LOADXYZ')
+    ? 'xyz'
+    : command.actions.includes('LOADPDB')
+      ? 'pdb'
+      : undefined
 
-  async function run(): Promise<void> {
-    const { id } = await onRunJob(program, system, buildStdin(), watchLive, requires)
-    setJobId(id)
-    // Whether it spawned or failed to, a job record now exists — jump to the Jobs
-    // view (which focuses the newest job) so the user sees its log there.
+  function run(): void {
+    if (justLaunched) return
+    // Launch runs against the main window's active system + viewer; progress is
+    // shown in the Jobs window, which onStarted opens.
+    onRun(program, buildStdin(), watchLive, requires, loadResult)
     onStarted()
+    setJustLaunched(true)
+    launchTimer.current = setTimeout(() => setJustLaunched(false), 1200)
   }
 
   async function submitRemote(): Promise<void> {
@@ -458,16 +481,9 @@ function RunSection({
 
       <div className="run-buttons">
         {!isRemote ? (
-          <>
-            <button className="modal-btn primary" onClick={run} disabled={!canRunLocal || running}>
-              {running ? 'Running…' : 'Run'}
-            </button>
-            {running && job && (
-              <button className="modal-btn ghost" onClick={() => window.tinker.job.cancel(job.id)}>
-                Cancel
-              </button>
-            )}
-          </>
+          <button className="modal-btn primary" onClick={run} disabled={!canRunLocal || justLaunched}>
+            {justLaunched ? 'Launching…' : 'Run'}
+          </button>
         ) : (
           <button
             className="modal-btn primary"
@@ -480,7 +496,6 @@ function RunSection({
         <span className="run-hint">Jobs are tracked in Tinker ▸ Jobs…</span>
       </div>
       {submitMsg && <div className="run-warn">{submitMsg}</div>}
-      {!isRemote && job?.output && <pre className="run-log">{job.output}</pre>}
     </div>
   )
 }

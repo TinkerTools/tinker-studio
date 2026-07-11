@@ -22,6 +22,17 @@ export default defineConfig({
     resolve: {
       alias: { '@': resolve(__dirname, 'src/renderer/src') }
     },
+    build: {
+      rollupOptions: {
+        // The main app plus detachable Jobs and Modeling Commands windows (each
+        // its own OS window / renderer entry).
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          jobs: resolve(__dirname, 'src/renderer/jobs.html'),
+          commands: resolve(__dirname, 'src/renderer/commands.html')
+        }
+      }
+    },
     plugins: [react()]
   }
 })

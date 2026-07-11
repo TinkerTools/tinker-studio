@@ -11,6 +11,13 @@ export interface JobRecord {
   systemName: string
   /** Path of the input structure on disk (used to locate Tinker's output). */
   structurePath?: string
+  /** Resolved input path (scratch or on-disk) used to find a named result file. */
+  inputPath?: string
+  /** A converter's result to load back: 'xyz' (pdbxyz) or 'pdb' (xyzpdb). */
+  loadResult?: 'xyz' | 'pdb'
+  /** Key used for the calculation, carried onto any structure it produces. */
+  resultKeyText?: string
+  resultKeyName?: string
   /** Full command line, once the job has started. */
   commandLine?: string
   startedAt: number

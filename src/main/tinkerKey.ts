@@ -15,16 +15,17 @@
  * stdin and close it, that read hits EOF and Tinker aborts with an "end of file"
  * error in getprm. Pointing the keyword at the real file avoids the prompt entirely.
  *
- * The actual lookup is injected as `resolve` (so the policy — bundled `basic.prm` vs.
- * the user's Tinker params dir — lives in the caller and this stays pure/testable).
- * Names that already contain a path separator, or that `resolve` can't place, are
- * left untouched (Tinker may still find them, or will report a clear error).
+ * The actual lookup is injected as `resolve` (so the policy — expand `~`, bundled
+ * `basic.prm` vs. the user's Tinker params dir, etc. — lives in the caller and this
+ * stays pure/testable). Every parameter value (bare name, `~/…`, relative, or
+ * absolute) is passed to `resolve`; whatever absolute path it returns is quoted into
+ * the line, and a null result leaves the line untouched.
  *
- * @param resolve Maps a bare parameter-file name to an absolute path, or null.
+ * @param resolve Maps a parameter-file reference to an absolute path, or null.
  */
 export function resolveKeyParameterPaths(
   keyText: string,
-  resolve: (name: string) => string | null
+  resolve: (value: string) => string | null
 ): string {
   return keyText
     .split('\n')
@@ -32,9 +33,12 @@ export function resolveKeyParameterPaths(
       const m = line.match(/^(\s*parameters\s+)(.+?)\s*$/i)
       if (!m) return line
       const value = m[2].trim().replace(/^["']|["']$/g, '') // strip surrounding quotes
-      if (value === '' || /[\\/]/.test(value)) return line // already a path (or empty)
+      if (value === '') return line
       const abs = resolve(value)
-      return abs ? `${m[1]}"${abs}"` : line
+      if (!abs) return line
+      // Tinker reads an unquoted path via gettext and a quoted one via getstring;
+      // only quote when the path has whitespace (avoids relying on quote-parsing).
+      return `${m[1]}${/\s/.test(abs) ? `"${abs}"` : abs}`
     })
     .join('\n')
 }

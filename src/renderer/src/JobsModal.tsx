@@ -19,6 +19,7 @@ export function JobsModal({
   jobs,
   remoteJobs,
   initialRemoteId,
+  embedded = false,
   onClose,
   onCancel,
   onClear,
@@ -32,7 +33,9 @@ export function JobsModal({
   remoteJobs: RemoteJobRecord[]
   /** Remote job to select on open (e.g. one just submitted). */
   initialRemoteId?: string | null
-  onClose: () => void
+  /** Render to fill its own window (no modal backdrop/×) instead of as an overlay. */
+  embedded?: boolean
+  onClose?: () => void
   onCancel: (jobId: string) => void
   onClear: (jobId: string) => void
   onRemoteCancel: (id: string) => void
@@ -46,10 +49,21 @@ export function JobsModal({
   )
   const [showFinished, setShowFinished] = useState(false)
 
+  // When a remote job to select is pushed after mount (e.g. one just submitted
+  // while the window is already open), jump to it.
+  useEffect(() => {
+    if (initialRemoteId) setSel({ scope: 'remote', id: initialRemoteId })
+  }, [initialRemoteId])
+
   const localRunning = jobs.filter((j) => j.status === 'running')
-  const localDone = jobs.filter((j) => j.status !== 'running')
+  // Finished jobs are listed most-recent-first (newest at the top).
+  const localDone = jobs
+    .filter((j) => j.status !== 'running')
+    .sort((a, b) => b.startedAt - a.startedAt)
   const remoteActive = remoteJobs.filter((j) => REMOTE_ACTIVE.includes(j.status))
-  const remoteDone = remoteJobs.filter((j) => !REMOTE_ACTIVE.includes(j.status))
+  const remoteDone = remoteJobs
+    .filter((j) => !REMOTE_ACTIVE.includes(j.status))
+    .sort((a, b) => b.submittedAt - a.submittedAt)
   const finishedCount = localDone.length + remoteDone.length
 
   // Default selection: the first active job, else the most recent finished one.
@@ -71,17 +85,18 @@ export function JobsModal({
 
   const empty = jobs.length === 0 && remoteJobs.length === 0
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3>Jobs</h3>
+  const body = (
+    <>
+      <div className="modal-head">
+        <h3>Jobs</h3>
+        {!embedded && (
           <button className="modal-x" onClick={onClose}>
             ×
           </button>
-        </div>
+        )}
+      </div>
 
-        {empty ? (
+      {empty ? (
           <p className="placeholder">
             No jobs yet. Launch one from <b>Tinker ▸ Modeling Commands…</b> — locally or on a
             configured cluster — and it will appear here.
@@ -152,6 +167,17 @@ export function JobsModal({
             </div>
           </div>
         )}
+    </>
+  )
+
+  if (embedded) {
+    return <div className="jobs-window">{body}</div>
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
+        {body}
       </div>
     </div>
   )

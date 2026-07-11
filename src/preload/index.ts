@@ -7,6 +7,44 @@ import type {
   RemoteSubmitRequest
 } from '../main/remote/types'
 
+/**
+ * An action the detached Jobs window forwards back to the main window (which owns
+ * local job state and the 3D viewer): remove a finished local job, or load a
+ * remote job's live/result structure into the viewer.
+ */
+export type JobsAction =
+  | { type: 'clear'; id: string }
+  | { type: 'viewLive'; job: RemoteJobRecord }
+  | { type: 'openResult'; job: RemoteJobRecord }
+
+/**
+ * Context the main window publishes to the detached Modeling Commands window. Just
+ * the fields that window reads: a lightweight active-system summary (its full
+ * MolecularSystem model lives in the renderer and can't be imported here), the
+ * Tinker directory, and the configured clusters.
+ */
+export interface CommandsContext {
+  system: { name: string; fileType: string; hasKey: boolean } | null
+  tinkerDir?: string
+  clusters: ClusterProfile[]
+}
+
+/** A local run forwarded from the Commands window to the main window. */
+export interface CommandsRunReq {
+  program: string
+  stdin: string
+  watch: boolean
+  requiresStructure: boolean
+  loadResult?: 'xyz' | 'pdb'
+}
+
+/** A remote submit forwarded from the Commands window, correlated by `reqId`. */
+export interface CommandsSubmitMsg {
+  reqId: number
+  /** SubmitRemote options (typed in the renderer); passed through opaquely here. */
+  opts: unknown
+}
+
 // Re-export the remote data model so the renderer can type the config UI through
 // the single window.tinker surface (env.d.ts already imports TinkerApi from here).
 export type { ClusterProfile, ClusterKind, RemoteJobRecord, RemoteJobState, RemoteSubmitRequest }
@@ -172,23 +210,25 @@ const api = {
     run: (req: JobRunRequest): Promise<JobRunResult> => ipcRenderer.invoke('job:run', req),
     cancel: (jobId: string): Promise<boolean> => ipcRenderer.invoke('job:cancel', jobId),
     /**
-     * Write a path-less system to a scratch .xyz (+ .key); resolves to the path.
-     * With `basicKey`, the .key references Tinker's bundled basic.prm (for an
-     * untyped molecule typed via the basic scheme).
+     * Write a path-less system to a scratch structure file in its native format
+     * (`ext` = 'xyz' | 'pdb' | 'mol' | …); resolves to the file path. The key is
+     * written and passed to the program separately by `run` (which -k's it).
      */
-    prepareStructure: (
-      name: string,
-      xyzText: string,
-      keyText?: string,
-      basicKey?: boolean
-    ): Promise<string> =>
-      ipcRenderer.invoke('job:prepareStructure', name, xyzText, keyText, basicKey),
+    prepareStructure: (name: string, ext: string, text: string): Promise<string> =>
+      ipcRenderer.invoke('job:prepareStructure', name, ext, text),
     /** After a job finishes, fetch the coordinate file Tinker produced (or null). */
     collectResult: (
       structurePath: string,
       since: number
     ): Promise<{ name: string; path: string; text: string } | null> =>
       ipcRenderer.invoke('job:collectResult', { structurePath, since }),
+    /** Fetch a converter's output written next to its input as `<stem>.<ext>`. */
+    collectNamed: (
+      inputPath: string,
+      ext: string,
+      since: number
+    ): Promise<{ name: string; path: string; text: string } | null> =>
+      ipcRenderer.invoke('job:collectNamed', { inputPath, ext, since }),
     onOutput: (cb: (o: JobOutput) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, o: JobOutput): void => cb(o)
       ipcRenderer.on('job:output', listener)
@@ -213,6 +253,91 @@ const api = {
       const listener = (_e: IpcRendererEvent, m: JobLiveEnd): void => cb(m)
       ipcRenderer.on('job:liveEnd', listener)
       return () => ipcRenderer.removeListener('job:liveEnd', listener)
+    }
+  },
+  /**
+   * Detachable Jobs window. The panel lives in its own OS window; the main window
+   * owns local job state and publishes it here, and the Jobs window forwards the
+   * few actions that must run in the main window (viewer loads, local-job removal).
+   */
+  jobsWindow: {
+    /** Open (or focus) the Jobs window, optionally selecting a remote job by id. */
+    open: (selectId?: string | null): void => ipcRenderer.send('jobs:open', selectId ?? null),
+    /**
+     * Main window → Jobs window: publish the current local job list. Typed as
+     * `unknown[]` here because the JobRecord model lives in the renderer (which
+     * this preload/main project can't import); the renderer casts on receipt.
+     */
+    publishLocal: (jobs: unknown[]): void => ipcRenderer.send('jobs:publishLocal', jobs),
+    /** Jobs window: ask main to (re)send the current local jobs + selection on mount. */
+    requestState: (): void => ipcRenderer.send('jobs:requestState'),
+    /** Jobs window: subscribe to the main window's local job list. Returns an unsubscribe fn. */
+    onLocalJobs: (cb: (jobs: unknown[]) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, jobs: unknown[]): void => cb(jobs)
+      ipcRenderer.on('jobs:localJobs', listener)
+      return () => ipcRenderer.removeListener('jobs:localJobs', listener)
+    },
+    /** Jobs window: subscribe to a remote-job id to pre-select. Returns an unsubscribe fn. */
+    onSelect: (cb: (id: string | null) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, id: string | null): void => cb(id)
+      ipcRenderer.on('jobs:select', listener)
+      return () => ipcRenderer.removeListener('jobs:select', listener)
+    },
+    /** Jobs window → main window: request an action be run there. */
+    sendAction: (action: JobsAction): void => ipcRenderer.send('jobs:action', action),
+    /** Main window: subscribe to actions from the Jobs window. Returns an unsubscribe fn. */
+    onAction: (cb: (action: JobsAction) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, action: JobsAction): void => cb(action)
+      ipcRenderer.on('jobs:action', listener)
+      return () => ipcRenderer.removeListener('jobs:action', listener)
+    }
+  },
+  /**
+   * Detachable Modeling Commands window. It's a form in its own OS window; the
+   * main window owns the active system + launch logic + viewer, so this window
+   * receives a small context snapshot and forwards launches back to the main
+   * window (local runs fire-and-forget; remote submits await a boolean reply).
+   */
+  commandsWindow: {
+    /** Open (or focus) the Commands window. */
+    open: (): void => ipcRenderer.send('commands:open'),
+    /** Main window → Commands window: publish the current context snapshot. */
+    publishContext: (ctx: CommandsContext): void =>
+      ipcRenderer.send('commands:publishContext', ctx),
+    /** Commands window: ask main to (re)send the current context on mount. */
+    requestContext: (): void => ipcRenderer.send('commands:requestContext'),
+    /** Commands window: subscribe to context updates. Returns an unsubscribe fn. */
+    onContext: (cb: (ctx: CommandsContext) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, ctx: CommandsContext): void => cb(ctx)
+      ipcRenderer.on('commands:context', listener)
+      return () => ipcRenderer.removeListener('commands:context', listener)
+    },
+    /** Commands window → main window: launch a local run against the active system. */
+    run: (req: CommandsRunReq): void => ipcRenderer.send('commands:run', req),
+    /** Main window: subscribe to forwarded local runs. Returns an unsubscribe fn. */
+    onRun: (cb: (req: CommandsRunReq) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, req: CommandsRunReq): void => cb(req)
+      ipcRenderer.on('commands:run', listener)
+      return () => ipcRenderer.removeListener('commands:run', listener)
+    },
+    /** Commands window → main window: submit a remote job; resolves to success. */
+    submit: (opts: unknown): Promise<boolean> => ipcRenderer.invoke('commands:submit', opts),
+    /** Main window: subscribe to forwarded remote submits. Returns an unsubscribe fn. */
+    onSubmit: (cb: (m: CommandsSubmitMsg) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, m: CommandsSubmitMsg): void => cb(m)
+      ipcRenderer.on('commands:submit', listener)
+      return () => ipcRenderer.removeListener('commands:submit', listener)
+    },
+    /** Main window → main: resolve a forwarded submit with its result. */
+    submitResult: (reqId: number, ok: boolean): void =>
+      ipcRenderer.send('commands:submitResult', { reqId, ok }),
+    /** Commands window → main window: open the Clusters manager. */
+    manageClusters: (): void => ipcRenderer.send('commands:manageClusters'),
+    /** Main window: subscribe to a request to open the Clusters manager. */
+    onManageClusters: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on('commands:manageClusters', listener)
+      return () => ipcRenderer.removeListener('commands:manageClusters', listener)
     }
   },
   /** Enable/disable the File ▸ Save Structure As ▸ PDB menu item. */

@@ -157,7 +157,8 @@ body {
   width: 14px;
   height: 14px;
   padding: 0;
-  border: 1px solid var(--border);
+  /* Off state: an empty rounded box with a thin blue outline (on state fills it). */
+  border: 1px solid var(--accent);
   border-radius: 3px;
   background: transparent;
   cursor: pointer;
@@ -1341,6 +1342,30 @@ body {
   height: 84vh;
   display: flex;
   flex-direction: column;
+}
+
+/* Detached Jobs window: the same Jobs panel filling its own OS window (no modal
+   backdrop/×). Mirrors the .modal.modal-xl flex-column layout so .jobs-manager
+   still gets a sized, scrollable parent. */
+.jobs-window {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem;
+  background: var(--panel);
+}
+
+/* Detached Modeling Commands window: the Commands panel filling its own OS window
+   (no modal backdrop/×). Mirrors .modal.modal-lg's flex-column layout so the
+   .cmd-body grid gets a sized, scrollable parent. */
+.commands-window {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem;
+  background: var(--panel);
 }
 
 /* Clusters modal: list + editor, same two-column shape as the commands modal. */

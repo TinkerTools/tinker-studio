@@ -15,7 +15,7 @@ import {
 import { parseTinkerXyz } from './core/parseXyz'
 import { parsePdb } from './core/parsePdb'
 import { parseSdf } from './core/parseSdf'
-import { SAVE_FORMATS, type SaveFormat } from './core/writers'
+import { SAVE_FORMATS, writePdb, type SaveFormat } from './core/writers'
 import { writeTinkerXyz } from './core/writeXyz'
 import { isUntyped, withBasicTypes } from './core/basicTypes'
 import { parsePrm, applyForceField } from './core/parsePrm'
@@ -28,13 +28,18 @@ import {
 } from './core/transform'
 import { AtomBrowser } from './AtomBrowser'
 import { BuilderView } from './BuilderView'
-import { CommandsModal, type SubmitRemote } from './CommandsModal'
-import { JobsModal } from './JobsModal'
+import type { SubmitRemote } from './CommandsModal'
 import { KeywordsModal } from './KeywordsModal'
 import { ClustersModal } from './ClustersModal'
 import { RemoteOpenModal } from './RemoteOpenModal'
 import { liveKind, type JobRecord, type LiveKind } from './core/job'
 import type { ClusterProfile, RemoteJobRecord } from '../../main/remote/types'
+
+// Payloads forwarded from the detached windows, derived from the ambient
+// window.tinker type (importing the preload source would break the renderer's
+// composite tsconfig).
+type JobsAction = Parameters<Window['tinker']['jobsWindow']['sendAction']>[0]
+type CommandsRunReq = Parameters<Window['tinker']['commandsWindow']['run']>[0]
 import {
   DEFAULT_RENDER_OPTIONS,
   REPRESENTATIONS,
@@ -80,15 +85,12 @@ export default function App() {
   const [pickLevel, setPickLevel] = useState<PickLevel>('atom')
   const [picks, setPicks] = useState<PickResult[]>([])
   const [modal, setModal] = useState<
-    'commands' | 'keywords' | 'jobs' | 'graphics' | 'clusters' | 'remoteOpen' | null
+    'keywords' | 'graphics' | 'clusters' | 'remoteOpen' | null
   >(null)
   const [jobs, setJobs] = useState<JobRecord[]>([])
   const [clusters, setClusters] = useState<ClusterProfile[]>([])
-  const [remoteJobs, setRemoteJobs] = useState<RemoteJobRecord[]>([])
   const [pwPrompt, setPwPrompt] = useState<{ clusterId: string; clusterName: string } | null>(null)
   const pwResolveRef = useRef<((ok: boolean) => void) | null>(null)
-  // Remote job to pre-select when the Jobs modal next opens (e.g. just submitted).
-  const [jobSelectId, setJobSelectId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [atomsOpen, setAtomsOpen] = useState(false)
@@ -398,13 +400,30 @@ export default function App() {
   const onJobFinishedRef = useRef<(jobId: string) => void>(() => {})
   onJobFinishedRef.current = async (jobId: string): Promise<void> => {
     const job = jobsRef.current.find((j) => j.id === jobId)
-    if (!job?.structurePath) return
+    if (!job) return
     try {
+      // The calculation's key carries onto whatever structure it produced, so the
+      // result (e.g. pdbxyz's .xyz) keeps the same parameters/force field.
+      const carry = { keyName: job.resultKeyName, keyText: job.resultKeyText }
+      // A converter (pdbxyz/xyzpdb) writes a named result next to its input — load it.
+      if (job.loadResult && job.inputPath) {
+        const out = await window.tinker.job.collectNamed(job.inputPath, job.loadResult, job.startedAt)
+        if (out) {
+          addSystem(parseStructureFile(out.text, out.name), `${job.program} · ${out.name}`, {
+            path: out.path,
+            select: false,
+            ...carry
+          })
+        }
+        return
+      }
+      if (!job.structurePath) return
       const result = await window.tinker.job.collectResult(job.structurePath, job.startedAt)
       if (!result) return
       addSystem(parseStructureFile(result.text, result.name), `${job.program} · ${result.name}`, {
         path: result.path,
-        select: false
+        select: false,
+        ...carry
       })
     } catch (e) {
       setError(messageOf(e))
@@ -644,7 +663,8 @@ export default function App() {
     system: MolecularSystem | null,
     stdin: string,
     watch: boolean,
-    requiresStructure: boolean
+    requiresStructure: boolean,
+    loadResult?: 'xyz' | 'pdb'
   ): Promise<{ id: string; ok: boolean }> {
     const id = `job-${Date.now()}`
     const sysName = system?.name ?? program
@@ -661,28 +681,48 @@ export default function App() {
       }
     ])
 
-    // Resolve the coordinate file: builders (no structure) run with none; a
-    // system without a file on disk is written to a scratch .xyz first (with its
-    // key, or a minimal default key so the run can be attempted).
+    // Resolve the coordinate file and the effective key. Builders (no structure) run
+    // with none; a system without a file on disk is written to a scratch file in its
+    // NATIVE format (a PDB system → a real .pdb, so pdbxyz gets the file it expects).
     let structurePath = ''
+    let effectiveKey: string | null = null
+    // The meaningful key to carry onto structures this calculation produces (the
+    // attached key or the auto basic.prm key — not a params-less default).
+    let carryKeyText: string | undefined
+    let carryKeyName: string | undefined
     if (requiresStructure && system) {
+      const baked = bakeTransform(system.structure, system.transform)
+      const hasOwnParams = !!system.keyText && /^\s*parameters\b/im.test(system.keyText)
+      // A PDB system runs only pdbxyz, which needs a real .pdb; every other system
+      // runs Tinker-.xyz programs, so it's written as a Tinker .xyz (and can be
+      // auto-typed for basic.prm when it's an untyped in-memory molecule).
+      const nativePdb = system.fileType === 'pdb'
+      const useBasic = isUntyped(baked) && !hasOwnParams && !nativePdb && !system.path
+      // The key the run should use: an attached/loaded key wins; else basic.prm for an
+      // auto-typed molecule; else a minimal key for a scratch system; else none (a
+      // file-backed system falls back to Tinker's on-disk sibling key).
+      effectiveKey = system.keyText?.trim()
+        ? system.keyText
+        : useBasic
+          ? BASIC_KEY
+          : system.path
+            ? null
+            : DEFAULT_KEY
+      if (system.keyText?.trim()) {
+        carryKeyText = system.keyText
+        carryKeyName = system.keyName ?? 'tinker.key'
+      } else if (useBasic) {
+        carryKeyText = BASIC_KEY
+        carryKeyName = BASIC_KEY_NAME
+      }
       if (system.path) {
         structurePath = system.path
       } else {
         try {
-          // An untyped molecule (e.g. a download) gets basic.prm atom types and a
-          // key referencing basic.prm so the run has parameters — done only in the
-          // scratch file, never mutating the in-memory system. A system carrying a
-          // real key keeps it.
-          const baked = bakeTransform(system.structure, system.transform)
-          const hasOwnParams = !!system.keyText && /^\s*parameters\b/im.test(system.keyText)
-          const useBasic = isUntyped(baked) && !hasOwnParams
-          structurePath = await window.tinker.job.prepareStructure(
-            system.name,
-            writeTinkerXyz(useBasic ? withBasicTypes(baked) : baked),
-            system.keyText ?? DEFAULT_KEY,
-            useBasic
-          )
+          const [text, ext] = nativePdb
+            ? [writePdb(baked), 'pdb']
+            : [writeTinkerXyz(useBasic ? withBasicTypes(baked) : baked), 'xyz']
+          structurePath = await window.tinker.job.prepareStructure(system.name, ext, text)
         } catch (e) {
           setJobs((prev) =>
             prev.map((j) => (j.id === id ? { ...j, status: 'failed', output: messageOf(e) } : j))
@@ -692,11 +732,27 @@ export default function App() {
       }
     }
 
+    // Record, for onJobFinished: where a converter (pdbxyz/xyzpdb) writes its result,
+    // and the key to carry onto any structure this calculation produces.
+    if ((loadResult && structurePath) || carryKeyText) {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === id
+            ? {
+                ...j,
+                ...(loadResult && structurePath ? { inputPath: structurePath, loadResult } : {}),
+                ...(carryKeyText ? { resultKeyText: carryKeyText, resultKeyName: carryKeyName } : {})
+              }
+            : j
+        )
+      )
+    }
+
     const kind = watch && system && structurePath ? liveKind(program) : null
     if (kind && system) {
       // Dynamics with a DCD-ARCHIVE key writes a .dcd — stream it into the SAME
       // system (attach), rather than spawning a separate "(live)" arc system.
-      const dcdOutput = kind === 'dynamics' && /^\s*dcd-archive\b/im.test(system.keyText ?? '')
+      const dcdOutput = kind === 'dynamics' && /^\s*dcd-archive\b/im.test(effectiveKey ?? '')
       if (dcdOutput) {
         const prevTrajId = system.trajectory?.source?.trajId
         if (prevTrajId) void window.tinker.trajectory.close(prevTrajId)
@@ -717,7 +773,10 @@ export default function App() {
           name: `${program} · ${system.name} (live)`,
           fileType: kind === 'dynamics' ? 'arc' : system.fileType,
           structure: system.structure,
-          trajectory: { frameCount: 0, frames: [] }
+          trajectory: { frameCount: 0, frames: [] },
+          // Carry the calculation's key onto the resulting trajectory.
+          keyName: carryKeyName,
+          keyText: carryKeyText
         }
         setSystems((prev) => [...prev, liveSystem])
         setActiveId(liveId)
@@ -739,7 +798,7 @@ export default function App() {
       structurePath,
       stdin,
       watch: kind,
-      keyText: system?.keyText
+      keyText: effectiveKey ?? undefined
     })
     setJobs((prev) =>
       prev.map((j) => {
@@ -993,9 +1052,7 @@ export default function App() {
     else if (action === 'download:pubchem') setDownloadSource('pubchem')
     else if (action === 'download:nci') setDownloadSource('nci')
     else if (action === 'download:pdb') setDownloadSource('pdb')
-    else if (action === 'commands') setModal('commands')
     else if (action === 'graphics') setModal('graphics')
-    else if (action === 'jobs') setModal('jobs')
     else if (action === 'clusters') setModal('clusters')
     else if (action === 'openRemote') setModal('remoteOpen')
     else if (action === 'keywords') {
@@ -1022,22 +1079,68 @@ export default function App() {
     return window.tinker?.onMenu((action) => menuHandlerRef.current(action))
   }, [])
 
+  // Actions forwarded from the detached Jobs window run here, since this window
+  // owns local job state and the 3D viewer. A ref keeps the subscription stable
+  // while the handlers see fresh closures.
+  const jobsActionRef = useRef<(a: JobsAction) => void>(() => {})
+  jobsActionRef.current = (a: JobsAction): void => {
+    if (a.type === 'clear') clearJob(a.id)
+    else if (a.type === 'viewLive') void viewRemoteJob(a.job)
+    else if (a.type === 'openResult') void openRemoteResult(a.job)
+  }
+  useEffect(() => {
+    return window.tinker?.jobsWindow.onAction((a) => jobsActionRef.current(a))
+  }, [])
+
+  // Keep the detached Jobs window's local job list in sync with ours.
+  useEffect(() => {
+    window.tinker?.jobsWindow.publishLocal(jobs)
+  }, [jobs])
+
+  // Launches forwarded from the detached Modeling Commands window run here, since
+  // this window owns the active system, launch logic, and viewer. Refs keep the
+  // subscriptions stable while the handlers see fresh closures (active, clusters).
+  const commandsRunRef = useRef<(req: CommandsRunReq) => void>(() => {})
+  commandsRunRef.current = (req: CommandsRunReq): void => {
+    void startJob(req.program, active, req.stdin, req.watch, req.requiresStructure, req.loadResult)
+  }
+  const commandsSubmitRef = useRef<(m: { reqId: number; opts: unknown }) => void>(() => {})
+  commandsSubmitRef.current = (m): void => {
+    void submitRemote(m.opts as Parameters<SubmitRemote>[0]).then((ok) =>
+      window.tinker.commandsWindow.submitResult(m.reqId, ok)
+    )
+  }
+  useEffect(() => {
+    const offRun = window.tinker?.commandsWindow.onRun((req) => commandsRunRef.current(req))
+    const offSubmit = window.tinker?.commandsWindow.onSubmit((m) => commandsSubmitRef.current(m))
+    const offManage = window.tinker?.commandsWindow.onManageClusters(() => setModal('clusters'))
+    return () => {
+      offRun?.()
+      offSubmit?.()
+      offManage?.()
+    }
+  }, [])
+
+  // Publish the context the detached Commands window needs (active-system summary,
+  // Tinker dir, clusters) whenever it changes.
+  const cmdSystem = active
+    ? { name: active.name, fileType: active.fileType, hasKey: Boolean(active.keyText) }
+    : null
+  useEffect(() => {
+    window.tinker?.commandsWindow.publishContext({ system: cmdSystem, tinkerDir, clusters })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmdSystem?.name, cmdSystem?.fileType, cmdSystem?.hasKey, tinkerDir, clusters])
+
   useEffect(() => {
     void window.tinker?.settings.get().then((s) => setTinkerDir(s.tinkerDir))
   }, [])
 
-  // Load configured clusters + remembered remote jobs, and keep the job list live.
+  // Load configured clusters and react to remote job updates. The remote job list
+  // itself is now owned by the detached Jobs window; here we only need the updates
+  // to stop growing a finished live job's streamed trajectory in the viewer.
   useEffect(() => {
     void window.tinker?.remote.listClusters().then(setClusters)
-    void window.tinker?.remote.listJobs().then(setRemoteJobs)
     return window.tinker?.remote.onJobUpdate((job) => {
-      setRemoteJobs((prev) => {
-        const i = prev.findIndex((j) => j.id === job.id)
-        if (i < 0) return [job, ...prev]
-        const next = prev.slice()
-        next[i] = job
-        return next
-      })
       // When a live job finishes, stop growing its streamed trajectory (one final
       // refresh still happens on the next tick before the flag clears).
       const terminal =
@@ -1158,9 +1261,8 @@ export default function App() {
         }
       }
       const job = await window.tinker.remote.submit(req)
-      setRemoteJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)])
-      // Pre-select this job so the Jobs modal (opened next by onStarted) shows it.
-      setJobSelectId(job.id)
+      // Open the Jobs window pre-selecting this job (onStarted also opens it next).
+      window.tinker.jobsWindow.open(job.id)
       return job.status !== 'failed'
     } catch (e) {
       setError(messageOf(e))
@@ -1849,34 +1951,6 @@ export default function App() {
         />
       )}
 
-      {modal === 'commands' && (
-        <CommandsModal
-          system={active}
-          tinkerDir={tinkerDir}
-          jobs={jobs}
-          clusters={clusters}
-          onRunJob={startJob}
-          onSubmitRemote={submitRemote}
-          onManageClusters={() => setModal('clusters')}
-          onStarted={() => setModal('jobs')}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal === 'jobs' && (
-        <JobsModal
-          jobs={jobs}
-          remoteJobs={remoteJobs}
-          initialRemoteId={jobSelectId}
-          onCancel={(id) => void window.tinker.job.cancel(id)}
-          onClear={clearJob}
-          onRemoteCancel={(id) => void window.tinker.remote.cancel(id)}
-          onRemoteForget={(id) => void window.tinker.remote.forgetJob(id).then(setRemoteJobs)}
-          onRemoteRename={(id, label) => void window.tinker.remote.renameJob(id, label)}
-          onViewLive={(job) => void viewRemoteJob(job)}
-          onOpenResult={(job) => void openRemoteResult(job)}
-          onClose={() => setModal(null)}
-        />
-      )}
       {modal === 'clusters' && (
         <ClustersModal
           clusters={clusters}

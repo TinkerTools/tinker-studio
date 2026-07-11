@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, Menu, safeStorage } from 'electron'
 import type { MenuItemConstructorOptions, IpcMainInvokeEvent } from 'electron'
-import { join, basename, dirname } from 'path'
+import { join, basename, dirname, isAbsolute, resolve as resolvePath } from 'path'
+import { homedir } from 'os'
 import { readFile, writeFile } from 'fs/promises'
 import {
   readFileSync,
@@ -100,8 +101,8 @@ function buildApplicationMenu(): void {
     {
       label: 'Tinker',
       submenu: [
-        { label: 'Modeling Commands…', click: () => sendMenu('commands') },
-        { label: 'Jobs…', click: () => sendMenu('jobs') },
+        { label: 'Modeling Commands…', click: () => openCommandsWindow() },
+        { label: 'Jobs…', click: () => openJobsWindow() },
         { label: 'Clusters…', click: () => sendMenu('clusters') },
         { label: 'Keyword Reference…', click: () => sendMenu('keywords') },
         { label: 'Open Key File…', click: () => sendMenu('openKey') },
@@ -137,8 +138,28 @@ function buildApplicationMenu(): void {
  * exposed to the renderer through typed IPC channels via the preload script,
  * never by enabling nodeIntegration in the renderer.
  */
+
+// The main app window and the detachable Jobs window (its own OS window). The
+// main window owns local job state + the 3D viewer; the Jobs window is a thin
+// view that relays actions back to it. See the `jobs:*` IPC handlers below.
+let mainWindow: BrowserWindow | null = null
+let jobsWindow: BrowserWindow | null = null
+// The detachable Modeling Commands window (its own OS window / renderer).
+let commandsWindow: BrowserWindow | null = null
+// Latest local-job snapshot published by the main window, replayed to the Jobs
+// window whenever it (re)mounts. (Remote jobs come from the main process.)
+let lastLocalJobs: unknown[] = []
+// Remote-job id the Jobs window should select next (e.g. one just submitted).
+let lastSelectId: string | null = null
+// Latest context (system summary, tinker dir, clusters) published by the main
+// window, replayed to the Commands window whenever it (re)mounts.
+let lastCommandsContext: unknown = { system: null, clusters: [] }
+// Pending remote-submit round-trips forwarded to the main window, by request id.
+let commandsSubmitSeq = 0
+const commandsSubmitPending = new Map<number, (ok: boolean) => void>()
+
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 800,
@@ -153,11 +174,15 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
 
-  mainWindow.on('ready-to-show', () => mainWindow.show())
+  win.on('ready-to-show', () => win.show())
 
   // Open external links in the user's browser, never inside the app window.
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
@@ -166,9 +191,9 @@ function createWindow(): void {
   // build we load the bundled HTML file from disk.
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) {
-    mainWindow.loadURL(devUrl)
+    win.loadURL(devUrl)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
   // Headless screenshot harness (dev/verification only): when TINKER_STUDIO_CAPTURE
@@ -177,10 +202,10 @@ function createWindow(): void {
   // the screen. No effect during normal use.
   const capturePath = process.env['TINKER_STUDIO_CAPTURE']
   if (capturePath) {
-    mainWindow.webContents.once('did-finish-load', () => {
+    win.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
         try {
-          const image = await mainWindow.webContents.capturePage()
+          const image = await win.webContents.capturePage()
           await writeFile(capturePath, image.toPNG())
         } catch (e) {
           console.error('capture failed:', e)
@@ -188,6 +213,106 @@ function createWindow(): void {
         app.quit()
       }, 4000)
     })
+  }
+}
+
+/**
+ * Open (or focus) the detachable Jobs window — a standalone OS window rendering
+ * the Jobs panel, movable anywhere on the display. When already open, push the
+ * current local jobs + any new selection; otherwise create it and let the
+ * renderer pull the initial state via `jobs:requestState` once mounted.
+ */
+function openJobsWindow(selectId?: string | null): void {
+  if (typeof selectId === 'string' && selectId) lastSelectId = selectId
+
+  if (jobsWindow && !jobsWindow.isDestroyed()) {
+    if (jobsWindow.isMinimized()) jobsWindow.restore()
+    jobsWindow.focus()
+    jobsWindow.webContents.send('jobs:localJobs', lastLocalJobs)
+    if (typeof selectId === 'string' && selectId) {
+      jobsWindow.webContents.send('jobs:select', selectId)
+    }
+    return
+  }
+
+  const win = new BrowserWindow({
+    // Wide enough that the right-side log panel shows 80-column Tinker output
+    // without wrapping (left list ~280px + grid gap + padding + an ~80ch pre).
+    width: 1040,
+    height: 640,
+    minWidth: 480,
+    minHeight: 360,
+    show: false,
+    title: 'Jobs — Tinker Studio',
+    backgroundColor: '#12141a',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  jobsWindow = win
+  win.on('closed', () => {
+    if (jobsWindow === win) jobsWindow = null
+  })
+  win.on('ready-to-show', () => win.show())
+  win.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devUrl) {
+    void win.loadURL(`${devUrl}/jobs.html`)
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/jobs.html'))
+  }
+}
+
+/**
+ * Open (or focus) the detachable Modeling Commands window — a standalone,
+ * resizable OS window rendering the Commands panel. It's a form: launches are
+ * forwarded to the main window (which runs them against its active system and
+ * viewer). The renderer pulls the current context via `commands:requestContext`.
+ */
+function openCommandsWindow(): void {
+  if (commandsWindow && !commandsWindow.isDestroyed()) {
+    if (commandsWindow.isMinimized()) commandsWindow.restore()
+    commandsWindow.focus()
+    return
+  }
+
+  const win = new BrowserWindow({
+    width: 940,
+    height: 760,
+    minWidth: 640,
+    minHeight: 480,
+    show: false,
+    title: 'Modeling Commands — Tinker Studio',
+    backgroundColor: '#12141a',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  commandsWindow = win
+  win.on('closed', () => {
+    if (commandsWindow === win) commandsWindow = null
+  })
+  win.on('ready-to-show', () => win.show())
+  win.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devUrl) {
+    void win.loadURL(`${devUrl}/commands.html`)
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/commands.html'))
   }
 }
 
@@ -311,38 +436,51 @@ function listSampleFiles(): string[] {
 }
 
 /**
- * Prepare a job's key text and provision the parameter files it names into the job's
- * working directory `dir`, so Tinker's getprm can open them from there.
+ * Rewrite a job key's `parameters` lines to absolute, quoted paths Tinker can open
+ * from anywhere, provisioning the bundled basic.prm into `jobDir` as needed:
  *
- *  - `basic.prm` → copy the bundled copy (see `basicPrmPath`) into `dir` and keep the
- *    reference *bare*, so getprm opens `./basic.prm`. Using a plain name rather than
- *    an absolute path keeps it robust to app-bundle paths that contain spaces and
- *    independent of the user's Tinker install.
- *  - any other bare name → resolve to an absolute path in the user's Tinker params
- *    dir (stable, space-free) so getprm can open it directly.
- *  - a name that already includes a path, or can't be placed, is left as written.
+ *  - `~/…` → expanded to the user's home directory (Tinker's getprm does no shell
+ *    tilde expansion, so an unexpanded `~` path can never be opened).
+ *  - an absolute path → kept (quoted, so paths with spaces survive).
+ *  - a relative path (with a separator) → resolved against `baseDir` (the structure's
+ *    original directory) when known.
+ *  - bare `basic.prm` → the bundled copy is placed in `jobDir` and referenced by its
+ *    absolute path there (space-free scratch dir), independent of the Tinker install.
+ *  - any other bare name → looked up in the user's Tinker params dir.
+ *  - anything unresolvable (incl. `none`) is left as written.
  *
- * (Tinker resolves a bare parameter name relative to its current directory; when it
- * can't find the file it falls back to an interactive prompt, which — with our closed
- * stdin — dies with an "end of file" error. Provisioning the file avoids that.)
+ * (Tinker resolves a bare/relative parameter name relative to its current directory;
+ * when it can't find the file it falls back to an interactive prompt, which — with
+ * our closed stdin — dies with an "end of file" error. Absolute paths avoid that and
+ * make the reference independent of the program's working directory.)
  */
-function provisionJobKey(keyText: string, dir: string): string {
-  return resolveKeyParameterPaths(keyText, (name) => {
-    const file = /\.prm$/i.test(name) ? name : `${name}.prm`
+function provisionJobKey(keyText: string, jobDir: string, baseDir?: string): string {
+  return resolveKeyParameterPaths(keyText, (value) => {
+    if (value.toLowerCase() === 'none') return null
+    // Expand a leading ~ (~/… or bare ~) to the home directory.
+    let p = value
+    if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) {
+      p = join(homedir(), p.slice(1).replace(/^[/\\]+/, ''))
+    }
+    if (isAbsolute(p)) return p // quoted as-is by the caller
+    if (/[/\\]/.test(p)) return baseDir ? resolvePath(baseDir, p) : null // relative
+    // Bare name: our bundled basic.prm, else a file in the Tinker params dir.
+    const file = /\.prm$/i.test(p) ? p : `${p}.prm`
     if (file.toLowerCase() === 'basic.prm') {
       const bundled = basicPrmPath()
       if (!bundled) return null
+      const dest = join(jobDir, 'basic.prm')
       try {
-        copyFileSync(bundled, join(dir, 'basic.prm'))
-        return null // leave `parameters basic.prm` bare — now resolvable in `dir`
+        copyFileSync(bundled, dest)
+        return dest
       } catch {
-        return bundled // couldn't copy; fall back to the absolute path
+        return bundled
       }
     }
     const params = tinkerParamsDir()
     if (!params) return null
-    const p = join(params, file)
-    return existsSync(p) ? p : null
+    const abs = join(params, file)
+    return existsSync(abs) ? abs : null
   })
 }
 
@@ -653,21 +791,18 @@ function registerIpcHandlers(): void {
     resolveForceFieldFromKey(keyText, keyPath ? dirname(keyPath) : '.')
   )
 
-  // Write an in-memory system to a scratch .xyz (+ .key) so a Tinker job can run
-  // on a system that wasn't loaded from a file on disk. Returns the .xyz path.
-  // When `basicKey` is set (an untyped molecule typed for basic.prm), the key
-  // references Tinker Studio's bundled basic.prm so the run actually has parameters.
+  // Write an in-memory system to a scratch structure file (in its native format —
+  // `ext` is 'xyz' | 'pdb' | 'mol' | …, so a PDB system feeds pdbxyz a real .pdb) so
+  // a Tinker job can run on a system that wasn't loaded from a file on disk. Returns
+  // the file path. The key is written separately by `job:run` (which also -k's it).
   ipcMain.handle(
     'job:prepareStructure',
-    (_e, name: string, xyzText: string, keyText?: string, basicKey?: boolean): string => {
+    (_e, name: string, ext: string, text: string): string => {
       const dir = workDir()
       const stem = (name.replace(/\.[^.]*$/, '') || 'structure').replace(/[^A-Za-z0-9._-]/g, '_')
-      const path = join(dir, `${stem}.xyz`)
-      writeFileSync(path, xyzText, 'utf8')
-      // basicKey ⇒ use the bundled basic.prm; otherwise the system's own key. Either
-      // way, provisionJobKey drops any referenced parameter file into `dir`.
-      const key = basicKey ? 'parameters basic.prm\n' : keyText
-      if (key != null) writeFileSync(join(dir, `${stem}.key`), provisionJobKey(key, dir), 'utf8')
+      const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext.toLowerCase() : 'xyz'
+      const path = join(dir, `${stem}.${safeExt}`)
+      writeFileSync(path, text, 'utf8')
       return path
     }
   )
@@ -859,35 +994,62 @@ function registerIpcHandlers(): void {
       const dir = structurePath ? dirname(structurePath) : workDir()
       const inputName = structurePath ? basename(structurePath) : ''
       const stem = inputName.replace(/\.[^.]*$/, '')
+      // Relative `parameters` paths in a key resolve against the structure's own dir.
+      const baseDir = structurePath ? dirname(structurePath) : undefined
 
-      // For minimizers without SAVE-CYCLE in their key, run on a throwaway copy
-      // with a temp key that adds it, so the real key/dir stay untouched.
+      // Provision the effective key once: absolute, openable parameter paths (with the
+      // bundled basic.prm copied into the scratch dir). Null when there's no key, so a
+      // file-backed system with an on-disk sibling key still uses that sibling.
+      const provisioned =
+        keyText != null && keyText.trim() ? provisionJobKey(keyText, workDir(), baseDir) : null
+
       let runName = inputName
       let live: LiveWatch | null = null
+      // Always point Tinker at the key explicitly with -k, so an attached key is used
+      // regardless of the input file's location or a stale sibling next to it.
+      let keyArgs: string[] = []
       try {
-        if (watch === 'minimize') {
-          if (hasSaveCycle(keyText)) {
-            live = makeLiveWatch('minimize', dir, inputName, stem, false)
-          } else {
-            const watchStem = `${stem}${LIVE_SUFFIX}`
-            copyFileSync(structurePath, join(dir, `${watchStem}.xyz`))
-            const liveKey = buildLiveKey(keyText != null ? provisionJobKey(keyText, dir) : keyText)
-            writeFileSync(join(dir, `${watchStem}.key`), liveKey, 'utf8')
-            runName = `${watchStem}.xyz`
-            live = makeLiveWatch('minimize', dir, inputName, watchStem, true)
+        if (watch === 'minimize' && !hasSaveCycle(keyText)) {
+          // Run on a throwaway copy with a temp key that adds SAVE-CYCLE, so the real
+          // key/dir stay untouched.
+          const watchStem = `${stem}${LIVE_SUFFIX}`
+          copyFileSync(structurePath, join(dir, `${watchStem}.xyz`))
+          const watchKeyPath = join(dir, `${watchStem}.key`)
+          writeFileSync(watchKeyPath, buildLiveKey(provisioned ?? undefined), 'utf8')
+          runName = `${watchStem}.xyz`
+          keyArgs = ['-k', watchKeyPath]
+          live = makeLiveWatch('minimize', dir, inputName, watchStem, true)
+        } else {
+          if (provisioned != null) {
+            const keyPath = join(workDir(), `${stem || 'tinker'}.key`)
+            writeFileSync(keyPath, provisioned, 'utf8')
+            keyArgs = ['-k', keyPath]
           }
-        } else if (watch === 'dynamics') {
-          // A DCD-ARCHIVE key makes `dynamic` write <stem>.dcd instead of <stem>.arc.
-          const fmt = hasDcdArchive(keyText) ? 'dcd' : 'arc'
-          live = makeLiveWatch('dynamics', dir, inputName, stem, false, fmt)
+          if (watch === 'minimize') {
+            live = makeLiveWatch('minimize', dir, inputName, stem, false)
+          } else if (watch === 'dynamics') {
+            // A DCD-ARCHIVE key makes `dynamic` write <stem>.dcd instead of <stem>.arc.
+            const fmt = hasDcdArchive(keyText) ? 'dcd' : 'arc'
+            live = makeLiveWatch('dynamics', dir, inputName, stem, false, fmt)
+          }
         }
 
-        const args = [runName, ...extraArgs].filter((a) => a !== '')
+        const args = [runName, ...keyArgs, ...extraArgs].filter((a) => a !== '')
         const child = spawn(exe, args, { cwd: dir })
         jobs.set(jobId, child)
         const send = (stream: 'stdout' | 'stderr', chunk: Buffer): void => {
           event.sender.send('job:output', { jobId, stream, chunk: chunk.toString() })
         }
+        // Echo exactly what we launched (cwd, command line, and the effective key
+        // with its resolved `parameters` paths) so a run is transparent and any
+        // "key/parameter not found" is diagnosable from the job log.
+        const diag =
+          `[tinker-studio] cwd: ${dir}\n` +
+          `[tinker-studio] run: ${basename(exe)} ${args.join(' ')}\n` +
+          (provisioned != null
+            ? `[tinker-studio] key ${keyArgs[1] ?? `${stem}.key`}:\n${provisioned.replace(/\n?$/, '\n')}`
+            : '[tinker-studio] key: (none — using any sibling on disk)\n')
+        send('stdout', Buffer.from(diag))
         child.stdout?.on('data', (d) => send('stdout', d))
         child.stderr?.on('data', (d) => send('stderr', d))
 
@@ -961,11 +1123,108 @@ function registerIpcHandlers(): void {
     }
   )
 
+  // Collect a converter's output written next to its input with a fixed extension —
+  // e.g. pdbxyz on `mol.pdb` writes `mol.xyz` (`ext` = 'xyz'). Tinker versions a name
+  // that already exists (`mol.xyz_2`), so the newest matching file is returned.
+  ipcMain.handle(
+    'job:collectNamed',
+    (
+      _e,
+      req: { inputPath: string; ext: string; since: number }
+    ): { name: string; path: string; text: string } | null => {
+      try {
+        const dir = dirname(req.inputPath)
+        const stem = basename(req.inputPath).replace(/\.[^.]*$/, '')
+        const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const re = new RegExp(`^${esc(stem)}\\.${esc(req.ext)}(_\\d+)?$`, 'i')
+        const candidates = readdirSync(dir)
+          .filter((n) => re.test(n))
+          .map((name) => {
+            const path = join(dir, name)
+            return { name, path, mtime: statSync(path).mtimeMs }
+          })
+          .filter((c) => c.mtime >= req.since - 2000)
+        if (candidates.length === 0) return null
+        candidates.sort((a, b) => b.mtime - a.mtime)
+        const best = candidates[0]
+        return { name: best.name, path: best.path, text: readFileSync(best.path, 'utf8') }
+      } catch {
+        return null
+      }
+    }
+  )
+
   // Enable/disable the "Save as PDB" item — only structures carrying residue
   // data (i.e. loaded from PDB) round-trip meaningfully to PDB.
   ipcMain.on('menu:pdbExportEnabled', (_e, enabled: boolean) => {
     const item = Menu.getApplicationMenu()?.getMenuItemById('save-pdb')
     if (item) item.enabled = enabled
+  })
+
+  // Detachable Jobs window relay. The main window owns local job state and the
+  // viewer; the Jobs window is a separate renderer, so we (a) open/focus it,
+  // (b) relay the main window's published local jobs to it, and (c) forward the
+  // few actions that must run in the main window back to it.
+  ipcMain.on('jobs:open', (_e, selectId?: string | null) => openJobsWindow(selectId ?? null))
+  ipcMain.on('jobs:publishLocal', (_e, jobs: unknown[]) => {
+    lastLocalJobs = jobs
+    if (jobsWindow && !jobsWindow.isDestroyed()) {
+      jobsWindow.webContents.send('jobs:localJobs', jobs)
+    }
+  })
+  ipcMain.on('jobs:requestState', (e) => {
+    e.sender.send('jobs:localJobs', lastLocalJobs)
+    e.sender.send('jobs:select', lastSelectId)
+  })
+  ipcMain.on('jobs:action', (_e, action: { type: string }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('jobs:action', action)
+    // View-live / open-result load into the main window's 3D viewer — surface it.
+    if (action.type === 'viewLive' || action.type === 'openResult') {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+
+  // Detachable Modeling Commands window relay. The main window owns the active
+  // system, launch logic, and viewer; the Commands window is a form that receives
+  // a context snapshot and forwards launches back to the main window.
+  ipcMain.on('commands:open', () => openCommandsWindow())
+  ipcMain.on('commands:publishContext', (_e, ctx: unknown) => {
+    lastCommandsContext = ctx
+    if (commandsWindow && !commandsWindow.isDestroyed()) {
+      commandsWindow.webContents.send('commands:context', ctx)
+    }
+  })
+  ipcMain.on('commands:requestContext', (e) => {
+    e.sender.send('commands:context', lastCommandsContext)
+  })
+  ipcMain.on('commands:run', (_e, req: unknown) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('commands:run', req)
+  })
+  ipcMain.on('commands:manageClusters', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('commands:manageClusters')
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  })
+  // Remote submit is a round-trip: forward to the main window (which runs it
+  // against the active system, prompting for a password there if needed) and
+  // resolve the invoke when it posts the result back, correlated by reqId.
+  ipcMain.handle('commands:submit', (_e, opts: unknown): Promise<boolean> => {
+    if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(false)
+    const reqId = ++commandsSubmitSeq
+    return new Promise<boolean>((resolve) => {
+      commandsSubmitPending.set(reqId, resolve)
+      mainWindow!.webContents.send('commands:submit', { reqId, opts })
+    })
+  })
+  ipcMain.on('commands:submitResult', (_e, { reqId, ok }: { reqId: number; ok: boolean }) => {
+    const resolve = commandsSubmitPending.get(reqId)
+    if (resolve) {
+      commandsSubmitPending.delete(reqId)
+      resolve(ok)
+    }
   })
 
   // Save text (e.g. a composed .key file) to a user-chosen path.
