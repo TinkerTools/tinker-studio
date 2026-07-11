@@ -1,10 +1,10 @@
 # Tinker Studio
 
 A modern, from-scratch rebuild of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
-the molecular-modeling GUI for the [Tinker](https://github.com/TinkerTools/tinker)
-package. It aims to provide all the functionality of the original Java/Java3D
-application with a modern, customizable look — and to keep running on Linux,
-macOS, and Windows with minimal maintenance.
+intended as a molecular modeling GUI for the [Tinker](https://github.com/TinkerTools/tinker)
+package. It aims to provide all the functionality of the original FFE Java/Java3D application
+with a modern, customizable look — and to keep running on Linux, macOS, and Windows with
+minimal maintenance.
 
 ## Stack
 
@@ -67,8 +67,7 @@ src/
 
 ## Maintainability principles (non-negotiable)
 
-The original app rotted because it depended on niche/proprietary/non-standard
-pieces (Java3D, install4j, a JNI shim, `sun.misc`). To avoid repeating that:
+The original FFE app became hard to maintain because it depended on niche/proprietary and non-standard components (Java3D, install4j, a JNI shim, `sun.misc`). To avoid that situation Tinker Studio aims to:
 
 1. **Own the core.** Parsers, the molecular model, and rendering shaders are our
    own code on top of frozen web standards (WebGL2) — nothing niche underneath
@@ -82,7 +81,7 @@ pieces (Java3D, install4j, a JNI shim, `sun.misc`). To avoid repeating that:
 
 ## Status
 
-A working application, with most of the original FFE's functionality in place:
+At present, Tinker Studio is a working application, with most of the original FFE's functionality in place:
 
 - **Open / save** Tinker XYZ & ARC, PDB, MDL SDF/MOL, and INT (z-matrix), with
   automatic bond perception and force-field (`.prm`) pickup from a sibling
@@ -105,8 +104,4 @@ A working application, with most of the original FFE's functionality in place:
   they're written, and load the result back in as a new system.
 - **Packaging**: native installers for macOS, Windows, and Linux, built in CI.
 
-Still open: per-atom vector display (force/velocity/induced-dipole arrows from
-`.dyn` / `.uind`), molecular surfaces, and real secondary-structure cartoons.
-
-A read-only copy of the original application lives in `../tinker-ffe-original/`
-(a sibling of this project directory) for reference while porting.
+Still to be implemented: per-atom vector display (force/velocity/induced-dipole arrows from `.dyn` / `.uind`), molecular surfaces, and real secondary-structure cartoons.
