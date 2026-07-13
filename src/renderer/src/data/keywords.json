@@ -1,0 +1,2452 @@
+[
+  {
+    "name": "Computer Control",
+    "keywords": [
+      {
+        "name": "CUDA-DEVICE",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the device number of the NVIDIA GPU used for\ncalculations with CUDA-enabled versions of Tinker, such as Tinker-GPU and Tinker-HP. The CUDA-capable devices are\nnumbered internally by the system with consecutive integers, starting with 0 for the first device. An the absence\nof the CUDA-DEVICE keyword, Tinker GPU programs will attempt to use the fastest GPU not currently in use.",
+        "values": []
+      },
+      {
+        "name": "OPENMP-THREADS",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the number of threads used for OpenMP\nparallelization of certain Tinker calculations. The default in the absence of the OPENMP-THREADS keyword is to set\nthe number of threads equal to the total number of CPU cores available on the computer used.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Output Control",
+    "keywords": [
+      {
+        "name": "ARCHIVE",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker molecular dynamics-based programs to write trajectories\ndirectly to a single plain-text archive file with the .arc format. If an archive file already exists at the start of\nthe calculation, then the newly generated trajectory is appended to the end of the existing file. The default in the\nabsence of this keyword is to write the trajectory snapshots to consecutively numbered cycle files.",
+        "values": []
+      },
+      {
+        "name": "DCD-ARCHIVE",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker molecular dynamics-based programs to write trajectory\nframes directly to a single binary archive file in the CHARMM/XPLOR DCD format compatible with VMD and other programs,\nand having the .dcd extension. If a DCD archive file already exists at the start of the calculation, then the newly\ngenerated trajectory is appended to the end of the existing file. The default in the absence of this keyword is the\nARCHIVE behavior or writing a single formatted trajectory file with the .arc extension.",
+        "values": []
+      },
+      {
+        "name": "DEBUG",
+        "rep": "CHECKBOX",
+        "description": "Turns on printing of detailed information and intermediate values\nthroughout the progress of a Tinker computation; not recommended for use with large structures or full potential\nenergy functions since a summary of every individual interaction will usually be output.",
+        "values": []
+      },
+      {
+        "name": "EXIT-PAUSE",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker programs to pause and wait for a carriage\nreturn at the end of execution prior to returning control to the operating system. This may be useful to keep the\nexecution window open following termination on machines running Microsoft Windows or Apple macOS. The default in the\nabsence of the EXIT-PAUSE keyword, is to return control to the operating system immediately at program termination.",
+        "values": []
+      },
+      {
+        "name": "NOVERSION",
+        "rep": "CHECKBOX",
+        "description": "Turns off the use of version numbers appended to the end of filenames\nas the method for generating filenames for updated copies of an existing file. The presence of this keyword results in\ndirect use of input file names without a search for the highest available version, and requires the entry of specific\noutput file names in many additional cases. By default in the absence of this keyword Tinker generates and attaches\nversion numbers to the end of file names. For example, subsequent new versions of the file molecule.xyz would be written\nfirst to the file molecule.xyz_2, then to molecule.xyz_3, etc.",
+        "values": []
+      },
+      {
+        "name": "OVERWRITE",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker programs, such as minimizations, that output intermediate\ncoordinate sets to create a single disk file for the intermediate results which is successively overwritten with the new\nintermediate coordinates as they become available. This keyword is essentially the opposite of the SAVECYCLE keyword.",
+        "values": []
+      },
+      {
+        "name": "SAVE-CYCLE",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker programs, such as minimizations, that output\nintermediate coordinate sets to save each successive set to the next consecutively numbered cycle file. The SAVE-CYCLE\nkeyword is the opposite of the OVERWRITE keyword.",
+        "values": []
+      },
+      {
+        "name": "SAVE-FORCE",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker molecular dynamics calculations to save the values of\nthe force components on each atom to a separate cycle file. These files are written whenever the atomic coordinate\nsnapshots are written during the dynamics run. Each atomic force file name contains as a suffix the cycle number followed\nby the letter \"f\".",
+        "values": []
+      },
+      {
+        "name": "SAVE-INDUCED",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker molecular dynamics calculations involving polarizable\natomic multipoles to save the values of the induced dipole components on each polarizable atom to a separate cycle file.\nThese files are written whenever the atomic coordinate snapshots are written during the dynamics run. Each induced dipole\nfile name contains as a suffix the cycle number followed by the letter \"u\".",
+        "values": []
+      },
+      {
+        "name": "SAVE-VELOCITY",
+        "rep": "CHECKBOX",
+        "description": "Causes Tinker molecular dynamics calculations to save the values of\nthe velocity components on each atom to a separate cycle file. These files are written whenever the atomic coordinate\nsnapshots are written during the dynamics run. Each velocity file name contains as a suffix the cycle number followed\nby the letter \"v\".",
+        "values": []
+      },
+      {
+        "name": "UNWRAP-COORDS",
+        "rep": "CHECKBOX",
+        "description": "Turns off the wrapping of atomic coordinates to enforce periodic\nboundary condiations in output files during optimization or molecular dynamics. The keyword has no effect if periodic\nboundary conditions are not in use. The default in the absence of the UNWRAP-COORDS keyword is to wrap coordinates from\nmolecular dynamics, but to leave coordinates from optimization unwrapped.",
+        "values": []
+      },
+      {
+        "name": "VERBOSE",
+        "rep": "CHECKBOX",
+        "description": "Turns on printing of secondary and informational output during a variety\nof Tinker computations; a subset of the more extensive output provided by the DEBUG keyword.",
+        "values": []
+      },
+      {
+        "name": "DIGITS",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Controls the number of digits of precision to output in reporting\npotential energies and atomic coordinates. The allowed values for the integer modifier are 4, 6 and 8. Input values less\nthan 4 will be set to 4, and those greater than 8 will be set to 8. Final energy values reported by most Tinker programs\nwill contain the specified number of digits to the right of the decimal point. The number of decimal places to be output\nfor atomic coordinates is generally two larger than the value of DIGITS. In the absence of the DIGITS keyword a default\nvalue of 4 is used, and energies will be reported to four decimal places with coordinates to six decimal places.",
+        "values": []
+      },
+      {
+        "name": "ECHO",
+        "rep": "TEXTFIELD",
+        "description": "[text] Causes whatever text follows it on the keyword line to be copied\ndirectly to the output file. This keyword is also active in parameter files. It has no default value; if no text follows\nthe ECHO keyword, a blank line is placed in the output file.",
+        "values": []
+      },
+      {
+        "name": "PRINTOUT",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Control parameter for iterative procedures such as minimizations\nthat sets the number of iterations between writes of status information to the standard output. The default value in the\nabsence of the keyword is 1, i.e., the calculation status is output every iteration.",
+        "values": []
+      },
+      {
+        "name": "WRITEOUT",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Control parameter for iterative procedures such as minimizations\nthat sets the number of iterations between writes of intermediate results (such as the current coordinates) to disk files.\nThe default value in the absence of the keyword is 1, i.e., the intermediate results are written to file on every iteration.\nWhether successive results are saved to new files or replace previously written intermediate results is controlled by the\nOVERWRITE and SAVECYCLE keywords.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Mathematical Methods",
+    "keywords": [
+      {
+        "name": "FFT-PACKAGE",
+        "rep": "COMBOBOX",
+        "description": "[FFTPACK/FFTW] Specifies the fast Fourier transform package to be used\nin reciprocal space calculations as part of particle mesh Ewald summation. The default in the absence of the FFT-PACKAGE\nkeyword is to use FFTPACK for serial, single-threaded calculations, and FFTW for OpenMP parallel calculations using\nmultiple threads.",
+        "values": [
+          "FFTPACK",
+          "FFTW",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "RANDOMSEED",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Followed by an integer value, this keyword sets the initial\nseed value for the random number generator used by Tinker. Setting RANDOMSEED to the same value as an earlier run will\nallow exact reproduction of the earlier calculation. (Note that this will not hold across different machine types.)\nRANDOMSEED should be set to a positive integer less than about 2 billion. In the absence of the RANDOMSEED keyword\nthe seed is chosen randomly based upon the number of seconds that have elapsed in the current decade.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Force Field Selection",
+    "keywords": [
+      {
+        "name": "FORCEFIELD",
+        "rep": "TEXTFIELD",
+        "description": "[name] Provides a name for the force field to be used in the current\ncalculation. Its value is usually set in the master force field parameter file for the calculation (see the PARAMETERS\nkeyword) instead of in the keyfile.",
+        "values": []
+      },
+      {
+        "name": "PARAMETERS",
+        "rep": "TEXTFIELD",
+        "description": "[file name] Provides the name of the force field parameter file to\nbe used for the current Tinker calculation. The standard file name extension for parameter files, .prm, is an optional\npart of the file name modifier. The default in the absence of the PARAMETERS keyword is to look for a parameter file\nwith the same base name as the molecular system and ending in the .prm extension. If a valid parameter file is not found,\nthe user will asked to provide a file name interactively.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Potential Function Selection",
+    "keywords": [
+      {
+        "name": "ANGANGTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the angle-angle cross term potential energy.\nIn the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of this\npotential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "ANGLETERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the bond angle bending potential energy term.\nIn the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of this\npotential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "BONDTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the bond stretching potential energy term. In\nthe absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of this\npotential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "CHARGETERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the charge-charge potential energy term\nbetween pairs of atomic partial charges. In the absence of a modifying option, this keyword turns on use of the potential.\nThe NONE option turns off use of this potential energy term. The ONLY option turns off all potential energy terms except\nfor this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "CHGDPLTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the charge-dipole potential energy term\nbetween atomic partial charges and bond dipoles. In the absence of a modifying option, this keyword turns on use of the\npotential. The NONE option turns off use of this potential energy term. The ONLY option turns off all potential energy\nterms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "DIPOLETERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the dipole-dipole potential energy term\nbetween pairs of bond dipoles. In the absence of a modifying option, this keyword turns on use of the potential. The NONE\noption turns off use of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "EXTRATERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the user defined extra potential energy term.\nIn the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of this\npotential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "IMPROPTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the CHARMM-style improper dihedral angle\npotential energy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option\nturns off use of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "IMPTORSTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] ontrols use of the AMBER-style improper torsional angle\npotential energy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option\nturns off use of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "METALTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the transition metal ligand field potential\nenergy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off\nuse of this potential energy term. The ONLY option turns off all potential energy terms except for this one. Note this\nkeyword is present in the code, but not active in the current version of Tinker.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "MPOLETERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the atomic multipole electrostatics potential\nenergy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off\nuse of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "OPBENDTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the Allinger MM-style out-of-plane bending\npotential energy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option\nturns off use of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "OPDISTTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the out-of-plane distance potential energy\nterm. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use\nof this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "PITORSTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the pi-orbital torsional angle potential\nenergy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off\nuse of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "POLARIZETERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the atomic dipole polarization potential\nenergy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off\nuse of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "RESTRAINTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the restraint potential energy terms. In\nthe absence of a modifying option, this keyword turns on use of these potentials. The NONE option turns off use of these\npotential energy terms. The ONLY option turns off all potential energy terms except for these terms.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "RXNFIELDTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the reaction field continuum solvation\npotential energy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option\nturns off use of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "SOLVATETERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the macroscopic solvation potential energy\nterm. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of\nthis potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "STRBNDTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the bond stretching-angle bending cross term\npotential energy. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns\noff use of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "STRTORTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the bond stretching-torsional angle cross\nterm potential energy. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option\nturns off use of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "TORSIONTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the torsional angle potential energy term.\nIn the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of this\npotential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "TORTORTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the torsion-torsion potential energy term.\nIn the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of this\npotential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "UREYTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the Urey-Bradley potential energy term. In the\nabsence of a modifying option, this keyword turns on use of the potential. The NONE option turns off use of this potential\nenergy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "VDWTERM",
+        "rep": "COMBOBOX",
+        "description": "[NONE/ONLY] Controls use of the van der Waals repulsion-dispersion potential\nenergy term. In the absence of a modifying option, this keyword turns on use of the potential. The NONE option turns off\nuse of this potential energy term. The ONLY option turns off all potential energy terms except for this one.",
+        "values": [
+          "PRESENT",
+          "NONE",
+          "ONLY",
+          "DEFAULT"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Potential Function Parameter",
+    "keywords": [
+      {
+        "name": "ANGANG",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 3 reals] Provides the values for a single angle-angle\ncross term potential parameter. The integer modifier is the atom class of the central atom in the coupled angles. The real\nnumbermodifiers give the force constant values for individual angles with 0, 1 or 2 terminal hydrogenatoms, respectively.\nThe default units for the force constant are kcal/mole/radian^2, but this can be controlled via the ANGANGUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "ANGLE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 4 reals] Provides the values for a single bond angle\nbending parameter. The integer modifiers give the atom class numbers for the three kinds of atoms involved in the angle\nwhich is to be defined. The real number modifiers give the force constant value for the angle and up to three ideal bond\nangles in degrees. In most cases only one ideal bond angle is given, and that value is used for all occurrences of the\nspecified bond angle. If all three ideal angles are given, the values apply when the central atom of the angle is attached\nto 0, 1 or 2 additional hydrogen atoms, respectively. This hydrogen environment option is provided to implement the\ncorresponding feature of Allinger MM force fields. The default units for the force constant are kcal/mole/radian^2, but\nthis can be controlled via the ANGLEUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "ANGLE3",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 4 reals] Provides the values for a single bond angle\nbending parameter specific to atoms in 3-membered rings. The integer modifiers give the atom class numbers for the three\nkinds of atoms involved in the angle which is to be defined. The real number modifiers give the force constant value for\nthe angle and up to three ideal bond angles in degrees. If all three ideal angles are given, the values apply when the\ncentral atom of the angle is attached to 0, 1 or 2 additional hydrogen atoms, respectively. The default units for the\nforce constant are kcal/mole/radian2, but this can be controlled via the ANGLEUNIT keyword. If any ANGLE3 keywords are\npresent, either in the master force field parameter file or the keyfile, then Tinker requires that special ANGLE3\nparameters be given for all angles in 3-membered rings. In the absence of any ANGLE3 keywords, standard ANGLE parameters\nwill be used for bonds in 3-membered rings.",
+        "values": []
+      },
+      {
+        "name": "ANGLE4",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 4 reals] Provides the values for a single bond angle\nbending parameter specific to atoms in 4-membered rings. The integer modifiers give the atom class numbers for the three\nkinds of atoms involved in the angle which is to be defined. The real number modifiers give the force constant value for\nthe angle and up to three ideal bond angles in degrees. If all three ideal angles are given, the values apply when the\ncentral atom of the angle is attached to 0, 1 or 2 additional hydrogen atoms, respectively. The default units for the\nforce constant are kcal/mole/radian2, but this can be controlled via the ANGLEUNIT keyword. If any ANGLE4 keywords are\npresent, either in the master force field parameter file or the keyfile, then Tinker requires special ANGLE4 parameters\nbe given for all angles in 4-membered rings. In the absence of any ANGLE4 keywords, standard ANGLE parameters will be used\nfor bonds in 4-membered rings.",
+        "values": []
+      },
+      {
+        "name": "ANGLE5",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 4 reals] Provides the values for a single bond angle\nbending parameter specific to atoms in 5-membered rings. The integer modifiers give the atom class numbers for the three\nkinds of atoms involved in the angle which is to be defined. The real number modifiers give the force constant value for\nthe angle and up to three ideal bond angles in degrees. If all three ideal angles are given, the values apply when the\ncentral atom of the angle is attached to 0, 1 or 2 additional hydrogen atoms, respectively. The default units for the\nforce constant are kcal/mole/radian2, but this can be controlled via the ANGLEUNIT keyword. If any ANGLE5 keywords are\npresent, either in the master force field parameter file or the keyfile, then Tinker requires that special ANGLE5\nparameters be given for all angles in 5-membered rings. In the absence of any ANGLE5 keywords, standard ANGLE parameters\nwill be used for bonds in 5-membered rings.",
+        "values": []
+      },
+      {
+        "name": "ANGLEF",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 3 reals] Provides the values for a single bond angle\nbending parameter for a SHAPES-style Fourier potential function. The integer modifiers give the atom class numbers for the\nthree kinds of atoms involved in the angle which is to be defined. The real number modifiers give the force constant value\nfor the angle, the angle shift in degrees, and the periodicity value. Note that the force constant should be given as the\nharmonic value and not the native Fourier value. The default units for the force constant are kcal/mole/radian^2, but this\ncan be controlled via the ANGLEUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "ANGLEP",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 3 reals] Provides the values for a single projected\nin-plane bond angle bending parameter. The integer modifiers give the atom class numbers for the three kinds of atoms\ninvolved in the anglewhich is to be defined. The real number modifiers give the force constant value for the angle and up\nto two ideal bond angles in degrees. In most cases only one ideal bond angle isgiven, and that value is used for all\noccurrences of the specified bond angle. If all two idealangles are given, the values apply when the central atom of the\nangle is attached to 0 or1 additional hydrogen atoms, respectively. This \u201chydrogen environment\u201d option is provided to\nimplement the corresponding feature of Allinger\u2019s MM force fields. The default units forthe force constant are\nkcal/mole/radian2, but this can be controlled via the ANGLEUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "ATOM",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers, name, quoted string, integer, real and integer] Provides the\nvalues needed to define a single force field atom type. The first two integer modifiers denote the atom type and class\nnumbers. If the type and class are identical, only a single integer value is required. The next modifier is a three-character\natom name, followed by an 24-character or less atom description contained in single quotes. The next two modifiers are the\natomic number and atomic mass. The final integer modifier is the \u201cvalence\u201d of the atom, defined as the expected number of\nattached or bonded atoms.",
+        "values": []
+      },
+      {
+        "name": "BIOTYPE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[integer, name, quoted string and integer] Provides the values to define\nthe correspondence between a single biopolymer atom type and its force field atom type.",
+        "values": []
+      },
+      {
+        "name": "BOND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond stretching\nparameter. The integer modifiers give the atom class numbers for the two kinds of atoms involved in the bond which is to\nbe defined. The real number modifiers give the force constant value for the bond and the ideal bond length in Angstroms.\nThe default units for the force constant are kcal/mole/Ang^2, but this can be controlled via the BONDUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "BOND3",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond stretching\nparameter specific to atoms in 3-membered rings. The integer modifiers give the atom class numbers for the two kinds of\natoms involved in the bond which is to be defined. The real number modifiers give the force constant value for the bond\nand the ideal bond length in Angstroms. The default units for the force constant are kcal/mole/Ang^2, but this can be\ncontrolled via the BONDUNIT keyword. If any BOND3 keywords are present, either in the master force field parameter file\nor the keyfile, then Tinker requires that special BOND3 parameters be given for all bonds in 3-membered rings. In the\nabsence of any BOND3 keywords, standard BOND parameters will be used for bonds in 3-membered rings.",
+        "values": []
+      },
+      {
+        "name": "BOND4",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond stretching\nparameter specific to atoms in 4-membered rings. The integer modifiers give the atom class numbers for the two kinds of\natoms involved in the bond which is to be defined. The real number modifiers give the force constant value for the bond\nand the ideal bond length in Angstroms. The default units for the force constant are kcal/mole/Ang^2, but this can be\ncontrolled via the BONDUNIT keyword. If any BOND4 keywords are present, either in the master force field parameter file\nor the keyfile, then Tinker requires that special BOND4 parameters be given for all bonds in 4-membered rings. In the\nabsence of any BOND4 keywords, standard BOND parameters will be used for bonds in 4-membered rings.",
+        "values": []
+      },
+      {
+        "name": "BOND5",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond stretching\nparameter specific to atoms in 5-membered rings. The integer modifiers give the atom class numbers for the two kinds of\natoms involved in the bond which is to be defined. The real number modifiers give the force constant value for the bond\nand the ideal bond length in Angstroms. The default units for the force constant are kcal/mole/Ang^2, but this can be\ncontrolled via the BONDUNIT keyword. If any BOND5 keywords are present, either in the master force field parameter file\nor the keyfile, then Tinker requires that special BOND5 parameters be given for all bonds in 5-membered rings. In the\nabsence of any BOND5 keywords, standard BOND parameters will be used for bonds in 5-membered rings.",
+        "values": []
+      },
+      {
+        "name": "CHARGE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 1 real] Provides a value for a single atomic partial\ncharge electrostatic parameter. The integer modifier, if positive, gives the atom type number for which the charge\nparameter is to be defined. Note that vdw parameters are given for atom types, not atom classes. If the integer modifier\nis negative, then the parameter value to follow applies only to the individual atom whose atom number is the negative of\nthe modifier. The real number modifier gives the values of the atomic partial charge in electrons.",
+        "values": []
+      },
+      {
+        "name": "DIPOLE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond dipole\nelectrostatic parameter. The integer modifiers give the atom type numbers for the two kinds of atoms involved in the bond\ndipole which is to be defined. The real number modifiers give the value of the bond dipole in Debyes and the position of\nthe dipole site along the bond. If the bond dipole value is positive, then the first of the two atom types is the positive\nend of the dipole. For a negative bond dipole value, the first atom type listed is negative. The position along the bond\nis an optional modifier that gives the postion of the dipole site as a fraction between the first atom type (position=0)\nand the second atom type (position=1). The default for the dipole position in the absence of a specified value is 0.5,\nplacing the dipole at the midpoint of the bond.",
+        "values": []
+      },
+      {
+        "name": "DIPOLE3",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond dipole\nelectrostatic parameter specific to atoms in 3-membered rings. The integer modifiers give the atom type numbers for the\ntwo kinds of atoms involved in the bond dipole which is to be defined. The real number modifiers give the value of the\nbond dipole in Debyes and the position of the dipole site along the bond. The default for the dipole position in the\nabsence of a specified value is 0.5, placing the dipole at the midpoint of the bond. If any DIPOLE3 keywords are present,\neither in the master force field parameter file or the keyfile, then Tinker requires that special DIPOLE3 parameters be\ngiven for all bond dipoles in 3-membered rings. In the absence of any DIPOLE3 keywords, standard DIPOLE parameters will\nbe used for bonds in 3-membered rings.",
+        "values": []
+      },
+      {
+        "name": "DIPOLE4",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond dipole\nelectrostatic parameter specific to atoms in 4-membered rings. The integer modifiers give the atom type numbers for the two\nkinds of atoms involved in the bond dipole which is to be defined. The real number modifiers give the value of the bond\ndipole in Debyes and the position of the dipole site along the bond. The default for the dipole position in the absence\nof a specified value is 0.5, placing the dipole at the midpoint of the bond. If any DIPOLE4 keywords are present, either\nin the master force field parameter file or the keyfile, then Tinker requires that special DIPOLE4 parameters be given for\nall bond dipoles in 4-membered rings. In the absence of any DIPOLE4 keywords, standard DIPOLE parameters will be used for\nbonds in 4-membered rings.",
+        "values": []
+      },
+      {
+        "name": "DIPOLE5",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for a single bond dipole\nelectrostatic parameter specific to atoms in 5-membered rings. The integer modifiers give the atom type numbers for the two\nkinds of atoms involved in the bond dipole which is to be defined. The real number modifiers give the value of the bond\ndipole in Debyes and the position of the dipole site along the bond. The default for the dipole position in the absence of\na specified value is 0.5, placing the dipole at the midpoint of the bond. If any DIPOLE5 keywords are present, either in\nthe master force field parameter file or the keyfile, then Tinker requires that special DIPOLE5 parameters be given for all\nbond dipoles in 5-membered rings. In the absence of any DIPOLE5 keywords, standard DIPOLE parameters will be used for bonds\nin 5-membered rings.",
+        "values": []
+      },
+      {
+        "name": "ELECTNEG",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 1 real] Provides the values for an electronegativity\nbond length correction parameter. The first two integer modifiers give the atom class numbers of the atoms involved in the\nbond to be corrected. The third integer modifier is the atom class of an electronegative atom. In the case of a primary\ncorrection, an atom of this third class must be directly bonded to an atom of the second atom class. For a secondary\ncorrection, the third class is one atom removed from an atom of the second class. The real number modifier is the value in\nAngstroms by which the original ideal bond length is to be corrected.",
+        "values": []
+      },
+      {
+        "name": "EXCHPOL",
+        "rep": "EDITCOMBOBOX",
+        "description": "[integer, 3 reals, integer] Provides the values for the variable\npolarizability model for treating exchange polarization. The first integer modifier is the atom class number for the\nwhich parameters are defined. The three real modifiers provide the spring force constant, an atomic size value and a\ndamping coefficient. The final integer modifier is 1 if this atom class actively uses exchange polarization, and 0 this\nclass is only passively used in exchange polarization.",
+        "values": []
+      },
+      {
+        "name": "HBOND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for MM3-style directional\nhydrogen bonding parameters for a single pair of atoms. The integer modifiers give the pair of atom class numbers for which\nhydrogen bonding parameters are to be defined. The two real number modifiers give the values of the minimum energy contact\ndistance in ?? and the well depth at the minimum distance in kcal/mole.",
+        "values": []
+      },
+      {
+        "name": "IMPROPER",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 integers and 2 reals] Provides the values for a single CHARMM-style\nimproper dihedral angle parameter. The integer modifiers give the atom class numbers for the four kinds of atoms involved\nin the torsion which is to be defined. The real number modifiers give the force constant value for the deviation from the\ntarget improper torsional angle, and the target value for the torsional angle, respectively. The default units for the\nimproper force constant are kcal/mole/radian^2, but this can be controlled via the IMPROPUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "IMPTORS",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 integers and up to 3 real/real/integer triples] Provides the values\nfor a single Amber-style improper torsional angle parameter. The first four integer modifiers give the atom class numbers\nfor the atoms involved in the improper torsional angle to be defined. By convention, the third atom class of the four is the\ntrigonal atom on which the improper torsion is centered. The torsional angle computed is literally that defined by the four\natom classes in the order specified by the keyword. Each of the remaining triples of real/real/integer modifiers give the\nhalf-amplitude, phase offset in degrees and periodicity of a particular improper torsional term, respectively. Periodicities\nthrough 3-fold are allowed for improper torsional parameters.",
+        "values": []
+      },
+      {
+        "name": "METAL",
+        "rep": "EDITCOMBOBOX",
+        "description": "Provides the values for a single transition metal ligand field parameter.\nNote this keyword is not active in the current version of Tinker.",
+        "values": []
+      },
+      {
+        "name": "OPBEND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 1 real] Provides the values for a single Allinger MM-style\nout-of-plane angle bending potential parameter. The first integer modifier is the atom class of the central trigonal atom\nand the second integer is the atom class of the out-ofplane atom. The real number modifier gives the force constant value\nfor the out-of-plane angle. The default units for the force constant are kcal/mole/radian^2, but this can be controlled via\nthe OPBENDUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "OPDIST",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 integers and 1 real] Provides the values for a single out-of-plane\ndistance potential parameter. The first integer modifier is the atom class of the central trigonal atom and the three\nfollowing integer modifiers are the atom classes of the three attached atoms. The real number modifier is the force constant\nfor the harmonic function of the out-of-plane distance of the central atom. The default units for the force constant are\nkcal/mole/Ang^2, but this can be controlled via the OPDISTUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "PIATOM",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 3 reals] Provides the values for the pisystem MO potential\nparameters for a single atom class belonging to a pisystem.",
+        "values": []
+      },
+      {
+        "name": "PIBOND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for the pisystem MO potential\nparameters for a single type of pisystem bond.",
+        "values": []
+      },
+      {
+        "name": "PIBOND4",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for the pisystem MO potential\nparameters for a single type of pisystem bond.",
+        "values": []
+      },
+      {
+        "name": "PIBOND5",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for the pisystem MO potential\nparameters for a single type of pisystem bond.",
+        "values": []
+      },
+      {
+        "name": "PITORS",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 1 real] Provides the values for a single pi-torsion\npotential parameter. The two integer modifiers give the atom class numbers for the atoms involved in the central bond of\nthe torsional angle to be parameterized. The real modifier gives the value of the 2-fold Fourier amplitude for the torsional\nangle between p-orbitals centered on the defined bond atom classes. The default units for the stretch-torsion force constant\ncan be controlled via the PITORSUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "POLARIZE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 1 real] Provides the values for a single atomic dipole\npolarizability parameter. The integer modifier, if positive, gives the atom type number for which a polarizability parameter\nis to be defined. If the integer modifier is negative, then the parameter value to follow applies only to the individual atom\nwhose atom number is the negative of the modifier. The real number modifier gives the value of the dipole polarizability\nin Ang^3.",
+        "values": []
+      },
+      {
+        "name": "STRBND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 3 reals] Provides the values for a single stretch-bend\ncross term potential parameter. The integer modifier gives the atom class number for the central atom of the bond angle\ninvolved in stretch-bend interactions. The real number modifiers give the force constant values to be used when the central\natom of the angle is attached to 0, 1 or 2 additional hydrogen atoms, respectively. The default units for the stretch-bend\nforce constant are kcal/mole/??-degree, but this can be controlled via the STRBNDUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "STRTORS",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 1 real] Provides the values for a single stretch-torsion\ncross term potential parameter. The two integer modifiers give the atom class numbers for the atoms involved in the central\nbond of the torsional angles to be parameterized. The real modifier gives the value of the stretch-torsion force constant\nfor all torsional angles with the defined central bond atom classes. The default units for the stretch-torsion force\nconstant can be controlled via the STRTORUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "TORSION",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 integers and up to 6 real/real/integer triples] Provides the values\nfor a single torsional angle parameter. The first four integer modifiers give the atom class numbers for the atoms involved\nin the torsional angle to be defined. Each of the remaining triples of real/real/integer modifiers give the half-amplitude,\nphase offset in degrees and periodicity of a particular torsional function term, respectively. Periodicities through 6-fold\nare allowed for torsional parameters.",
+        "values": []
+      },
+      {
+        "name": "TORSION4",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 integers and up to 6 real/real/integer triples] Provides the values\nfor a single torsional angle parameter specific to atoms in 4-membered rings. The first four integer modifiers give the\natom class numbers for the atoms involved in the torsional angle to be defined. The remaining triples of real number and\ninteger modifiers operate as described above for the TORSION keyword.",
+        "values": []
+      },
+      {
+        "name": "TORSION5",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 integers and up to 6 real/real/integer triples] Provides the values\nfor a single torsional angle parameter specific to atoms in 5-membered rings. The first four integer modifiers give the\natom class numbers for the atoms involved in the torsional angle to be defined. The remaining triples of real number and\ninteger modifiers operate as described above for the TORSION keyword.",
+        "values": []
+      },
+      {
+        "name": "UREYBRAD",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 2 reals] Provides the values for a single Urey-Bradley\ncross term potential parameter. The integer modifiers give the atom class numbers for the three kinds of atoms involved in\nthe angle for which a Urey-Bradley term is to be defined. The real number modifiers give the force constant value for the\nterm and the target value for the 1-3 distance in Angstroms. The default units for the force constant are kcal/mole/Ang^2,\nbut this can be controlled via the UREYUNIT keyword.",
+        "values": []
+      },
+      {
+        "name": "VDW",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 3 reals] Provides values for a single van der Waals parameter.\nThe integer modifier, if positive, gives the atom class number for which vdw parameters are to be defined. Note that vdw\nparameters are given for atom classes, not atom types. The three real number modifiers give the values of the atom size in\nAngstroms, homoatomic well depth in kcal/mole, and an optional reduction factor for univalent atoms.",
+        "values": []
+      },
+      {
+        "name": "VDW14",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 2 reals] Provides values for a single van der Waals parameter\nfor use in 1-4 nonbonded interactions. The integer modifier, if positive, gives the atom class number for which vdw parameters\nare to be defined. Note that vdw parameters are given for atom classes, not atom types. The two real number modifiers give\nthe values of the atom size in ?? and the homoatomic well depth in kcal/mole. Reduction factors, if used, are carried over\nfrom the VDW keyword for the same atom class.",
+        "values": []
+      },
+      {
+        "name": "VDWPR",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 2 reals] Provides the values for the vdw parameters for\na single special heteroatomic pair of atoms. The integer modifiers give the pair of atom class numbers for which special\nvdw parameters are to be defined. The two real number modifiers give the values of the minimum energy contact distance in\nAngstroms and the well depth at the minimum distance in kcal/mole.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Energy Unit Conversion",
+    "keywords": [
+      {
+        "name": "ANGLEUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the bond angle bending potential into units of kcal/mole. The correct value is force field dependent and\ntypically provided in the header of the master force field parameter file. The default value of (p/180)2 = 0.0003046\nis used, if the ANGLEUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "ANGANGUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the angle-angle cross term potential into units of kcal/mole. The correct value is force field dependent\nand typically provided in the header of the master force field parameter file. The default of (pi/180)^2 = 0.0003046\nis used, if the ANGANGUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "BONDUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the bond stretching potential into units of kcal/mole. The correct value is force field dependent and\ntypically provided in the header of the master force field parameter file. The default value of 1.0 is used, if the\nBONDUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "IMPROPUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the CHARMM-style improper dihedral angle potential into units of kcal/mole. The correct value is force\nfield dependent and typically provided in the header of the master force field parameter file. The default value of\n1.0 is used, if the IMPROPUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "IMPTORUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the AMBER-style improper torsional angle potential into units of kcal/mole. The correct value is force\nfield dependent and typically provided in the header of the master force field parameter file. The default value of\n1.0 is used, if the IMPTORSUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "OPBENDUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the Allinger MM-style out-of-plane bending potential into units of kcal/mole. The correct value is force\nfield dependent and typically provided in the header of the master force field parameter file. The default of\n(pi/180)^2 = 0.0003046 is used, if the OPBENDUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "OPDISTUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the out-of-plane distance potential into units of kcal/mole. The correct value is force field dependent\nand typically provided in the header of the master force field parameter file. The default value of 1.0 is used, if\nthe OPDISTUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "PITORSUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the pi-torsion potential into units of kcal/mole. The correct value is force field dependent and typically\nprovided in the header of the master force field parameter file. The default value of 1.0 is used, if the PITORSUNIT\nkeyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "STRBNDUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the bond stretching-angle bending cross term potential into units of kcal/mole. The correct value is force\nfield dependent and typically provided in the header of the master force field parameter file. The default value of\n1.0 is used, if the STRBNDUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "STRTORUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the bond stretching-torsional angle cross term potential into units of kcal/mole. The correct value is\nforce field dependent and typically provided in the header of the master force field parameter file. The default value\nof 1.0 is used, if the STRTORUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "TORSIONUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the torsional angle potential into units of kcal/mole. The correct value is force field dependent and\ntypically provided in the header of the master force field parameter file. The default value of 1.0 is used, if the\nTORSIONUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "TORTORUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the torsion-torsion potential into units of kcal/mole. The correct value is force field dependent and\ntypically provided in the header of the master force field parameter file. The default value of 1.0 is used, if the\nTORTORUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "UREYUNIT",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the scale factor needed to convert the energy value\ncomputed by the Urey-Bradley potential into units of kcal/mole. The correct value is force field dependent and\ntypically provided in the header of the master force field parameter file. The default value of 1.0 is used, if the\nUREYUNIT keyword is not given in the force field parameter file or the keyfile.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Valence Geometry Potential",
+    "keywords": [
+      {
+        "name": "MM2-STRBND",
+        "rep": "CHECKBOX",
+        "description": "Switches the behavior of the stretch-bend potential function to match\nthe formulation used by the MM2 force field. In MM2, stretching of bonds to attached hydrogen atoms is not including in\ncomputing the stretch-bend cross term energy. The default behavior in the absence of this keyword is to include stretching\nof attached hydrogen atoms as in the MM3 force field.",
+        "values": []
+      },
+      {
+        "name": "ANGLE-CUBIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the cubic term in the Taylor series\nexpansion form of the bond angle bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the angle bending energy unit conversion factor,\nthe force constant, and the cube of the deviation of the bond angle from its ideal value gives the cubic contribution\nto the angle bending energy. The default value in the absence of the ANGLE-CUBIC keyword is zero; i.e., the cubic angle\nbending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "ANGLE-QUARTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the quartic term in the Taylor series\nexpansion form of the bond angle bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the angle bending energy unit conversion factor,\nthe force constant, and the forth power of the deviation of the bond angle from its ideal value gives the quartic\ncontribution to the angle bending energy. The default value in the absence of the ANGLE-QUARTIC keyword is zero; i.e.,\nthe quartic angle bending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "ANGLE-PENTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the fifth power term in the Taylor series\nexpansion form of the bond angle bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the angle bending energy unit conversion factor,\nthe force constant, and the fifth power of the deviation of the bond angle from its ideal value gives the pentic\ncontribution to the angle bending energy. The default value in the absence of the ANGLE-PENTIC keyword is zero; i.e.,\nthe pentic angle bending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "ANGLE-SEXTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the sixth power term in the Taylor series\nexpansion form of the bond angle bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the angle bending energy unit conversion factor,\nthe force constant, and the sixth power of the deviation of the bond angle from its ideal value gives the sextic\ncontribution to the angle bending energy. The default value in the absence of the ANGLE-SEXTIC keyword is zero; i.e.,\nthe sextic angle bending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "BOND-CUBIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the cubic term in the Taylor series expansion\nform of the bond stretching potential energy. The real number modifier gives the value of the coefficient as a multiple\nof the quadratic coefficient. This term multiplied by the bond stretching energy unit conversion factor, the force\nconstant, and the cube of the deviation of the bond length from its ideal value gives the cubic contribution to the bond\nstretching energy. The default value in the absence of the BOND-CUBIC keyword is zero; i.e., the cubic bond stretching\nterm is omitted.",
+        "values": []
+      },
+      {
+        "name": "BOND-QUARTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the quartic term in the Taylor series\nexpansion form of the bond stretching potential energy. The real number modifier gives the value of the coefficient as\na multiple of the quadratic coefficient. This term multiplied by the bond stretching energy unit conversion factor,\nthe force constant, and the forth power of the deviation of the bond length from its ideal value gives the quartic\ncontribution to the bond stretching energy. The default value in the absence of the BOND-QUARTIC keyword is zero; i.e.,\nthe quartic bond stretching term is omitted.",
+        "values": []
+      },
+      {
+        "name": "BONDTYPE",
+        "rep": "COMBOBOX",
+        "description": "[TAYLOR/MORSE/GAUSSIAN] Chooses the functional form of the bond stretching\npotential. The TAYLOR option selects a Taylor series expansion containing terms from harmonic through quartic. The MORSE\noption selects a Morse potential fit to the ideal bond length and stretching force constant parameter values. The GAUSSIAN\noption uses an inverted Gaussian with amplitude equal to the Morse bond dissociation energy and width set to reproduce\nthe vibrational frequency of a harmonic potential. The default is to use the TAYLOR potential.",
+        "values": [
+          "TAYLOR",
+          "MORSE",
+          "GAUSSIAN",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "OPBEND-CUBIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the cubic term in the Taylor series\nexpansion form of the out-of-plane bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane bending energy unit conversion\nfactor, the force constant, and the cube of the deviation of the out-of-plane angle from zero gives the cubic\ncontribution to the out-of-plane bending energy. The default value in the absence of the OPBEND-CUBIC keyword is zero;\ni.e., the cubic out-of-plane bending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "OPBEND-QUARTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the quartic term in the Taylor series\nexpansion form of the out-of-plane bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane bending energy unit conversion\nfactor, the force constant, and the forth power of the deviation of the out-of-plane angle from zero gives the quartic\ncontribution to the out-of-plane bending energy. The default value in the absence of the OPBEND-QUARTIC keyword is zero;\ni.e., the quartic out-of-plane bending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "OPBEND-PENTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the fifth power term in the Taylor series\nexpansion form of the out-of-plane bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane bending energy unit conversion\nfactor, the force constant, and the fifth power of the deviation of the out-of-plane angle from zero gives the pentic\ncontribution to the out-of-plane bending energy. The default value in the absence of the OPBEND-PENTIC keyword is zero;\ni.e., the pentic out-of-plane bending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "OPBEND-SEXTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the sixth power term in the Taylor series\nexpansion form of the out-of-plane distance potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane bending energy unit conversion\nfactor, the force constant, and the sixth power of the deviation of the out-of-plane angle from zero gives the sextic\ncontribution to the out-of-plane bending energy. The default value in the absence of the OPBEND-SEXTIC keyword is zero;\ni.e., the sextic out-of-plane bending term is omitted.",
+        "values": []
+      },
+      {
+        "name": "OPDIST-CUBIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the cubic term in the Taylor series\nexpansion form of the out-of-plane bending potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane distance energy unit conversion\nfactor, the force constant, and the cube of the deviation of the out-of-plane distance from zero gives the cubic\ncontribution to the out-of-plane distance energy. The default value in the absence of the OPDIST-CUBIC keyword is zero;\ni.e., the cubic out-of-plane distance term is omitted.",
+        "values": []
+      },
+      {
+        "name": "OPDIST-QUARTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the quartic term in the Taylor series\nexpansion form of the out-of-plane distance potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane distance energy unit conversion\nfactor, the force constant, and the forth power of the deviation of the out-of-plane distance from zero gives the quartic\ncontribution to the out-of-plane distance energy. The default value in the absence of the OPDIST-QUARTIC keyword is zero;\ni.e., the quartic out-of-plane distance term is omitted.",
+        "values": []
+      },
+      {
+        "name": "OPDIST-PENTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the fifth power term in the Taylor series\nexpansion form of the out-of-plane distance potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane distance energy unit conversion\nfactor, the force constant, and the fifth power of the deviation of the out-of-plane distance from zero gives the pentic\ncontribution to the out-of-plane distance energy. The default value in the absence of the OPDIST-PENTIC keyword is zero;\ni.e., the pentic out-of-plane distance term is omitted.",
+        "values": []
+      },
+      {
+        "name": "OPDIST-SEXTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the sixth power term in the Taylor series\nexpansion form of the out-of-plane distance potential energy. The real number modifier gives the value of the coefficient\nas a multiple of the quadratic coefficient. This term multiplied by the out-of-plane distance energy unit conversion\nfactor, the force constant, and the sixth power of the deviation of the out-of-plane distance from zero gives the sextic\ncontribution to the out-of-plane distance energy. The default value in the absence of the OPDIST-SEXTIC keyword is zero;\ni.e., the sextic out-of-plane distance term is omitted.",
+        "values": []
+      },
+      {
+        "name": "PISYSTEM",
+        "rep": "TEXTFIELD",
+        "description": "[integer list] Sets the atoms within a molecule that are part of a\nconjugated pi-system. The keyword is followed on the same line by a list of atom numbers and/or atom ranges constituting\nthe pi-system. The Allinger MM force fields use this information to set up an MO calculation used to scale bond and torsion\nparameters involving pi-system atoms.",
+        "values": []
+      },
+      {
+        "name": "UREY-CUBIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the cubic term in the Taylor series\nexpansion form of the Urey-Bradley potential energy. The real number modifier gives the value of the coefficient as\na multiple of the quadratic coefficient. The default value in the absence of the UREY-CUBIC keyword is zero; i.e.,\nthe cubic Urey-Bradley term is omitted.",
+        "values": []
+      },
+      {
+        "name": "UREY-QUARTIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the quartic term in the Taylor series\nexpansion form of the Urey-Bradley potential energy. The real number modifier gives the value of the coefficient as\na multiple of the quadratic coefficient. The default value in the absence of the UREY-QUARTIC keyword is zero; i.e.,\nthe quartic Urey-Bradley term is omitted.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "VDW and Repulsion-Dispersion Potentials",
+    "keywords": [
+      {
+        "name": "A-EXPTERM",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the premultiplier term in the Buckingham van\nder Waals function, i.e., the value of A in the formula Evdw = e { A exp[-B(Ro/R)] - C (Ro/R)^6 }.",
+        "values": []
+      },
+      {
+        "name": "B-EXPTERM",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the exponential factor in the Buckingham van\nder Waals function, i.e., the value of B in the formula Evdw = e { A exp[-B(Ro/R)] - C (Ro/R)^6 }.",
+        "values": []
+      },
+      {
+        "name": "C-EXPTERM",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the dispersion multiplier in the Buckingham\nvan der Waals function, i.e., the value of C in the formula Evdw = e { A exp[-B(Ro/R)] - C (Ro/R)^6 }.",
+        "values": []
+      },
+      {
+        "name": "DELTA-HALGREN",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the delta parameter in Halgren's buffered\n14-7 vdw potential energy functional form. In the absence of the DELTA-HALGREN keyword, a default value of 0.07 is used.",
+        "values": []
+      },
+      {
+        "name": "EPSILONRULE",
+        "rep": "COMBOBOX",
+        "description": "[GEOMETRIC/ARITHMETIC/HARMONIC/HHG] Selects the combining rule used to\nderive the e value for van der Waals interactions. The default in the absence of the EPSILONRULE keyword is to use the\nGEOMETRIC mean of the individual espsilon values of the two atoms involved in the van der Waals interaction.",
+        "values": [
+          "GEOMETRIC",
+          "ARITHMETIC",
+          "HARMONIC",
+          "HHG",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "GAMMA-HALGREN",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the gamma parameter in Halgren's buffered\n14-7 vdw potential energy functional form. In the absence of the DELTA-HALGREN keyword, a default value of 0.12 is used.",
+        "values": []
+      },
+      {
+        "name": "GAUSSTYPE",
+        "rep": "COMBOBOX",
+        "description": "[LJ-2/LJ-4/MM2-2/MM3-2/IN-PLACE] Specifies the underlying vdw form that\na Gaussian vdw approximation attempts to fit. The number of terms to be used in a Gaussian approximation of the Lennard-Jones\nvan der Waals potential. The text modifier gives the name of the functional form to be used. Thus LJ-2 as a modifier will\nresult in a 2-Gaussian fit to a Lennard-Jones vdw potential. The GAUSSTYPE keyword only takes effect when VDWTYPE is set to\nGAUSSIAN. This keyword has no default value.",
+        "values": [
+          "LJ-2",
+          "LJ-4",
+          "MM2-2",
+          "MM3-2",
+          "IN-PLACE",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "RADIUSRULE",
+        "rep": "COMBOBOX",
+        "description": "[ARITHMETIC/GEOMETRIC/CUBIC-MEAN] Sets the functional form of the\nradius combining rule for heteroatomic van der Waals potential energy interactions. The default in the absence of the\nRADIUSRULE keyword is to use the arithmetic mean combining rule to get radii for heteroatomic interactions.",
+        "values": [
+          "ARITHMETIC",
+          "GEOMETRIC",
+          "CUBIC-MEAN",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "RADIUSSIZE",
+        "rep": "COMBOBOX",
+        "description": "[RADIUS/DIAMETER] Determines whether the atom size values given in\nvan der Waals parameters read from VDW keyword statements are interpreted as atomic radius or diameter values. The\ndefault in the absence of the RADIUSSIZE keyword is to assume that vdw size parameters are given as radius values.",
+        "values": [
+          "RADIUS",
+          "DIAMETER",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "RADIUSTYPE",
+        "rep": "COMBOBOX",
+        "description": "[R-MIN/SIGMA] Determines whether atom size values given in van der\nWaals parameters read from VDW keyword statements are interpreted as potential minimum (Rmin) or LJ-style sigma values.\nThe default in the absence of the RADIUSTYPE keyword is to assume that vdw size parameters are given as Rmin values.",
+        "values": [
+          "R-MIN",
+          "SIGMA",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "VDW-12-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nvan der Waals potential interactions between 1-2 connected atoms, i.e., atoms that are directly bonded. The\ndefault value of 0.0 is used to omit 1-2 interactions, if the VDW-12-SCALE keyword is not given in either the\nparameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "VDW-13-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nvan der Waals potential interactions between 1-3 connected atoms, i.e., atoms separated by two covalent bonds. The\ndefault value of 0.0 is used to omit 1-3 interactions, if the VDW-13-SCALE keyword is not given in either the\nparameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "VDW-14-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nvan der Waals potential interactions between 1-4 connected atoms, i.e., atoms separated by three covalent bonds. The\ndefault value of 1.0 is used, if the VDW-14-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "VDW-15-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor that is applied to\nvan der Waals potential interactions between 1-5 connected atoms, i.e., atoms separated by three covalent bonds. The\ndefault value of 1.0 is used, if the VDW-14-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "VDW-CORRECTION",
+        "rep": "CHECKBOX",
+        "description": "Turns on the use of an isotropic long-range correction term to approximately account for van der Waals interactions beyond the cutoff distance. This correction modifies the value of the van der Waals energy and virial due to van der Waals interactions, but has no effect on the gradient of the van der Waals energy.",
+        "values": []
+      },
+      {
+        "name": "VDWINDEX",
+        "rep": "COMBOBOX",
+        "description": "[TYPE/CLASS/DEFAULT] Specifies whether van der Waals parameters are\nprovided for atom classes or atom types. While most force fields are indexed by atom class, in OPLS models the vdW values\nare indexed by atom type. inThe default in the absence of the VDWINDEX keyword is to index vdW parameters by atom class.",
+        "values": [
+          "CLASS",
+          "TYPE",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "VDWTYPE",
+        "rep": "COMBOBOX",
+        "description": "[LENNARD-JONES/BUCKINGHAM/BUFFERED-14-7/MM3-HBOND/GAUSSIAN] Sets the\nfunctional form for the van der Waals potential energy term. The text modifier gives the name of the functional form\nto be used. The GAUSSIAN modifier value implements a two or four Gaussian fit to the corresponding Lennard-Jones function\nfor use with potential energy smoothing schemes. The default in the absence of the VDWTYPE keyword is to use the standard\ntwo parameter Lennard-Jones function.",
+        "values": [
+          "LENNARD-JONES",
+          "BUCKINGHAM",
+          "BUFFERED-14-7",
+          "MM3-HBOND",
+          "GAUSSIAN",
+          "DEFAULT"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Electrostatics Potentials",
+    "keywords": [
+      {
+        "name": "ELECTRIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Specifies a value for the so-called \"electric constant\" allowing\nconversion unit of electrostatic potential energy values from electrons^2/Angstrom to kcal/mol. By default Tinker uses\na value of 332.0637133 for this constant based on CODATA reference values. Since different force fields are intended\nfor use with slightly different values, this keyword allows overriding the default value.",
+        "values": []
+      },
+      {
+        "name": "CHG-11-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor pplied to\ncharge-charge electrostatic interactions between self-atoms. These interactions are usually to be ignored, but this\nvalue is used in certain cases involving infinite polymers or atoms using the same \"neighbor generating\" site. The\ndefault value of 0.0 is used, if the CHG-11-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "CHG-12-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\ncharge-charge electrostatic interactions between 1-2 connected atoms, i.e., atoms that are directly bonded. The\ndefault value of 0.0 is used, if the CHG-12-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "CHG-13-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\ncharge-charge electrostatic interactions between 1-3 connected atoms, i.e., atoms separated by two covalent bonds.\nThe default value of 0.0 is used, if the CHG-13-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "CHG-14-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\ncharge-charge electrostatic interactions between 1-4 connected atoms, i.e., atoms separated by three covalent bonds.\nThe default value of 1.0 is used, if the CHG-14-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "CHG-15-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\ncharge-charge electrostatic interactions between 1-5 connected atoms, i.e., atoms separated by four covalent bonds.\nThe default value of 1.0 is used, if the CHG-15-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "DIELECTRIC",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the bulk dielectric constant used to damp\nall electrostatic interaction energies for any of the Tinker electrostatic potential functions. The default value is\nforce field dependent, but is usually equal to 1.0 (for Allinger's MM force fields the default is 1.5).",
+        "values": []
+      },
+      {
+        "name": "DIRECT-11-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe permanent (direct) field due to atoms within a polarization group during an induced dipole calculation, i.e.,\natoms that are in the same polarization group as the atom being polarized. The default value of 0.0 is used if the\nDIRECT-11-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "DIRECT-12-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe permanent (direct) field due to atoms in 1-2 polarization groups during an induced dipole calculation, i.e.,\natoms that are in polarization groups directly connected to the group containing the atom being polarized. The\ndefault value of 0.0 is used if the DIRECT-12-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "DIRECT-13-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe permanent (direct) field due to atoms in 1-3 polarization groups during an induced dipole calculation, i.e.,\natoms that are in polarization groups separated by one group from the group containing the atom being polarized. The\ndefault value of 0.0 is used if the DIRECT-13-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "DIRECT-14-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe permanent (direct) field due to atoms in 1-4 polarization groups during an induced dipole calculation, i.e.,\natoms that are in polarization groups separated by two groups from the group containing the atom being polarized. The\ndefault value of 1.0 is used if the DIRECT-14-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MPOLE-12-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npermanent atomic multipole electrostatic interactions between 1-2 connected atoms, i.e., atoms directly bonded.\nThe default value of 0.0 is used if the MPOLE-12-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MPOLE-13-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npermanent atomic multipole electrostatic interactions between 1-3 connected atoms, i.e., atoms separated by two bonds.\nThe default value of 0.0 is used if the MPOLE-13-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MPOLE-14-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npermanent atomic multipole electrostatic interactions between 1-4 connected atoms, i.e., atoms separated by three bonds.\nThe default value of 0.0 is used if the MPOLE-14-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MPOLE-15-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npermanent atomic multipole electrostatic interactions between 1-5 connected atoms, i.e., atoms separated by four bonds.\nThe default value of 0.0 is used if the MPOLE-15-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MUTUAL-11-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe induced (mutual) field due to atoms within a polarization group during an induced dipole calculation, i.e., atoms\nin the same polarization group as the atom being polarized. The default value of 1.0 is used if the MUTUAL-11-SCALE\nkeyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MUTUAL-12-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe induced (mutual) field due to atoms in 1-2 polarization groups during an induced dipole calculation, i.e., atoms\nin polarization groups directly connected to the group containing the atom being polarized. The default value of 1.0\nis used if the MUTUAL-12-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MUTUAL-13-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe induced (mutual) field due to atoms in 1-3 polarization groups during an induced dipole calculation, i.e., atoms\nin polarization groups separated by one group from the group containing the atom being polarized. The default value\nof 1.0 is used if the MUTUAL-13-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "MUTUAL-14-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\nthe induced (mutual) field due to atoms in 1-4 polarization groups during an induced dipole calculation, i.e., atoms\nin polarization groups separated by two groups from the group containing the atom being polarized. The default value\nof 1.0 is used if the MUTUAL-14-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-12-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions within a polarization group, i.e., pairs of atoms in the same polarization group. The\ndefault value of 0.0 is used if the POLAR-12-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-13-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions within a polarization group, i.e., pairs of atoms in the same polarization group. The\ndefault value of 0.0 is used if the POLAR-13-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-14-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions within a polarization group, i.e., pairs of atoms in the same polarization group. The\ndefault value of 0.0 is used if the POLAR-14-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-15-SCALE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions within a polarization group, i.e., pairs of atoms in the same polarization group. The\ndefault value of 0.0 is used if the POLAR-15-SCALE keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-12-INTRA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions between 1-2 connected atoms located in the same polarization group. The default value of\n0.0 is used if the POLAR-12-INTRA keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-13-INTRA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions between 1-3 connected atoms located in the same polarization group. The default value of\n0.0 is used if the POLAR-13-INTRA keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-14-INTRA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions between 1-4 connected atoms located in the same polarization group. The default value of\n0.5 is used if the POLAR-14-INTRA keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "POLAR-15-INTRA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Provides a multiplicative scale factor applied to\npolarization interactions between 1-5 connected atoms located in the same polarization group. The default value of\n1.0 is used if the POLAR-15-INTRA keyword is not given in either the parameter file or the keyfile.",
+        "values": []
+      },
+      {
+        "name": "PENETRATION",
+        "rep": "COMBOBOX",
+        "description": "[NONE/GORDON1/GORDON2] Chooses the type of charge penetration damping\nto be applied to multipole interactions. The NONE option turns off use of charge penetration. The GORDON1 and GORDON2\nmodifiers select formulations as proposed by Mark Gordon and co-workers using all multipole components or monopole terms\nonly, respectively. The default value in the absence of the PENETRATION keyword is to use the GORDON1 expression to treat\ncharge penetration.",
+        "values": [
+          "NONE",
+          "GORDON1",
+          "GORDON2"
+        ]
+      },
+      {
+        "name": "POLARIZATION",
+        "rep": "COMBOBOX",
+        "description": "[DIRECT/MUTUAL] Selects between the use of direct and mutual dipole\npolarization for force fields that incorporate the polarization term. The DIRECT modifier avoids iterative calculation\nby using only the permanent electric field in computation of induced dipoles. The MUTUAL option, which is the default\nin the absence of the POLARIZATION keyword, iterates the induced dipoles to self-consistency.",
+        "values": [
+          "DIRECT",
+          "MUTUAL",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "POLAR-EPS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the convergence criterion applied during computation of\nself-consistent induced dipoles. The calculation is deemed to have converged when the rms change (in Debyes) of the\ninduced dipoles at all polarizable sites is less than the value specified with this keyword. The default value in the\nabsence of the keyword is 0.000001 Debyes.",
+        "values": []
+      },
+      {
+        "name": "POLAR-ITER",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the maximum number of conjugate gradient iterations\nto be used in the solution of the self-consistent mutual induced dipoles. The default values in the absence of the\nkeyword is 100 iterations.",
+        "values": []
+      },
+      {
+        "name": "POLAR-PREDICT",
+        "rep": "COMBOBOX",
+        "description": "[ASPC/GEAR/LSQR] Turns on use of an induced dipole prediction method\nto accelerate convergence of self-consistent induced dipoles. The Always Stable Predictor-Corrector (ASPC) method, a\nstandard Gear extrapolation method (GEAR), and extrapolation based on a least squared prediction (LSQR) are available\nas modifiers to the keyword. The default value if the keyword is used without a modifier is ASPC. Use of POLAR-PREDICT\nbiases the early stages of induced dipole convergence, and should only be used when requesting tight convergence of\n0.00001 or less via POLAR-EPS.",
+        "values": []
+      },
+      {
+        "name": "D-EQUALS-P",
+        "rep": "CHECKBOX",
+        "description": "Forces the direct induction (\"D\") scale factors to be set equal to the\npolarization energy (\"P\") scale factors during computation of induced dipoles and the polarization potential energy.\nIn the absence of the D-EQUALS-P keyword the two sets of scale factors are independent and allowed to be different.",
+        "values": []
+      },
+      {
+        "name": "EXCHANGE-POLAR",
+        "rep": "COMBOBOX",
+        "description": "[S2U/S2/G] Selects the type of overlap function to be used in the\nshort-range damping of atomic polarizabilities to account for exchange-polarization. Options include two methods based\non overlap, S, and a Gaussian approximation. The default in the absence of the EXCHANGE-POLAR keyword is to use the\nunified square of the overlap, S2U.",
+        "values": [
+          "S2U",
+          "S2",
+          "G"
+        ]
+      },
+      {
+        "name": "CHARGETRANSFER",
+        "rep": "COMBOBOX",
+        "description": "[SEPARATE/COMBINED] Chooses the formulation used for the charge\ntransfer potential energy function. The SEPARATE method includes separate terms for charge transfer in both directions\nbetween two atomic sites. The COMBINED model uses a single term to account for the total charge transfer interaction\nbetween two sites. The default value in the absence of the CHARGETRANSFER keyword is to use the SEPARATE expression to\ncompute the charge transfer potential.",
+        "values": [
+          "SEPARATE",
+          "COMBINED"
+        ]
+      },
+      {
+        "name": "CHG-BUFFER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Specifies a fixed value which is added to the distance between\npairs of atoms when applying Coulomb's law in the computation of partial charge electrostatic interactions. The default\nvalue of 0.0, which disables the use of the charge buffer mechanism, is used in the absence of the CHG-BUFFER keyword.",
+        "values": []
+      },
+      {
+        "name": "REACTIONFIELD",
+        "rep": "TEXTFIELD",
+        "description": "[2 reals and 1 integer] Provides parameters needed for the reaction\nfield potential energy calculation. The two real modifiers give the radius of the dielectric cavity and the ratio of the\nbulk dielectric outside the cavity to that inside the cavity. The integer modifier gives the number of terms in the\nreaction field summation to be used. In the absence of the REACTIONFIELD keyword, the default values are a cavity of\nradius 1000000 Angstroms, a dielectric ratio of 80 and use of only the first term of the reaction field summation.",
+        "values": []
+      },
+      {
+        "name": "EXTERNAL-FIELD",
+        "rep": "TEXTFIELD",
+        "description": "[3 reals] Selects the value in megavolts per centimeter (MV/cm)\nof external electric field components to apply uniformly to the system. The three real modifiers specify the X-, Y-\nand Z-components of the applied electric field vector. The default in the absence of the EXTERNAL-FIELD keyword is to\nnot use an external field.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Nonbonded Cutoff Keywords",
+    "keywords": [
+      {
+        "name": "CHG-CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the cutoff distance value in Angstroms for charge-charge\nelectrostatic potential energy interactions. The energy for any pair of sites beyond the cutoff distance will be set\nto zero. Other keywords can be used to select a smoothing scheme near the cutoff distance. The default cutoff distance\nin the absence of the CHG-CUTOFF keyword is infinite for nonperiodic systems and 9.0 for periodic systems.",
+        "values": []
+      },
+      {
+        "name": "CHG-TAPER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets modification of the cutoff window for charge-charge\nelectrostatic potential energy interactions. It is similar in form and action to the TAPER keyword, except its value\napplies only to the charge-charge potential. The default value in the absence of the CHG-TAPER keyword is to begin the\ncutoff window at 0.65 of the corresponding cutoff distance.",
+        "values": []
+      },
+      {
+        "name": "CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the cutoff distance value for all nonbonded potential energy\ninteractions. The energy for any of the nonbonded potentials of a pair of sites beyond the cutoff distance will be set\nto zero. Other keywords can be used to select a smoothing scheme near the cutoff distance, or to apply different cutoff\ndistances to various nonbonded energy terms.",
+        "values": []
+      },
+      {
+        "name": "DPL-CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the cutoff distance value in Angstroms for bond\ndipole-bond dipole electrostatic potential energy interactions. The energy for any pair of bond dipole sites beyond the\ncutoff distance will be set to zero. Other keywords can be used to select a smoothing scheme near the cutoff distance.\nThe default cutoff distance in the absence of the DPL-CUTOFF keyword is essentially infinite for nonperiodic systems\nand 10.0 for periodic systems.",
+        "values": []
+      },
+      {
+        "name": "DPL-TAPER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets modification of the cutoff windows for bond dipole-bond\ndipole electrostatic potential energy interactions. It is similar in form and action to the TAPER keyword, except its\nvalue applies only to the vdw potential. The default value in the absence of the DPL-TAPER keyword is to begin the\ncutoff window at 0.75 of the dipole cutoff distance.",
+        "values": []
+      },
+      {
+        "name": "HESS-CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Defines a lower limit for significant Hessian matrix elements.\nDuring computation of the Hessian matrix of partial second derivatives, any matrix elements with absolute value below\nHESS-CUTOFF will be set to zero and omitted from the sparse matrix Hessian storage scheme used by Tinker. For most\ncalculations, the default in the absence of this keyword is zero, i.e., all elements will be stored. For Truncated Newton\noptimizations the Hessian cutoff will be chosen dynamically by the optimizer.",
+        "values": []
+      },
+      {
+        "name": "MPOLE-CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the cutoff distance value in Angstroms for atomic\nmultipole potential energy interactions. The energy for any pair of sites beyond the cutoff distance will be set to zero.\nOther keywords can be used to select a smoothing scheme near the cutoff distance. The default cutoff distance in the\nabsence of the MPOLE-CUTOFF keyword is infinite for nonperiodic systems and 9.0 for periodic systems.",
+        "values": []
+      },
+      {
+        "name": "MPOLE-TAPER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Allows modification of the cutoff window for atomic multipole\npotential energy interactions. It is similar in form and action to the TAPER keyword, except its value applies only to the\natomic multipole potential. The default value in the absence of the MPOLE-TAPER keyword is to begin the cutoff window at\n0.65 of the corresponding cutoff distance.",
+        "values": []
+      },
+      {
+        "name": "POLYMER-CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of an additional cutoff parameter needed\nfor infinite polymer systems. This value must be set to less than half the minimal periodic box dimension and should be\ngreater than the largest possible interatomic distance subject to scaling or exclusion as a local electrostatic or\nvan der Waals interaction. The default in the absence of the POLYMER-CUTOFF keyword is 5.5 Angstroms.",
+        "values": []
+      },
+      {
+        "name": "TAPER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets modification of the cutoff windows for nonbonded potential\nenergy interactions. The nonbonded terms are smoothly reduced from their standard value at the beginning of the cutoff\nwindow to zero at the far end of the window. The far end of the window is specified via the CUTOFF keyword or its\npotential function specific variants. The modifier value supplied with the TAPER keyword sets the beginning of the\ncutoff window. The modifier can be given either as an absolute distance value in Angstroms, or as a fraction between\nzero and one of the CUTOFF distance. The default value in the absence of the TAPER keyword ranges from 0.65 to 0.9 of\nthe CUTOFF distance depending on the type of potential function. The windows are implemented via polynomial-based\nswitching functions, in some cases combined with energy shifting.",
+        "values": []
+      },
+      {
+        "name": "VDW-CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the cutoff distance value in Angstroms for van der Waals\npotential energy interactions. The energy for any pair of van der Waals sites beyond the cutoff distance will be set\nto zero. Other keywords can be used to select a smoothing scheme near the cutoff distance. The default cutoff distance\nin the absence of the VDW-CUTOFF keyword is infinite for nonperiodic systems and 9.0 for periodic systems.",
+        "values": []
+      },
+      {
+        "name": "VDW-TAPER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Allows modification of the cutoff windows for van der Waals\npotential energy interactions. It is similar in form and action to the TAPER keyword, except its value applies only to the\nvdw potential. The default value in the absence of the VDW-TAPER keyword is to begin the cutoff window at 0.9 of the vdw\ncutoff distance.",
+        "values": []
+      },
+      {
+        "name": "LIGHTS",
+        "rep": "CHECKBOX",
+        "description": "Activates Method of Lights neighbor generation for the charge-charge\npotential and any of the van der Waals potentials. This method will yield identical energetic results to the standard\ndouble loop method. Method of Lights will be faster when the volume of a sphere with radius equal to the nonbond cutoff\ndistance is significantly less than half the volume of the total system (i.e., the full molecular system, the crystal\nunit cell or the periodic box).",
+        "values": []
+      },
+      {
+        "name": "NEIGHBOR-GROUPS",
+        "rep": "CHECKBOX",
+        "description": "Causes the attached atom to be used in determining the\ncharge-charge neighbor distance for all monovalent atoms in the molecular system. Its use causes all monovalent atoms\nto be treated the same as their attached atoms for purposes of including or scaling 1-2, 1-3 and 1-4 interactions.\nThis option works only for the simple charge-charge electrostatic potential; it does not affect bond dipole or atomic\nmultipole potentials. The NEIGHBOR-GROUPS scheme is similar to that used by some existing force fields.",
+        "values": []
+      },
+      {
+        "name": "NEUTRAL-GROUPS",
+        "rep": "CHECKBOX",
+        "description": "Causes the attached atom to be used in determining the\ncharge-charge interaction cutoff distance for all monovalent atoms in the molecular system. Its use reduces cutoff\ndiscontinuities by avoiding splitting many of the largest charge separations found in typical molecules. Note this\nkeyword does not rigorously implement the usual concept of a neutral group as used in the literature with OPLS and\nother force fields. This option works only for the simple charge-charge electrostatic potential, and does not affect\nbond dipole or atomic multipole potentials.",
+        "values": []
+      },
+      {
+        "name": "TRUNCATE",
+        "rep": "CHECKBOX",
+        "description": "Causes all distance-based nonbond energy cutoffs to be sharply truncated\nto an energy of zero at distances greater than the value set by the cutoff keyword(s) without use of any shifting,\nswitching or smoothing schemes. At all distances within the cutoff sphere, the full interaction energy is computed.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Ewald Summation",
+    "keywords": [
+      {
+        "name": "EWALD-ALPHA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the Ewald coefficient which controls the\nwidth of the Gaussian screening charges during particle mesh Ewald summation. In the absence of the EWALD-ALPHA keyword,\na value is chosen which causes interactions outside the realspace cutoff to be below a fixed tolerance. For most standard\napplications of Ewald summation, the program default should be used.",
+        "values": []
+      },
+      {
+        "name": "EWALD-CUTOFF",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value in Angstroms of the real-space distance cutoff\nfor use during Ewald summation. By default in the absence of the EWALD-CUTOFF keyword a value of 9.0 is used.",
+        "values": []
+      },
+      {
+        "name": "PME-GRID",
+        "rep": "TEXTFIELD",
+        "description": "[3 integers] Sets the dimensions of the charge grid used during particle\nmesh Ewald summation. The three modifiers give the size along the X-, Y- and Z-axes, respectively. If either the Y- or\nZ-axis dimensions are omitted, then they are set equal to the X-axis dimension. The default in the absence of the PME-GRID\nkeyword is to set the grid size along each axis to the smallest power of 2, 3 and/or 5 which is at least as large as 1.2\ntimes the axis length in Angstoms. Note that the FFT used by PME is not restricted to, but is most efficient for, grid\nsizes which are powers of 2, 3 and/or 5.",
+        "values": []
+      },
+      {
+        "name": "PME-ORDER",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the order of the B-spline interpolation used during\nparticle mesh Ewald summation. A default value of 8 is used in the absence of the PME-ORDER keyword.",
+        "values": []
+      },
+      {
+        "name": "EWALD",
+        "rep": "CHECKBOX",
+        "description": "Turns on the use of Ewald summation during computation of electrostatic\ninteractions in periodic systems. In the current version of Tinker, regular Ewald is used for polarizable atomic\nmultipoles, and smooth particle mesh Ewald (PME) is used for charge-charge interactions. Ewald summation is not\navailable for interactions involving bond-centered dipoles. By default in the absence of the EWALD keyword distance-based\ncutoffs are used for electrostatic interactions.",
+        "values": []
+      },
+      {
+        "name": "EWALD-BOUNDARY",
+        "rep": "CHECKBOX",
+        "description": "Invokes the use of vacuum boundary conditions during Ewald\nsummation, corresponding to the media surrounding the system having a dielectric value of 1. The default in the absence\nof the EWALD-BOUNDARY keyword is to use tinfoil boundary conditions where the surrounding media is assumed to have an\ninfinite dielectric value.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Crystal Lattice and Periodic Boundary",
+    "keywords": [
+      {
+        "name": "A-AXIS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the a-axis length for a crystal unit cell, or\nequivalently sets the X-axis length for a periodic box. The length value in Angstroms is provided after the keyword.\nThe A-AXIS keyword is equivalent to the X-AXIS keyword.",
+        "values": []
+      },
+      {
+        "name": "B-AXIS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the b-axis length for a crystal unit cell, or\nequivalently sets the Y-axis length for a periodic box. The length value in Angstroms is provided after the keyword.\nThe default value in the absence of the b-AXIS keyword is to set the b-axis length is set equal to the a-axis length.\nThe B-AXIS keyword is equivalent to the Y-AXIS keyword.",
+        "values": []
+      },
+      {
+        "name": "C-AXIS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the c-axis length for a crystal unit cell, or\nequivalently sets the Z-axis length for a periodic box. The length value in Angstroms is provided after the keyword.\nThe default value in the absence of the c-AXIS keyword is to set the c-axis length is set equal to the a-axis length.\nThe C-AXIS keyword is equivalent to the Z-AXIS keyword.",
+        "values": []
+      },
+      {
+        "name": "X-AXIS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the X-axis length for a periodic box, or\nequivalently sets the a-axis length for a crystal unit cell. The length value in Angstroms is provided after the keyword.\nThe X-AXIS keyword is equivalent to the A-AXIS keyword.",
+        "values": []
+      },
+      {
+        "name": "Y-AXIS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the Y-axis length for a periodic box, or\nequivalently sets the b-axis length for a crystal unit cell. The length value in Angstroms is provided after the keyword.\nThe default value in the absence of the Y-AXIS keyword is to set the Y-axis length is set equal to the X-axis length.\nThe Y-AXIS keyword is equivalent to the B-AXIS keyword.",
+        "values": []
+      },
+      {
+        "name": "Z-AXIS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the Z-axis length for a periodic box, or\nequivalently sets the c-axis length for a crystal unit cell. The length value in Angstroms is provided after the keyword.\nThe default value in the absence of the Z-AXIS keyword is to set the Z-axis length is set equal to the X-axis length.\nThe Z-AXIS keyword is equivalent to the C-AXIS keyword.",
+        "values": []
+      },
+      {
+        "name": "ALPHA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the alpha angle of a crystal unit cell, i.e.,\nthe angle between the b-axis and c-axis of a unit cell, or, equivalently, the angle between the Y-axis and Z-axis of a\nperiodic box. The default value in the absence of the ALPHA keyword is 90 degrees.",
+        "values": []
+      },
+      {
+        "name": "BETA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the beta angle of a crystal unit cell, i.e.,\nthe angle between the a-axis and c-axis of a unit cell, or, equivalently, the angle between the X-axis and Z-axis of a\nperiodic box. The default value in the absence of the BETA keyword is to set the beta angle equal to the alpha angle as\ngiven by the ALPHA keyword.",
+        "values": []
+      },
+      {
+        "name": "GAMMA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the gamma angle of a crystal unit cell, i.e.,\nthe angle between the a-axis and b-axis of a unit cell, or, equivalently, the angle between the X-axis and Z-axis of a\nperiodic box. The default value in the absence of the GAMMA keyword is to set the gamma angle equal to the alpha angle\nas given by the ALPHA keyword.",
+        "values": []
+      },
+      {
+        "name": "SPACEGROUP",
+        "rep": "COMBOBOX",
+        "description": "[name] Selects the space group to be used in manipulation of crystal\nunit cells and asymmetric units. The name option must be chosen from one of the currently implemented space groups, which\ninclude about 90 of the most common space groups out of the total of 230 possibilities.",
+        "values": []
+      },
+      {
+        "name": "DODECAHEDRON",
+        "rep": "CHECKBOX",
+        "description": "Specifies the periodic \"box\" is a rhombic dodecahedron with maximal\ndistance between parallel faces across the periodic box as given by the A-AXIS or X-AXIS keyword. The box is oriented such\nthat the b-axis is set equal to the a-axis, and the c-axis is longer by a factor of the square root of 2. The volume of\nthe resulting rhombic dodecahedron is half the volume of the corresponding rectangular prism. All other unit cell and\nsize-defining keywords are ignored if the DODECAHEDRON keyword is present.",
+        "values": []
+      },
+      {
+        "name": "OCTAHEDRON",
+        "rep": "CHECKBOX",
+        "description": "Specifies the periodic box is a truncated octahedron with maximal\ndistance across the truncated octahedron as given by the A-AXIS or X-AXIS keyword. All other unit cell and periodic box\nsize-defining keywords are ignored if the OCTAHEDRON keyword is present.",
+        "values": []
+      },
+      {
+        "name": "NO-SYMMETRY",
+        "rep": "CHECKBOX",
+        "description": "Forces the use of triclinic periodic boundary conditions in minimum\nimage generation regardless of any symmetry or equivalent values in the periodic box or crystal lattice values. Used to\nallow the possibility of symmetry breaking during calculations begining with a symmetric structure.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Neighbor Lists",
+    "keywords": [
+      {
+        "name": "LIST-BUFFER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the size of the neighbor list buffer in Angstroms for\npotential energy functions. This value is added to the actual cutoff distance to determine which pairs will be kept\non the neighbor list. This buffer value is used for all potential function neighbor lists. The default value in the\nabsence of the LIST-BUFFER keyword is 2.0 Angstroms.",
+        "values": []
+      },
+      {
+        "name": "CHARGE-LIST",
+        "rep": "CHECKBOX",
+        "description": "Turns on the use of pairwise neighbor lists for partial charge\nelectrostatics. This method will yield identical energetic results to the standard double loop method.",
+        "values": []
+      },
+      {
+        "name": "MPOLE-LIST",
+        "rep": "CHECKBOX",
+        "description": "Turns on pairwise neighbor lists for atomic multipole electrostatics\nand induced dipole polarization. This method will yield identical energetic results to the standard double loop methods.",
+        "values": []
+      },
+      {
+        "name": "NEIGHBOR-LIST",
+        "rep": "CHECKBOX",
+        "description": "Turns on pairwise neighbor lists for partial charge electrostatics,\natomic multipole electrostatics, induced dipole polarization and any of the van der Waals potentials. This method will\nyield identical energetic results to the standard double loop method.",
+        "values": []
+      },
+      {
+        "name": "USOLVE-BUFFER",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the size of the neighbor list buffer in Angstroms for\nthe sparse conjugate gradient preconditioner used in computing induced dipoles. This value is added to the actual cutoff\ndistance to determine which pairs will be kept on the neighbor list. The default value in the absence of the USOLVE-BUFFER\nkeyword is 2.0 Angstroms.",
+        "values": []
+      },
+      {
+        "name": "USOLVE-LIST",
+        "rep": "CHECKBOX",
+        "description": "Turns on pairwise neighbor lists for the sparse conjugate gradient\npreconditioner used to accelerate computation of induced dipoles. This method will yield identical energetic results to\nthe standard double loop methods.",
+        "values": []
+      },
+      {
+        "name": "VDW-LIST",
+        "rep": "CHECKBOX",
+        "description": "Turns on pairwise neighbor lists for any of the van der Waals potentials.\nThis method will yield identical energetic results to the standard double loop method.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Optimization",
+    "keywords": [
+      {
+        "name": "ANGMAX",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the maximum permissible angle between the current optimization\nsearch direction and the negative of the gradient direction. If this maximum angle value is exceeded, the optimization\nroutine will note an error condition and may restart from the steepest descent direction. The default value in the\nabsence of the ANGMAX keyword is usually 88 degrees for conjugate gradient methods and 180 degrees (i.e., disabled) for\nvariable metric optimizations.",
+        "values": []
+      },
+      {
+        "name": "CAPPA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the normal termination criterion for the line search phase of\noptimization routines. The line search exits successfully if the ratio of the current gradient projection on the line to\nthe projection at the start of the line search falls below the value of CAPPA. A default value of 0.1 is used in the\nabsence of the CAPPA keyword.",
+        "values": []
+      },
+      {
+        "name": "FCTMIN",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets a convergence criterion for successful completion of an\noptimization. If the value of the optimization objective function, typically the potential energy, falls below the value\nset by FCTMIN, then the optimization is deemed to have converged. The default value in the absence of the FCTMIN keyword\nis -1000000, effectively removing this criterion as a possible agent for termination.",
+        "values": []
+      },
+      {
+        "name": "HGUESS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets an initial guess for the average value of the diagonal\nelements of the scaled inverse Hessian matrix used by the optimally conditioned variable metric optimization routine.\nA default value of 0.4 is used in the absence of the HGUESS keyword. IMPROPER [4 integers and 2 reals] This keyword\nprovides the values for a single CHARMM-style improper dihedral angle parameter.",
+        "values": []
+      },
+      {
+        "name": "INTMAX",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the maximum number of interpolation cycles allowed during\nthe line search phase of an optimization. All gradient-based Tinker optimization routines use a common line search\nroutine involving quadratic extrapolation and cubic interpolation. If the value ofMAX is reached, an error status is\nset for the line search and the search is repeated with a much smaller initial step size. The default value in the\nabsence of this keyword is optimization routine dependent, but is usually in the range 5 to 10.",
+        "values": []
+      },
+      {
+        "name": "LBFGS-VECTORS",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the number of correction vectors used by the\nlimited memory L-BFGS optimization routine. The current maximum allowable value, and the default in the absence of\nthe LBFGS-VECTORS keyword is 15.",
+        "values": []
+      },
+      {
+        "name": "MAXITER",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the maximum number of minimization iterations allowed\nfor any of the nonlinear optimization routines. The default value in the absence of this keyword is program dependent,\nbut is always set to a very large number.",
+        "values": []
+      },
+      {
+        "name": "NEWHESS",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the number of algorithmic iterations between recomputation\nof the Hessian matrix. At present this keyword applies exclusively to optimizations using the Truncated Newton method.\nThe default value in the absence of this keyword is 1, i.e., the Hessian is computed on every iteration.",
+        "values": []
+      },
+      {
+        "name": "NEXTITER",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the iteration number to be used for the first iteration\nof the current computation. At present this keyword applies to optimization procedures where its use can effect\nconvergence criteria, timing of restarts, and so forth. The default in the absence of this keyword is to take the\ninitial iteration as iteration 1.",
+        "values": []
+      },
+      {
+        "name": "SLOPEMAX",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the maximum allowed size of the ratio between the current\nand initial projected gradients during the line search phase of conjugate gradient or truncated Newton optimizations.\nIf this ratio exceeds SLOPEMAX, then the initial step size is reduced by a factor of 10. The default value is usually\nset to 10000.0 when not specified via the SLOPEMAX keyword.",
+        "values": []
+      },
+      {
+        "name": "STEPMAX",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the maximum size of an individual step during the line search\nphase of conjugate gradient or truncated Newton optimizations. The step size is computed as the norm of the vector of\nchanges in parameters being optimized. The default value depends on the particular Tinker program, but is usually in the\nrange from 1.0 to 5.0 when not specified via the STEPMAX keyword.",
+        "values": []
+      },
+      {
+        "name": "STEPMIN",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the minimum size of an individual step during the line search\nphase of conjugate gradient or truncated Newton optimizations. The step size is computed as the norm of the vector of\nchanges in parameters being optimized. The default value is usually set to about 10-16 when not specified via the\nSTEPMIN keyword.",
+        "values": []
+      },
+      {
+        "name": "STEEPEST-DESCENT",
+        "rep": "CHECKBOX",
+        "description": "Forces the L-BFGS optimization routine used by the MINIMIZE\nprogram and others to perform steepest descent minimization. This option can be useful in conjunction with small step\nsizes for following minimum energy paths, but is generally inferior to the L-BFGS default for most optimization purposes.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Molecular and Stochastic Dynamics",
+    "keywords": [
+      {
+        "name": "BEEMAN-MIXING",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the \"mixing\" coefficient between old and new forces\nin position and velocity updates when using the Beeman integrator. The original algorithm of Beeman uses a value of 6.\nThe default value in the absence of the BEEMAN-MIXING keyword is to use 8, which corresponds to the \"Better Beeman\"\nalgorithm proposed by Bernie Brooks.",
+        "values": []
+      },
+      {
+        "name": "DEGREES-FREEDOM",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Sets the number of degrees of freedom during a dynamics\ncalculation. The integer modifier is used by thermostating methods and in other places as the number of degrees of freedom,\noverriding the value determined by the Tinker code at dynamics startup. In the absence of the keyword, the programs will\nautomatically compute the correct value based on the number of atoms active during dynamics, bond or other constrains,\nand use of periodic boundary conditions.",
+        "values": []
+      },
+      {
+        "name": "FRICTION",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the frictional coefficient in units of 1/ps\nfor use with stochastic dynamics. The default value used in the absence of the FRICTION keyword is 0.5, which is lower\nthan the internal friction of water and is appropriate when using stochastic dynamics as a thermostat. If implicit\nsolvent is used, then a default of 91.0 is set to mimic the viscosity of water at room temperature.",
+        "values": []
+      },
+      {
+        "name": "FRICTION-SCALING",
+        "rep": "CHECKBOX",
+        "description": "Turns on the use of atomic surface area-based scaling of the\nfrictional coefficient during stochastic dynamics. When in use, the coefficient for each atom is multiplied by that\natom's fraction of exposed surface area. The default in the absence of the keyword is to omit the scaling and use the\nfull coefficient value for each atom.",
+        "values": []
+      },
+      {
+        "name": "INTEGRATOR",
+        "rep": "COMBOBOX",
+        "description": "[VERLET/BEEMAN/RESPA/VRESPA/BRESPA/SRESPA/BAOAB/OBABO/NOSE-HOOVER/GHMC/STOCHASTIC/RIGIDBODY]\nChooses the integration method for propagation of dynamics trajectories. The keyword is followed on the same line by\nthe name of the option. The VERLET modifier specifies the velocity Verlet method. BEEMAN is a Beeman integrator using\nby default the \"Better Beeman\" coefficients of Bernie Brooks. VRESPA is a two-stage velocity Verlet-based multiple time\nstep (MTS) integrator that splits bonded and nonbonded interactions. BRESPA is similar to VRESPA, but uses a Beeman\nrecursion. SRESPA is another two-stage MTS integrator, which is based on a BAOAB recursion. If the generic RESPA option\nis specified, then the BRESPA method is used. BAOAB is the preferred symmetric splitting Langevin integrator of\nLeimkuhler and Matthews. OBABO is an alternative to BAOAB, and similar to the stochastic integrator of Bussi and\nParrinello. NOSE-HOOVER selects an NPT integrator with coupled thermostat and barostat described by Martyna, Tuckerman,\nTobias and Klein. GHMC implements a generalized hybrid Monte Carlo algorithm due to Lelievre, Rousset and Stoltz.\nSTOCHASTIC is the velocity Verlet-based stochastic dynamics method of Guarnieri and Still. RIGIDBODY is an Euler\nangle-based rigid-body dynamics method. The default integration scheme in the absence of this keyword is to use the\nBEEMAN method for molecular dynamics when appropriate.",
+        "values": [
+          "VERLET",
+          "BEEMAN",
+          "RESPA",
+          "VRESPA",
+          "BRESPA",
+          "SRESPA",
+          "BAOAB",
+          "OBABO",
+          "NOSE-HOOVER",
+          "GHMC",
+          "STOCHASTIC",
+          "RIGIDBODY",
+          "DEFAULT"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Thermostat and Barostat",
+    "keywords": [
+      {
+        "name": "COLLISION",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the random collision frequency used in the\nAndersen stochastic collision dynamics thermostat. The supplied value has units of fs-1 atom-1 and is multiplied\ninternally by the time step in fs and N-2/3 where N is the number of atoms. The default value used in the absence of\nthe COLLISION keyword is 0.1 which is appropriate for many systems but may need adjustment to achieve adequate\ntemperature control without perturbing the dynamics.",
+        "values": []
+      },
+      {
+        "name": "COMPRESS",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the bulk solvent isothermal compressibility\nin Atm-1 for use during pressure computation and scaling in molecular dynamics computations. The default value used in\nthe absence of the COMPRESS keyword is 0.000046, appropriate for water. This parameter serves as a scale factor for the\npressure bath coupling time, and its exact value should not be of critical importance.",
+        "values": []
+      },
+      {
+        "name": "PRESSURE",
+        "rep": "COMBOBOX",
+        "description": "[ISOTROPIC/SEMI-ISOTROPIC/ANSIOTROPIC] Selects a type of pressure control\nfor use during molecular dynamics. Three modifiers are available: ISOTROPIC causes the barostat to modify all periodic\nbox dimensions equivalently and in concert, SEMI-ISOTROPIC modifies the periodic area across the X/Y-axes equally and\nindependently from the Z-axis for use in membrane simulations and similar, while ANISOTROPIC modifies all periodic box\ndimensions separately. The default in the absence of the PRESSURE keyword is isotropic pressure control.",
+        "values": [
+          "ISOTROPIC",
+          "SEMI-ISOTROPIC",
+          "ANISOTROPIC",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "BAROSTAT",
+        "rep": "COMBOBOX",
+        "description": "[BERENDSON/BUSSI/NOSE-HOOVER/MONTECARLO] Selects a barostat algorithm\nfor use during molecular dynamics. At present the options include three virial-based methods: BERSENSEN uses simple\ndirect cell scaling, BUSSI invokes stochastic cell rescaling, and NOSE-HOOVER is an extended variable chain method.\nIn addition, a virial-free Monte Carlo barostat is available. The default in the absence of the BAROSTAT keyword is to\nuse the BUSSI algorithm.",
+        "values": [
+          "BERENDSON",
+          "BUSSI",
+          "NOSE-HOOVER",
+          "MONTECARLO",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "NOSE-MASS",
+        "rep": "TEXTFIELD",
+        "description": "[2 reals] Sets the hypothetical mass in Daltons of each of the two\nchain particles for the Nose-Hoover thermostat. If only a single real number modifier is given, its value is used for\nboth chains. The default in the absence of this keyword is to use a mass of 10 Daltons for each Nose-Hoover chain.",
+        "values": []
+      },
+      {
+        "name": "TAU-PRESSURE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the coupling time in picoseconds for the Berendsen\nand Bussi pressure bath coupling used to control the system pressure during molecular dynamics calculations. A default\nvalue of 2.0 is used for TAU-PRESSURE in the absence of the keyword.",
+        "values": []
+      },
+      {
+        "name": "TAU-TEMPERATURE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the coupling time in picoseconds for Berendsen\nand Bussi temperature bath coupling used to control the system temperature during molecular dynamics calculations.\nA default value of 0.2 is used for TAU-TEMPERATURE in the absence of the keyword.",
+        "values": []
+      },
+      {
+        "name": "THERMOSTAT",
+        "rep": "COMBOBOX",
+        "description": "[BUSSI/BERENDSEN/ANDERSEN/NOSE-HOOVER] Selects a thermostat algorithm\nfor used to control temperature during molecular dynamics. Four modifiers are available cooresponding to the\nBussi-Parinello stochastic coupling, original Berendsen bath coupling, Andersen stochastic collision, and Nose-Hoover\nextended dynamics methods. The default in the absence of the THERMOSTAT keyword is to use the BUSSI algorithm.",
+        "values": [
+          "BUSSI",
+          "BERENDSEN",
+          "ANDERSEN",
+          "NOSE-HOOVER",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "VOLUME-MOVE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Specifies the maximum magnitude in cubic Angstroms of a trial\nchange in the periodic box size when using a Monte Carlo barostat. The default value of 100.0 cubic Angstroms is used\nin the absence of the VOLUME-MOVE keyword.",
+        "values": []
+      },
+      {
+        "name": "VOLUME-SCALE",
+        "rep": "COMBOBOX",
+        "description": "[MOLECULAR/ATOMIC] Specifies the type of coordinate scaling to be\nused when making trial periodic box volume size changes during use of a Monte Carlo barostat. The MOLECULAR modifier\nenforces rigid body translation of molecules based on center of mass, while the ATOMIC value treats all coordinates\nindependently. The default in the absence of the VOLUME-SCALE keyword is to use MOLECULAR scaling.",
+        "values": [
+          "ATOMIC",
+          "MOLECULAR",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "VOLUME-TRIAL",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Specifies the average number of molecular dynamics steps\nbetween attempts to change the periodic box size when using a Monte Carlo barostat. The default value of 25 steps is\nused in the absence of the VOLUME-TRIAL keyword.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Transition State",
+    "keywords": [
+      {
+        "name": "DIVERGE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the maximum allowed value in the SADDLE program of\nthe ratio of the gradient length along the path to the total gradient norm at the end of a cycle of minimization\nperpendicular to the path. If the value provided by the DIVERGE keyword is exceeded, then another cycle of maximization\nalong the path is required. A default value of 0.005 is used in the absence of the DIVERGE keyword.",
+        "values": []
+      },
+      {
+        "name": "GAMMAMIN",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the convergence target value for gamma during searches for\nmaxima along the quadratic synchronous transit used by the SADDLE program. The value of gamma is the square of the ratio\nof the gradient projection along the path to the total gradient. A default value of 0.00001 is used in the absence of\nthe GAMMAMIN keyword.",
+        "values": []
+      },
+      {
+        "name": "REDUCE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Specifies the fraction between zero and one by which the path\nbetween starting and final conformational state will be shortened at each major cycle of the transition state location\nalgorithm implemented by the SADDLE program. This causes the path endpoints to move up and out of the terminal structures\ntoward the transition state region. In favorable cases, a nonzero value of the REDUCE modifier can speed convergence to\nthe transition state. The default value in the absence of the REDUCE keyword is zero.",
+        "values": []
+      },
+      {
+        "name": "SADDLEPOINT",
+        "rep": "CHECKBOX",
+        "description": "Allows the Newton-style second derivative-based optimization routine\nused by NEWTON, NEWTROT and other programs to converge to saddlepoints as well as minima on the potential surface. By\ndefault in the absence of the SADDLEPOINT keyword checks are applied that prevent convergence to stationary points\nhaving directions of negative curvature.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Distance Geometry",
+    "keywords": [
+      {
+        "name": "TRIAL-DISTANCE",
+        "rep": "TEXTFIELD",
+        "description": "[CLASSIC/RANDOM/TRICOR/HAVEL integer/PAIRWISE integer] Sets the\nmethod for selection of a trial distance matrix during distance geometry computations. The keyword takes a modifier\nselecting the method to be used. The HAVEL and PAIRWISE modifiers also require an additional integer value to specify\nthe number of atoms used in metrization and the percentage of metrization, respectively. The default in the absence of\nthis keyword is to use the PAIRWISE method with 100 percent metrization. Further information on the various methods is\ngiven with the description of the DISTGEOM distance geometry program.",
+        "values": []
+      },
+      {
+        "name": "TRIAL-DISTRIBUTION",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the initial value for the mean of the Gaussian\ndistribution used to select trial distances between the lower and upper bounds during distance geometry computations.\nThe value given must be between 0 and 1 which represent the lower and upper bounds respectively. This keyword is rarely\nneeded since the method usually chooses a reasonable value by default.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Vibrational Analysis",
+    "keywords": [
+      {
+        "name": "SAVE-VECTS",
+        "rep": "TEXTFIELD",
+        "description": "[integer] Specifies the number of iterations between the saving of\nrestart vectors during block iterative determination of the low frequence vibrational modes. A default value of 10 is\nused for SAVE-VECTS in the absence of the keyword.",
+        "values": []
+      },
+      {
+        "name": "VIB-ROOTS",
+        "rep": "TEXTFIELD",
+        "description": "[integer] VIB-ROOTS DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "VIB-TOLERANCE",
+        "rep": "TEXTFIELD",
+        "description": "[real] VIB-TOLERANCE DOCUMENTATION...",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Surface Area and Volume",
+    "keywords": []
+  },
+  {
+    "name": "Free Energy Perturbation",
+    "keywords": [
+      {
+        "name": "LAMBDA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the lambda scaling parameters for electrostatic,\nvdw and torsional interactions during free energy calculations and similar. The real number modifier sets the position\nalong path from the initial state (lambda=0) to the final state (lambda=1). Alternatively, this parameter can set the\nstate of decoupling or annihilation for specified groups from none (lambda=1) to complete (lambda=0). The groups involved\nin the scaling are given separately via LIGAND or MUTATE keywords.",
+        "values": []
+      },
+      {
+        "name": "ELE-LAMBDA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the lambda scaling parameters for\nelectrostatic interactions during free energy calculations and similar. The real number modifier sets the position\nalong path from the initial state (lambda=0) to the final state (lambda=1). Alternatively, this parameter can set the\nstate of decoupling or annihilation for specified groups from none (lambda=1) to complete (lambda=0). The groups involved\nin the scaling are given separately via LIGAND or MUTATE keywords.",
+        "values": []
+      },
+      {
+        "name": "VDW-LAMBDA",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the value of the lambda scaling parameters for vdw\ninteractions during free energy calculations and similar. The real number modifier sets the position along path from\nthe initial state (lambda=0) to the final state (lambda=1). Alternatively, this parameter can set the state of decoupling\nor annihilation for specified groups from none (lambda=1) to complete (lambda=0). The groups involved in the scaling are\ngiven separately via LIGAND or MUTATE keywords.",
+        "values": []
+      },
+      {
+        "name": "VDW-ANNIHILATE",
+        "rep": "CHECKBOX",
+        "description": "[real] Sets the value of the lambda scaling parameters for vdw\ninteractions during free energy calculations and similar. The real number modifier sets the position along path from\nthe initial state (lambda=0) to the final state (lambda=1). Alternatively, this parameter can set the state of decoupling\nor annihilation for specified groups from none (lambda=1) to complete (lambda=0). The groups involved in the scaling are\ngiven separately via LIGAND or MUTATE keywords.",
+        "values": []
+      },
+      {
+        "name": "LIGAND",
+        "rep": "TEXTFIELD",
+        "description": "[3 integers] LIGAND DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MUTATE",
+        "rep": "TEXTFIELD",
+        "description": "[3 integers] Specifies atoms to be mutated during free energy perturbation\ncalculations. The first integer modifier gives the atom number of an atom in the current system. The final two modifier\nvalues give the atom types corresponding the the lambda=0 and lambda=1 states of the specified atom.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Partial Structure",
+    "keywords": [
+      {
+        "name": "ACTIVE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[integer list] Sets the list of active atoms during a computation.\nIndividual potential energy terms are computed when at least one atom involved in the term is active. For Cartesian space\ncalculations, active atoms are those allowed to move. For torsional space calculations, rotations are allowed when all\natoms on one side of the rotated bond are active. Multiple ACTIVE lines can be present in the keyfile and are treated\ncumulatively. On each line the keyword can be followed by one or more atom numbers or atom ranges. The presence of any\nACTIVE keyword overrides any INACTIVE keywords in the keyfile.",
+        "values": []
+      },
+      {
+        "name": "INACTIVE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[integer list] Sets the list of inactive atoms during a computation.\nIndividual potential energy terms are not computed when all atoms involved in the term are inactive. For Cartesian space\ncalculations, inactive atoms are not allowed to move. For torsional space calculations, rotations are not allowed when\nthere are inactive atoms on both sides of the rotated bond. Multiple INACTIVE lines can be present in the keyfile, and\non each line the keyword can be followed by one or more atom numbers or ranges. If any INACTIVE keys are found, all\natoms are set to active except those listed on the INACTIVE lines. The ACTIVE keyword overrides all INACTIVE keywords\nfound in the keyfile.",
+        "values": []
+      },
+      {
+        "name": "ACTIVE-SPHERE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 reals, or 1 integer and 1 real] Provides an alternative to\nthe ACTIVE and INACTIVE keywords for specification of subsets of active atoms. If four real number modifiers are given,\nthe first three are taken as X-, Y- and Z-coordinates and the fourth is the radius of a sphere centered at these\ncoordinates. In this case, all atoms within the sphere at the start of the calculation are active throughout the\ncalculation, while all other atoms are inactive. Similarly if one integer and real number are given, an active sphere\nwith radius set by the real is centered on the system atom with atom number given by the integer modifier. Multiple\nACTIVE-SPHERE keyword lines can be present in a single keyfile, and the list of active atoms specified by the spheres\nis cumulative.",
+        "values": []
+      },
+      {
+        "name": "GROUP",
+        "rep": "EDITCOMBOBOX",
+        "description": "[integer, integer list] Defines an atom group as a substructure within\nthe full input molecular structure. The value of the first integer is the group number which must be in the range from\n1 to the maximum number of allowed groups. The remaining intergers give the atom or atoms contained in this group as\none or more atom numbers or ranges. Multiple keyword lines can be used to specify additional atoms in the same group.\nNote that an atom can only be in one group, the last group to which it is assigned is the one used.",
+        "values": []
+      },
+      {
+        "name": "GROUP-SELECT",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers, real] Specifies the weight in the final potential\nenergy of a specified set of intra- or intergroup interactions. The integer modifiers give the group numbers of the\ngroups involved. If the two numbers are the same, then an intragroup set of interactions is specified. The real modifier\ngives the weight by which all energetic interactions in this set will be multiplied before incorporation into the final\npotential energy. If omitted as a keyword modifier, the weight will be set to 1.0 by default. If any SELECTGROUP keywords\nare present, then any set of interactions not specified in a SELECTGROUP keyword is given a zero weight. The default when\nno SELECT-GROUP keywords are specified is to use all intergroup interactions with a weight of 1.0 and to set all\nintragroup interactions to zero.",
+        "values": []
+      },
+      {
+        "name": "GROUP-INTER",
+        "rep": "CHECKBOX",
+        "description": "Assigns a value of 1.0 to all inter-group interactions and a value\nof 0.0 to all intra-group interactions. For example, combination with the GROUP-MOLECULE keyword provides for rigid-body\ncalculations.",
+        "values": []
+      },
+      {
+        "name": "GROUP-INTRA",
+        "rep": "CHECKBOX",
+        "description": "Assigns a value of 1.0 to all intra-group interactions and a value\nof 0.0 to all inter-group interactions.",
+        "values": []
+      },
+      {
+        "name": "GROUP-MOLECULE",
+        "rep": "CHECKBOX",
+        "description": "Sets each individual molecule in the system to be a separate atom\ngroup, but does not assign weights to group-group interactions.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Restraints and Constraints",
+    "keywords": [
+      {
+        "name": "BASIN",
+        "rep": "TEXTFIELD",
+        "description": "[2 reals] Turns on a basin restraint potential function to drive the system\ntoward a compact structure. The actual function is a Gaussian of the form Ebasin = S A exp[-B R2], summed over all pairs\nof atoms where R is the distance between atoms. The A and B values are the depth and width parameters given as modifiers\nto the BASIN keyword. This potential is currently used to control the degree of expansion during potential energy smooth\nprocedures through the use of shallow, broad basins.",
+        "values": []
+      },
+      {
+        "name": "WALL",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the radius of a spherical boundary used to maintain droplet\nboundary conditions. The real modifier specifies the desired approximate radius of the droplet. In practice, an artificial\nvan der Waals wall is constructed at a fixed buffer distance of 2.5 Angstroms outside the specified radius. Atoms which\nattempt to move outside the region defined by the droplet radius will be forced toward the center.",
+        "values": []
+      },
+      {
+        "name": "ENFORCE-CHIRALITY",
+        "rep": "CHECKBOX",
+        "description": "Causes the chirality found at chiral tetravalent centers in the\ninput structure to be maintained. The test for chirality is not exhaustive; two identical monovalent atoms connected to a\ncenter cause it to be marked as non-chiral, but large equivalent substituents are not detected. Asymmetric trivalent\ncenters, for example the alpha carbon in united-atom protein structures, are not enforced as chiral.",
+        "values": []
+      },
+      {
+        "name": "FREEZE",
+        "rep": "CHECKBOXES",
+        "description": "[BONDS/ANGLES/DIATOMIC/TRIATOMIC/WATER] Invokes the rattle constraint\nalgorithm on portions of a molecular system during a molecular dynamic calculation. For water, the settle method is used\nin place of rattle. The FREEZE keyword can be followed by any of the modifiers shown, in which case all occurrences of\nthe modifier species are constrained at ideal values taken from the bond and angle parameters of the force field in use.\nIn the absence of any modifier, FREEZE constrains all bonds to hydrogen atoms at ideal bond lengths.",
+        "values": [
+          "BONDS",
+          "ANGLES",
+          "DIATOMIC",
+          "TRIATOMIC",
+          "WATER"
+        ]
+      },
+      {
+        "name": "FREEZE-DISTANCE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers] Implements a constraint on a the bond between\nthe two atoms whose numbers are specified on the keyword line. If the two atoms are involved in a direct bond, then\ntheir distance is constrained to the ideal bond length from the force field. For nonbonded atoms, the constraint fixes\ntheir distance at the distance in the input coordinate file.",
+        "values": []
+      },
+      {
+        "name": "FREEZE-EPS",
+        "rep": "TEXTFIELD",
+        "description": "[real] FREEZE-EPS DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "FREEZE-LINE",
+        "rep": "TEXTFIELD",
+        "description": "[integer] FREEZE-LINE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "FREEZE-ORIGIN",
+        "rep": "TEXTFIELD",
+        "description": "[integer] FREEZE-ORIGIN DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "FREEZE-PLANE",
+        "rep": "TEXTFIELD",
+        "description": "[integer] FREEZE-PLANE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "RESTRAIN-ANGLE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[3 integers and 3 reals] Implements a flat-welled harmonic\npotential to restrain the angle between three atoms to lie within a specified angle range. The initial integer modifiers\ncontain the atom numbers of the three atoms whose angle is to be restrained. The first real modifier is the force constant\nin kcal/degree^2 for the restraint. The last two real number modifiers give the lower and upper bounds in degrees on the\nallowed angle values. If the angle lies between the lower and upper bounds, the restraint potential is zero. Outside the\nbounds, the harmonic restraint is applied. If the angle range modifiers are omitted, then the atoms are restrained to the\nangle found in the input structure. If the force constant is also omitted, a default value of 10.0 is used.",
+        "values": []
+      },
+      {
+        "name": "RESTRAIN-DISTANCE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 3 reals] Implements a flat-welled harmonic\npotential to restrain two atoms to lie within a specified distance range. The initial integer modifiers contains the\natom numbers of the two atoms to be restrained. The first two real number modifiers give the lower and upper bounds in\nAngstroms on the allowed distance values. If the interatomic distance lies between the lower and upper bounds, the\nrestraint potential is zero. Outside the bounds, the harmonic restraint is applied. If the distance range modifiers are\nomitted, then the atoms are restrained to the interatomic distance found in the input structure. If the force constant\nis also omitted, a default value of 100.0 is used.",
+        "values": []
+      },
+      {
+        "name": "RESTRAIN-GROUPS",
+        "rep": "EDITCOMBOBOX",
+        "description": "[2 integers and 3 reals] Implements a flat-welled harmonic\ndistance restraint between the centers-of-mass of two groups of atoms. The integer modifiers are the numbers of the two\ngroups which must be defined separately via the GROUP keyword. The first real modifier is the force constant in kcal/Ang^2\nfor the restraint. The last two real number modifiers give the lower and upper bounds in ??ngstroms on the allowed distance\nvalues. If the distance range modifiers are omitted, then the atoms are restrained to the intergroup distance found in the\ninput structure. If the force constant is also omitted, a default value of 100.0 is used.",
+        "values": []
+      },
+      {
+        "name": "RESTRAIN-POSITION",
+        "rep": "EDITCOMBOBOX",
+        "description": "[1 integer and 5 reals] Provides the ability to restrain an\nindividual atom to a specified coordinate position. The initial integer modifier contains the atom number of the atom to\nbe restrained. The first real modifier sets the force constant in kcal/??2 for the harmonic restraint potential. The next\nthree real number modifiers give the X-, Y- and Z-coordinates to which the atom is tethered. The final real modifier\ndefines a sphere around the specified coordinates within which the restraint value is zero. If all the real modifiers\nare omitted, then the atom is restrained to the origin. If the force constant is also omitted, a default value of 100.0\nis used.",
+        "values": []
+      },
+      {
+        "name": "RESTRAIN-TORSION",
+        "rep": "EDITCOMBOBOX",
+        "description": "[4 integers and 3 reals] Implements a flat-welled harmonic\npotential that can be used to restrain the torsional angle between four atoms to lie within a specified angle range.\nThe initial integer modifiers contains the atom numbers of the four atoms whose torsional angle, computed in the atom\norder listed, is to be restrained. The first real modifier gives a force constant in kcal/degree^2. The last two real\nnumber modifiers give the lower and upper bounds in degrees on the allowed torsional angle values. The angle values\ngiven can wrap around across -180 and +180 degrees. Outside the allowed angle range, the harmonic restraint is applied.\nIf the angle range modifiers are omitted, then the atoms are restrained to the torsional angle found in the input\nstructure. If the force constant is also omitted, a default value of 1.0 is used.",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Potential Smoothing",
+    "keywords": [
+      {
+        "name": "DEFORM",
+        "rep": "TEXTFIELD",
+        "description": "[real] Sets the amount of diffusion equation-style smoothing applied to\nthe potential energy surface when using the SMOOTH force field. The real number option is equivalent to the time value\nin the original Piela, et al. formalism; the larger the value, the greater the smoothing. The default value is zero,\nmeaning that no smoothing will be applied.",
+        "values": []
+      },
+      {
+        "name": "DIFFUSE-CHARGE",
+        "rep": "TEXTFIELD",
+        "description": "[real] Specifies the effective diffusion coefficient to be\napplied to the smoothed form of the charge-charge potential function during potential smoothing. In the absence of the\nDIFFUSE-CHARGE keyword, a default value of 3.5 is used.",
+        "values": []
+      },
+      {
+        "name": "DIFFUSE-TORSION",
+        "rep": "TEXTFIELD",
+        "description": "[real] Specifies the effective diffusion coefficient to be\napplied to the smoothed form of the torsion angle potential function during potential smoothing. In the absence of the\nDIFFUSE-TORSION keyword, a default value of 0.0225 is used.",
+        "values": []
+      },
+      {
+        "name": "DIFFUSE-VDW",
+        "rep": "TEXTFIELD",
+        "description": "[real] Specifies the effective diffusion coefficient to be applied\nto the smoothed Gaussian approximation to the Lennard-Jones van der Waals potential function during potential smoothing.\nIn the absence of the DIFFUSE-VDW keyword, a default value of 1.0 is used.",
+        "values": []
+      },
+      {
+        "name": "SMOOTHING",
+        "rep": "COMBOBOX",
+        "description": "[DEM/GDA/TOPHAT/STOPHAT] Activates potential energy smoothing methods.\nSeveral variations are available depending on the value of the modifier used: DEM is the Diffusion Equation Method with\na standard Gaussian kernel. GDA is Gaussian Density Annealing as proposed by the Straub group. TOPHAT is a local DEM-like\nmethod using a finite range tophat kernel, and STOPHAT is a shifted tophat smoothing method.",
+        "values": [
+          "DEM",
+          "GDA",
+          "TOPHAT",
+          "STOPHAT",
+          "DEFAULT"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Implicit Solvation Model",
+    "keywords": [
+      {
+        "name": "BORN-RADIUS",
+        "rep": "COMBOBOX",
+        "description": "[ACE/GRYCUK/HCT/OBC/ONION/PERFECT/STILL] SRFM DOCUMENTATION...",
+        "values": [
+          "ACE",
+          "GRYCUK",
+          "HCT",
+          "OBC",
+          "ONION",
+          "PERFECT",
+          "STILL",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "GK-RADIUS",
+        "rep": "COMBOBOX",
+        "description": "[AMOEBA/BONDI/MACROMODEL/TOMASI/VDW] SRFM DOCUMENTATION...",
+        "values": [
+          "AMOEBA",
+          "BONDI",
+          "MACROMODEL",
+          "TOMASI",
+          "VDW",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "DIELECTRIC-OFFSET",
+        "rep": "TEXTFIELD",
+        "description": "[real] DIELECTRIC-OFFSET DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "GKC",
+        "rep": "TEXTFIELD",
+        "description": "[real] GKC DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "GKR",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] GKR DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "SOLVATE",
+        "rep": "COMBOBOX",
+        "description": "[ASP/SASA/ONION/STILL/HCT/ACE/GBSA] Turns on a continuum solvation free\nenergy term. Several algorithms are available based on the modifier used: ASP is the Eisenberg-McLachlan ASP method using\nthe Wesson-Eisenberg vacuum-to-water parameters. SASA is the original Ooi-Scheraga SASA method. ONION is the original\nStill Onion-shell GB/SA method from 1990. STILL is the 1997 analytical GB/SA method from the Still group; HCT is the\npairwise descreening method of Hawkins, Cramer and Truhlar. ACE is the Analytical Continuum Electrostatics solvation\nmethod from the Karplus group. The generic GBSA modifier is equivalent to the STILL modifier. The above methods are only\nvalid for force fields that use simple partial charge electrostatics. For polarizable multipole electrostatics the GK\noption is the Generalized Kirkwood method of Schnieders. The PB option uses an APBS Poisson-Boltzmann calculation for\nelectrostatics. The HPMF variants use the hydrophobic potential of mean force for nonpolar portion of the model in place\nof more traditional surface area and volume methods.",
+        "values": [
+          "ASP",
+          "SASA",
+          "ONION",
+          "STILL",
+          "HCT",
+          "ACE",
+          "GBSA",
+          "GK",
+          "PB",
+          "GB-HPMF",
+          "GK-HPMF",
+          "PB-HPMF",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "SOLVENT-PRESSURE",
+        "rep": "TEXTFIELD",
+        "description": "[real] SOLVENT-PRESSURE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "SURFACE-TENSION",
+        "rep": "TEXTFIELD",
+        "description": "[real] SURFACE-TENSION DOCUMENTATION...",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Poisson-Boltzmann",
+    "keywords": [
+      {
+        "name": "AGRID",
+        "rep": "TEXTFIELD",
+        "description": "[3 reals] AGRID DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "APBSGRID",
+        "rep": "TEXTFIELD",
+        "description": "[3 integers] APBSGRID DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "CGRID",
+        "rep": "TEXTFIELD",
+        "description": "[3 reals] CGRID DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "FGRID",
+        "rep": "TEXTFIELD",
+        "description": "[3 reals] FGRID DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "BCFL",
+        "rep": "COMBOBOX",
+        "description": "[ZERO/MDH/SDH] BCFL DOCUMENTATION...",
+        "values": [
+          "MDH",
+          "SDH",
+          "ZERO",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "CGCENT",
+        "rep": "TEXTFIELD",
+        "description": "[3 reals] CGCENT DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "FGCENT",
+        "rep": "TEXTFIELD",
+        "description": "[3 reals] FGCENT DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "GCENT",
+        "rep": "TEXTFIELD",
+        "description": "[real, integer, real] GCENT DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "DIME",
+        "rep": "TEXTFIELD",
+        "description": "[3 reals] DIME DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "ION",
+        "rep": "TEXTFIELD",
+        "description": "[integer] ION DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "PB-RADIUS",
+        "rep": "COMBOBOX",
+        "description": "[BONDI/MACROMODEL/TOMASI/VDW] PB-RADIUS DOCUMENTATION...",
+        "values": [
+          "BONDI",
+          "MACROMODEL",
+          "TOMASI",
+          "VDW",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "PDIE",
+        "rep": "TEXTFIELD",
+        "description": "[real] PDIE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "SDIE",
+        "rep": "TEXTFIELD",
+        "description": "[real] SDIE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "SDENS",
+        "rep": "TEXTFIELD",
+        "description": "[real] SDENS DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "SMIN",
+        "rep": "TEXTFIELD",
+        "description": "[real] SMIN DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "SRAD",
+        "rep": "TEXTFIELD",
+        "description": "[real] SRAD DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "SRFM",
+        "rep": "COMBOBOX",
+        "description": "[MOL/SMOL/SPL2] SRFM DOCUMENTATION...",
+        "values": [
+          "MOL",
+          "SMOL",
+          "SPL2",
+          "DEFAULT"
+        ]
+      },
+      {
+        "name": "SWIN",
+        "rep": "TEXTFIELD",
+        "description": "[real] SWIN DOCUMENTATION...",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "Valence Parameter Fitting",
+    "keywords": []
+  },
+  {
+    "name": "Electrostatic Parameter Fitting",
+    "keywords": [
+      {
+        "name": "FIX-DIPOLE",
+        "rep": "CHECKBOX",
+        "description": "FIX-DIPOLE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "FIX-MONOPLE",
+        "rep": "CHECKBOX",
+        "description": "FIX-MONOPOLE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "FIX-QUADRUPOLE",
+        "rep": "CHECKBOX",
+        "description": "FIX-QUADRUPOLE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "POTENTIAL-ATOMS",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] POTENTIAL-ATOMS DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "POTENTIAL-FIT",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] POTENTIAL-FIT DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "POTENTIAL-OFFSET",
+        "rep": "TEXTFIELD",
+        "description": "[real] POTENTIAL-OFFSET DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "POTENTIAL-SHELLS",
+        "rep": "TEXTFIELD",
+        "description": "[integer] POTENTIAL-SHELLS DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "POTENTIAL-SPACING",
+        "rep": "TEXTFIELD",
+        "description": "[real] POTENTIAL-SPACING DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "TARGET-DIPOLE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] TARGET-DIPOLE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "TARGET-QUADRUPOLE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] TARGET-QUADRUPOLE DOCUMENTATION...",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "MMFF Parameters",
+    "keywords": [
+      {
+        "name": "MMFF-PIBOND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFF-PIBOND DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFANGLE",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFANGLE DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFAROM",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFAROM DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFBCI",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFBCI DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFBOND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFBOND DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFBONDER",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFBONDER DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFCOVRAD",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFCOVRAD DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFDEFSTBN",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFDEFSTBN DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFEQUIV",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFEQUIV DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFOPBEND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFOPBEND DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFPBCI",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFPBCI DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFPROP",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFPROP DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFSTRBND",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFF-STRBND DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFTORSION",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFTORSION DOCUMENTATION...",
+        "values": []
+      },
+      {
+        "name": "MMFFVDW",
+        "rep": "EDITCOMBOBOX",
+        "description": "[] MMFFVDW DOCUMENTATION...",
+        "values": []
+      }
+    ]
+  }
+]
