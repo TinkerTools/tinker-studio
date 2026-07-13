@@ -2,9 +2,9 @@
 
 Tinker Studio is a reimplementation of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
 intended as a molecular modeling GUI for [Tinker](https://github.com/TinkerTools/tinker).
-Written largely in Typescript, Tinker Studio aims to provide all the functionality and
+Written largely in TypeScript, Tinker Studio aims to provide all the functionality and
 more of the original FFE Java/Java3D application within a modern, customizable and easily 
-maintained application.
+maintained package.
 
 ## Downloadable Executables
 
@@ -15,13 +15,13 @@ by Apple, so the macOS Gatekeeper mechanism must be disabled to allow the execut
 
 ## Software Stack
 
-- **Electron** — cross-platform desktop shell; bundles its own Chromium, so
+- **Electron:** cross-platform desktop shell; bundles its own Chromium, so
   rendering is identical on every OS and unaffected by OS updates
-- **React + TypeScript** — application user interface
-- **Three.js** — the 3D molecular viewport, built on WebGL2 with its own shaders
+- **React & TypeScript:** application user interface
+- **Three.js:** the 3D molecular viewport, built on WebGL2 with its own shaders
   (no third-party molecular viewer) so the visualization is fully customizable
-- **electron-vite** — dev server (HMR) and build pipeline
-- **electron-builder** — native installers (`.AppImage` & `.deb` for Linux,
+- **electron-vite:** dev server (HMR) and build pipeline
+- **electron-builder:** native installers (`.AppImage` & `.deb` for Linux,
   `.dmg` for macOS, and `.exe` for Windows)
 
 ## Build Requirements
@@ -79,14 +79,14 @@ The original FFE app was hard to maintain due to its dependence on niche, propri
 and non-standard components (Java3D, install4j, JNI shim, `sun.misc`). To avoid that
 situation Tinker Studio aims to:
 
-- **Own the core** Parsers, the molecular model, and rendering shaders are our
-  own code on top of frozen web standards (WebGL2) — nothing niche underneath
+- **Own the Core:** the parsers, the molecular model, and rendering shaders are our
+  own code on top of frozen web standards (WebGL2) with nothing niche underneath
   to be abandoned
-- **Minimize dependencies** Every dependency is a future liability; keep the
+- **Minimize Dependencies:** every dependency is a future liability; keep the
   list small and audited
-- **Pin versions; upgrade deliberately**, never on autopilot
-- **CI on all three OSes from day one** so breakage surfaces immediately
-- **Test parsers against real Tinker files** so the data layer stays provably
+- **Pin Versions & Upgrade Carefully:** never update on autopilot
+- **CI on all OSes from the Start:** so breakage surfaces immediately
+- **Test Parsers on Tinker Files:** so the data layer stays provably
   correct
 
 ## Current Status
@@ -94,26 +94,26 @@ situation Tinker Studio aims to:
 At present, Tinker Studio is a working application, with most of the original FFE's
 functionality in place:
 
-- **Open / save** Tinker XYZ & ARC, PDB, MDL SDF/MOL, and INT (z-matrix), with
+- **Open & Save:** Tinker XYZ & ARC, PDB, MDL SDF/MOL, and INT (z-matrix), with
   automatic bond perception and force-field (`.prm`) pickup from a sibling
   `.key`. Export to Tinker XYZ, plain XYZ, MOL, or PDB
-- **Download** structures from PubChem, NCI, and the RCSB PDB
-- **Rendering** via our own WebGL2 shaders — GPU impostor spheres and instanced
+- **Downloads:** structures from PubChem, NCI, and the RCSB PDB
+- **Rendering:** via our own WebGL2 shaders — GPU impostor spheres and instanced
   cylinder bonds, with ball-and-stick, spacefill,  wireframe and tube
-  representations, element/residue/chain/charge coloring, depth cueing,
+  representations, coloring by element/residue/chain/charge, depth cueing,
   outline + ambient-occlusion post-FX, and an adjustable surface finish
-- **Multiple systems** open at once: list, toggle visibility, merge, and place
+- **Multiple Systems:** open at once: list, toggle visibility, merge, and place
   each with a rigid-body move/rotate gizmo
-- **Selection & measurement** by atom, residue, molecule and system, from either
+- **Selection & Measurement:** by atom, residue, molecule and system, from either
   the 3D view or the atom-hierarchy browser; distance, angle and dihedral
-- **Trajectories**: large `.arc` files are indexed lazily and scrubbable while
+- **Trajectories:** large `.arc` files are indexed lazily and scrubbable while
   still indexing; binary `.dcd` files attach to a structure and stream the same
   way; playback has speed, skip and oscillate controls
-- **Tinker jobs**: launch any Tinker program from a data-driven option form (the
+- **Tinker Jobs:** launch any Tinker program from a data-driven option form (the
   catalogs are generated from the original FFE `commands.xml` and `keywords.xml`),
   stream its output live, watch a running minimize or dynamics job's coordinates
   as they are written, and load the result back in as a new system
-- **Packaging**: native installers for macOS, Windows, and Linux, built in CI
+- **Packaging:** native installers for macOS, Windows, and Linux, built in CI
 
 To be implemented: per-atom vector display (force, velocity and induced dipole
 vectors from `.dyn`, `.vel` and `.uind` files), molecular surfaces, and biopolymer 
