@@ -2,16 +2,16 @@
 
 Tinker Studio is a reimplementation of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
 intended as a molecular modeling GUI for [Tinker](https://github.com/TinkerTools/tinker).
-Written mostly in Typescript, Tinker Studio aims to provide all the functionality of the
-original FFE Java/Java3D application and more, within a modern, customizable and easily 
+Written largely in Typescript, Tinker Studio aims to provide all the functionality and
+more of the original FFE Java/Java3D application within a modern, customizable and easily 
 maintained application.
 
 ## Downloadable Executables
 
 Standalone executables for Linux, macOS and Windows are available on GitHub for the current
 release of Tinker Studio. Installation packages can be found under Releases on right side of
-the main Tinker Studio GitHub site. Note the current macOS executables are not notarized by
-Apple, so the macOS Gatekeeper mechanism must be disabled to allow the executables to run.
+the main GitHub site for Tinker Studio. Note the current macOS executables are not notarized
+by Apple, so the macOS Gatekeeper mechanism must be disabled to allow the executables to run.
 
 ## Software Stack
 
@@ -75,14 +75,14 @@ src/
 
 ## Maintainability Principles
 
-The original FFE app became hard to maintain because it depended on niche, proprietary
+The original FFE app was hard to maintain due to its dependence on niche, proprietary
 and non-standard components (Java3D, install4j, JNI shim, `sun.misc`). To avoid that
 situation Tinker Studio aims to:
 
-- **Own the core.** Parsers, the molecular model, and rendering shaders are our
+- **Own the core** Parsers, the molecular model, and rendering shaders are our
   own code on top of frozen web standards (WebGL2) — nothing niche underneath
   to be abandoned
-- **Minimize dependencies.** Every dependency is a future liability; keep the
+- **Minimize dependencies** Every dependency is a future liability; keep the
   list small and audited
 - **Pin versions; upgrade deliberately**, never on autopilot
 - **CI on all three OSes from day one** so breakage surfaces immediately
