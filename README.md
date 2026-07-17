@@ -98,17 +98,19 @@ situation Tinker Studio aims to:
 - **Test Parsers on Tinker Files:** so the data layer stays provably
   correct
 
-## Current Status
+## Current Features
 
-At present, Tinker Studio is a working application, with most of the original FFE's
-functionality in place:
+At present, Tinker Studio is a complete application, with many useful functions
+in place:
 
-- **Open & Save:** Tinker XYZ & ARC, PDB, MDL SDF/MOL, and INT (z-matrix), with
-  automatic bond perception and force-field (`.prm`) pickup from a sibling
-  `.key`. Export to Tinker XYZ, plain XYZ, MOL, or PDB
-- **Downloads:** structures from PubChem, NCI, and the RCSB PDB
-- **Rendering:** via our own WebGL2 shaders — GPU impostor spheres and instanced
-  cylinder bonds, with ball-and-stick, spacefill,  wireframe and tube
+- **File Types:** input from Tinker XYZ & ARC, PDB, MDL SDF/MOL or INT format,
+  with automatic bond perception and force-field (`.prm`) pickup from a sibling
+  `.key`; output to Tinker XYZ, plain XYZ, MOL, or PDB format
+- **Builder:** construct molecules with geometric cleanup; build atom-by-atom or
+  from fragments with atom deletion and substitution, fuse rings, etc.
+- **Downloads:** obtain structures from PubChem, NCI, and RCSB PDB
+- **Rendering:** uses our own WebGL2 shaders; GPU impostor spheres and instanced
+  cylinder bonds, with wireframe, ball-and-stick, tube and spacefill
   representations, coloring by element/residue/chain/charge, depth cueing,
   outline + ambient-occlusion post-FX, and an adjustable surface finish
 - **Multiple Systems:** open at once: list, toggle visibility, merge, and place
