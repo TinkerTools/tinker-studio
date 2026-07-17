@@ -53,7 +53,12 @@ linux:
   category: Education
   # .deb requires a maintainer in "Name <email>" form; the author field has no
   # email, so set it explicitly here (change to a real contact when you like).
-  maintainer: Jay Ponder Lab <noreply@tinkertools.org>
+  maintainer: Jay Ponder Lab <ponderjay@gmail.com>
+  # tar.gz is the fallback that runs anywhere: the AppImage runtime needs libfuse2,
+  # which Ubuntu dropped from the default install in 24.04 (it fails with "dlopen():
+  # error loading libfuse.so.2"), and .deb only suits Debian/Ubuntu. The tarball has
+  # no dependencies and needs no root — extract and run ./tinker-studio.
   target:
     - AppImage
     - deb
+    - tar.gz

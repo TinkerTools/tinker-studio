@@ -13,6 +13,13 @@ release of Tinker Studio. Installation packages can be found under Releases on r
 the main GitHub site for Tinker Studio. Note the current macOS executables are not notarized
 by Apple, so the macOS Gatekeeper mechanism must be disabled to allow the executables to run.
 
+Linux is offered in three formats: a `.deb` for Debian and Ubuntu, an `.AppImage`, and a
+`.tar.gz` that runs on any distribution. The AppImage needs FUSE 2, which Ubuntu has not
+installed by default since 24.04; should it fail with `dlopen(): error loading libfuse.so.2`,
+either install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu), launch it once with
+`APPIMAGE_EXTRACT_AND_RUN=1`, or just use the `.tar.gz`, which has no dependencies and needs
+no root — unpack it and run `./tinker-studio`.
+
 ## Software Stack
 
 - **Electron:** cross-platform desktop shell; bundles its own Chromium, so
@@ -21,8 +28,8 @@ by Apple, so the macOS Gatekeeper mechanism must be disabled to allow the execut
 - **Three.js:** the 3D molecular viewport, built on WebGL2 with its own shaders
   (no third-party molecular viewer) so the visualization is fully customizable
 - **electron-vite:** dev server (HMR) and build pipeline
-- **electron-builder:** native installers (`.AppImage` & `.deb` for Linux,
-  `.dmg` for macOS, and `.exe` for Windows)
+- **electron-builder:** native installers (`.AppImage`, `.deb` & `.tar.gz` for
+  Linux, `.dmg` for macOS, and `.exe` for Windows)
 
 ## Build Requirements
 

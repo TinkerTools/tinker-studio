@@ -41,6 +41,15 @@ import { RemoteManager } from './remote/manager'
 import { newClusterProfile } from './remote/presets'
 import type { ClusterProfile, ClusterKind, RemoteSubmitRequest } from './remote/types'
 
+// Chromium probes VA-API (hardware *video* decode) as the GPU process starts and logs
+// "vaInitialize failed" on Linux machines with no matching libva driver — e.g. an Intel
+// Arc/Xe iGPU without intel-media-va-driver. We draw through WebGL2/ANGLE and never
+// decode video, so the probe only ever produces stderr noise. Must be set before the
+// GPU process spawns in app.whenReady(), hence module scope.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('disable-accelerated-video-decode')
+}
+
 /** Send a menu action to the focused window's renderer. */
 function sendMenu(action: string): void {
   BrowserWindow.getFocusedWindow()?.webContents.send('menu', action)
