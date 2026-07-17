@@ -316,6 +316,206 @@ export function addFragment(
   return ids[frag.attach]
 }
 
+/**
+ * Fuse a ring fragment onto an existing edge — the ring-fusion analogue of
+ * `addFragment`. `aId` and `bId` must be two bonded heavy atoms (a shared edge, e.g.
+ * a C–C bond of an existing benzene). The fragment's `fuseEdge` atoms are identified
+ * *with* aId/bId, so only the fragment's other n−2 atoms are added; they close back
+ * onto aId and bId. The shared aId–bId bond is left untouched (not duplicated), and
+ * the new ring's remaining bond orders are copied from the template — for an aromatic
+ * template whose `fuseEdge` is a double edge this reproduces a correct fused Kekulé
+ * structure (benzene onto benzene → naphthalene; all-single → decalin).
+ *
+ * The two bridgeheads each gain one ring bond, so `reconcileHydrogens` strips a
+ * hydrogen from each on its own: a benzene C–H becomes a bare ring-junction carbon, a
+ * cyclohexane CH₂ becomes a CH. Returns the id of one newly added ring atom (for
+ * selection), or null when the fragment isn't fusable, the two atoms aren't a bonded
+ * heavy edge, or a bridgehead has no free valence for the new bond.
+ *
+ * Scope: the intended cases are like-with-like (aromatic+aromatic, saturated+
+ * saturated). Fusing an aromatic ring onto a saturated one (or vice-versa) still
+ * yields a valence-correct molecule, but the shared bond won't be aromatic on both
+ * sides. Heteroaromatic fusions (quinoline, isoquinoline) are made by fusing a plain
+ * benzene and then retyping the chosen ring carbon to N (see `replaceAtomWithElement`),
+ * which is why heterocyclic fragments carry no `fuseEdge`.
+ */
+export function fuseRing(
+  mol: BuilderMolecule,
+  aId: number,
+  bId: number,
+  frag: Fragment
+): number | null {
+  if (!frag.fuseEdge) return null
+  if (aId === bId || isH(mol, aId) || isH(mol, bId) || !findBond(mol, aId, bId)) return null
+  const pA = atom(mol, aId)
+  const pB = atom(mol, bId)
+  if (!pA || !pB) return null
+  // Each bridgehead gains one single ring bond; refuse if that would over-fill it
+  // (e.g. it's already a ring junction with no spare valence).
+  if (
+    heavyOrderSum(mol, aId) + 1 > defaultValence(pA.element) ||
+    heavyOrderSum(mol, bId) + 1 > defaultValence(pB.element)
+  ) {
+    return null
+  }
+
+  const [e0, e1] = frag.fuseEdge
+  const seq = ringWalk(frag, e0, e1) // [e0, e1, v2, …, v(n-1)] around the ring
+  if (seq.length !== frag.atoms.length) return null // fuseEdge not on a simple cycle
+
+  const coords = placeFusedRing(mol, aId, bId, seq.length)
+
+  // Map fragment atom index → builder id; the bridgeheads reuse the existing atoms,
+  // the other n−2 are newly added at the pre-computed coordinates (in seq order).
+  const idOf = new Map<number, number>([
+    [e0, aId],
+    [e1, bId]
+  ])
+  seq.slice(2).forEach((fi, k) => {
+    idOf.set(fi, addRawAtom(mol, frag.atoms[fi].element, coords[k]))
+  })
+
+  // Recreate every ring bond except the shared edge (already present), copying the
+  // template's bond order for each.
+  for (const fb of frag.bonds) {
+    if ((fb.a === e0 && fb.b === e1) || (fb.a === e1 && fb.b === e0)) continue // shared edge
+    const i = idOf.get(fb.a)
+    const j = idOf.get(fb.b)
+    if (i == null || j == null) continue
+    mol.bonds.push({ a: i, b: j, order: fb.order })
+  }
+  reconcileHydrogens(mol)
+  return idOf.get(seq[2]) ?? null
+}
+
+/** Walk a fragment's ring cycle starting e0 → e1, returning atom indices in order. */
+function ringWalk(frag: Fragment, e0: number, e1: number): number[] {
+  const adj = new Map<number, number[]>()
+  const link = (a: number, b: number): void => {
+    if (!adj.has(a)) adj.set(a, [])
+    adj.get(a)!.push(b)
+  }
+  for (const b of frag.bonds) {
+    link(b.a, b.b)
+    link(b.b, b.a)
+  }
+  const seq = [e0, e1]
+  while (seq.length < frag.atoms.length) {
+    const cur = seq[seq.length - 1]
+    const prev = seq[seq.length - 2]
+    const next = (adj.get(cur) ?? []).find((n) => n !== prev && !seq.includes(n))
+    if (next == null) break
+    seq.push(next)
+  }
+  return seq
+}
+
+/** Rotate point `p` about unit-normalizable `axis` by `angle` (Rodrigues). */
+function rotateAbout(p: Vec, axis: Vec, angle: number): Vec {
+  const k = norm(axis)
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  const kp = dot(k, p)
+  const kxp = cross(k, p)
+  return [
+    p[0] * c + kxp[0] * s + k[0] * kp * (1 - c),
+    p[1] * c + kxp[1] * s + k[1] * kp * (1 - c),
+    p[2] * c + kxp[2] * s + k[2] * kp * (1 - c)
+  ]
+}
+
+/** Approximate normal of the existing ring at the shared edge aId–bId. */
+function existingRingNormal(mol: BuilderMolecule, aId: number, bId: number): Vec {
+  const pA = atom(mol, aId)!
+  const pB = atom(mol, bId)!
+  const ex = norm([pB.x - pA.x, pB.y - pA.y, pB.z - pA.z])
+  // A heavy neighbour of either bridgehead (other than the far bridgehead) fixes the
+  // plane the shared edge lies in.
+  for (const [id, other] of [
+    [aId, bId],
+    [bId, aId]
+  ] as const) {
+    const p = atom(mol, id)!
+    const nb = bondsOf(mol, id)
+      .map((bd) => neighborId(bd, id))
+      .filter((n) => n !== other && !isH(mol, n))
+      .map((n) => atom(mol, n)!)[0]
+    if (nb) {
+      const nrm = cross(ex, [nb.x - p.x, nb.y - p.y, nb.z - p.z])
+      if (Math.hypot(nrm[0], nrm[1], nrm[2]) > 1e-6) return norm(nrm)
+    }
+  }
+  return [0, 0, 1] // isolated edge — any plane containing it will do
+}
+
+/**
+ * Planar coordinates for the n−2 new atoms of a ring fused onto the edge aId–bId:
+ * a regular n-gon that shares that edge, lies coplanar with the existing ring, and
+ * extends *away* from it. Returned in ring order starting at the vertex adjacent to
+ * bId (matching `ringWalk(...).slice(2)`). The relaxer then polishes/puckers it.
+ */
+function placeFusedRing(mol: BuilderMolecule, aId: number, bId: number, n: number): Vec[] {
+  const pA = atom(mol, aId)!
+  const pB = atom(mol, bId)!
+  const A: Vec = [pA.x, pA.y, pA.z]
+  const B: Vec = [pB.x, pB.y, pB.z]
+  const ex = norm([B[0] - A[0], B[1] - A[1], B[2] - A[2]])
+  const ez = existingRingNormal(mol, aId, bId)
+  let ey = norm(cross(ez, ex)) // in-plane, perpendicular to the shared edge
+  const mid: Vec = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2]
+
+  // Point ey away from the existing ring: the ring interior lies toward the mean of
+  // the bridgeheads' other heavy neighbours, so flip ey if it points that way.
+  const inward = meanOtherNeighbor(mol, aId, bId)
+  if (inward && dot(ey, [inward[0] - mid[0], inward[1] - mid[1], inward[2] - mid[2]]) > 0) {
+    ey = [-ey[0], -ey[1], -ey[2]]
+  }
+
+  const L = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2])
+  const r = L / (2 * Math.sin(Math.PI / n))
+  const apothem = r * Math.cos(Math.PI / n)
+  const center: Vec = [
+    mid[0] + ey[0] * apothem,
+    mid[1] + ey[1] * apothem,
+    mid[2] + ey[2] * apothem
+  ]
+
+  // Vertices sit on a circle of radius r about `center`; A is vertex 0, B vertex 1.
+  // Rotate (A − center) about ez; pick the sign that lands vertex 1 on B, then emit
+  // vertices 2…n−1 (the atoms we actually add).
+  const cA: Vec = [A[0] - center[0], A[1] - center[1], A[2] - center[2]]
+  const step = (2 * Math.PI) / n
+  const probe = rotateAbout(cA, ez, step)
+  const probeAbs: Vec = [center[0] + probe[0], center[1] + probe[1], center[2] + probe[2]]
+  const sign = Math.hypot(probeAbs[0] - B[0], probeAbs[1] - B[1], probeAbs[2] - B[2]) < L ? 1 : -1
+
+  const out: Vec[] = []
+  for (let j = 2; j < n; j++) {
+    const rot = rotateAbout(cA, ez, sign * step * j)
+    out.push([center[0] + rot[0], center[1] + rot[1], center[2] + rot[2]])
+  }
+  return out
+}
+
+/** Mean position of the heavy neighbours of aId and bId, excluding each other. Null if none. */
+function meanOtherNeighbor(mol: BuilderMolecule, aId: number, bId: number): Vec | null {
+  const pts: Vec[] = []
+  for (const [id, other] of [
+    [aId, bId],
+    [bId, aId]
+  ] as const) {
+    for (const bd of bondsOf(mol, id)) {
+      const nid = neighborId(bd, id)
+      if (nid === other || isH(mol, nid)) continue
+      const p = atom(mol, nid)!
+      pts.push([p.x, p.y, p.z])
+    }
+  }
+  if (pts.length === 0) return null
+  const s = pts.reduce<Vec>((acc, p) => [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]], [0, 0, 0])
+  return [s[0] / pts.length, s[1] / pts.length, s[2] / pts.length]
+}
+
 /** Unit direction out of a fragment's attach atom, away from its bonded neighbors. */
 function attachOutward(frag: Fragment): Vec {
   const fa = frag.atoms[frag.attach]

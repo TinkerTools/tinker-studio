@@ -7,6 +7,7 @@ import {
   emptyMolecule,
   addAtom,
   addFragment,
+  fuseRing,
   bondAtoms,
   setBondOrder,
   deleteAtom,
@@ -333,15 +334,30 @@ export function BuilderView({
     }
   }
 
-  /** Pick a ring/group as the active tool; seed it standalone on an empty canvas. */
+  /**
+   * Pick a ring/group as the active tool. On an empty canvas, seed it standalone.
+   * When a fusable ring is picked with exactly two bonded atoms selected, fuse it
+   * across that shared edge instead (ring fusion, e.g. benzene onto benzene →
+   * naphthalene); otherwise it stays a click-to-graft tool as before.
+   */
   function pickFragment(fragId: string): void {
     setTool({ kind: 'fragment', id: fragId })
     const frag = FRAGMENTS.find((f) => f.id === fragId)
-    if (frag && mol.atoms.length === 0) {
+    if (!frag) return
+    if (mol.atoms.length === 0) {
       edit(() => {
         addFragment(molRef.current, null, frag)
       })
       setSelected([])
+      return
+    }
+    if (frag.fuseEdge && selected.length === 2 && findBond(molRef.current, selected[0], selected[1])) {
+      const [i, j] = selected
+      let newId: number | null = null
+      edit(() => {
+        newId = fuseRing(molRef.current, i, j, frag)
+      })
+      setSelected(newId != null ? [newId] : [])
     }
   }
 
@@ -434,13 +450,17 @@ export function BuilderView({
 
         <div
           className="builder-group"
-          title="Pick a ring or group, then click an atom to graft it there (click a hydrogen to grow)"
+          title="Pick a ring or group, then click an atom to graft it there (click a hydrogen to grow). Or ⌘/Ctrl-click two bonded atoms first to fuse a ring across that shared edge (e.g. benzene → naphthalene)."
         >
+          {/* An action menu, not a persistent selector: it always shows the
+              placeholder and resets after each pick, so choosing the same ring twice
+              (e.g. to fuse the ring you just placed) still fires onChange. */}
           <select
             className="builder-frag"
-            value={tool.kind === 'fragment' ? tool.id : ''}
+            value=""
             onChange={(e) => {
               if (e.target.value) pickFragment(e.target.value)
+              e.target.value = ''
             }}
           >
             <option value="">Add structure…</option>
@@ -584,7 +604,8 @@ export function BuilderView({
             <p>
               Pick an element or <b>Add structure…</b>, then <b>click an atom to replace it</b> — click
               a hydrogen to grow the molecule there. Use <b>Bond</b> / <b>—</b> / <b>=</b> / <b>≡</b> to
-              connect two atoms, or ⌘/Ctrl-click to select for <b>Delete</b>.
+              connect two atoms, or ⌘/Ctrl-click to select for <b>Delete</b>. Select <b>two bonded
+              atoms</b> then pick a ring to <b>fuse</b> it across that edge (benzene → naphthalene).
             </p>
           )}
           <p className="builder-count">{atomCount} atoms</p>

@@ -29,6 +29,17 @@ export interface Fragment {
   bonds: FragmentBond[]
   /** Index of the atom that bonds to the selection when attached. */
   attach: number
+  /**
+   * The two adjacent atoms forming the edge shared when this ring is *fused* onto
+   * an existing bond (ring fusion, e.g. benzene→naphthalene), as opposed to grafted
+   * through `attach`. Only set on rings that fuse cleanly: both atoms must be carbon
+   * (bridgeheads become ring junctions, never the heteroatom), and for an aromatic
+   * template it must be a *double* edge so the remaining Kekulé orders — copied
+   * verbatim on fusion — leave every atom with exactly one double bond. Absent ⇒ the
+   * fragment can only be grafted, not fused (heteroatom position is instead set by
+   * fusing a plain carbocycle and retyping a ring atom).
+   */
+  fuseEdge?: [number, number]
 }
 
 /**
@@ -41,7 +52,8 @@ function ring(
   elements: string[],
   orders: number[],
   attach: number,
-  bond = 1.4
+  bond = 1.4,
+  fuseEdge?: [number, number]
 ): Fragment {
   const n = elements.length
   const r = bond / (2 * Math.sin(Math.PI / n))
@@ -50,7 +62,7 @@ function ring(
     return { element, x: r * Math.cos(a), y: r * Math.sin(a), z: 0 }
   })
   const bonds: FragmentBond[] = elements.map((_, k) => ({ a: k, b: (k + 1) % n, order: orders[k] }))
-  return { id, name, atoms, bonds, attach }
+  return { id, name, atoms, bonds, attach, fuseEdge }
 }
 
 // Kekulé orders alternate around an aromatic ring (double, single, …).
@@ -58,11 +70,15 @@ const C6 = ['C', 'C', 'C', 'C', 'C', 'C']
 const C5 = ['C', 'C', 'C', 'C', 'C']
 
 export const FRAGMENTS: Fragment[] = [
-  ring('benzene', 'Benzene', C6, [2, 1, 2, 1, 2, 1], 0, 1.4),
-  ring('cyclohexane', 'Cyclohexane', C6, [1, 1, 1, 1, 1, 1], 0, 1.54),
-  ring('cyclopentane', 'Cyclopentane', C5, [1, 1, 1, 1, 1], 0, 1.54),
-  ring('cyclobutane', 'Cyclobutane', ['C', 'C', 'C', 'C'], [1, 1, 1, 1], 0, 1.54),
-  ring('cyclopropane', 'Cyclopropane', ['C', 'C', 'C'], [1, 1, 1], 0, 1.54),
+  // Carbocyclic rings are fusable: their shared edge is all-carbon. For benzene the
+  // fuse edge (0–1) is deliberately the leading *double* bond so the copied Kekulé
+  // orders alternate correctly across the fused ring (→ naphthalene); the saturated
+  // rings fuse on any edge (→ decalin, indane, …).
+  ring('benzene', 'Benzene', C6, [2, 1, 2, 1, 2, 1], 0, 1.4, [0, 1]),
+  ring('cyclohexane', 'Cyclohexane', C6, [1, 1, 1, 1, 1, 1], 0, 1.54, [0, 1]),
+  ring('cyclopentane', 'Cyclopentane', C5, [1, 1, 1, 1, 1], 0, 1.54, [0, 1]),
+  ring('cyclobutane', 'Cyclobutane', ['C', 'C', 'C', 'C'], [1, 1, 1, 1], 0, 1.54, [0, 1]),
+  ring('cyclopropane', 'Cyclopropane', ['C', 'C', 'C'], [1, 1, 1], 0, 1.54, [0, 1]),
   // Pyridine: N at vertex 0 with one double + one single ring bond → no N–H.
   ring('pyridine', 'Pyridine', ['N', 'C', 'C', 'C', 'C', 'C'], [2, 1, 2, 1, 2, 1], 3, 1.39),
   // Pyrrole: N–H, flanked by two single bonds; the carbons carry the doubles.
