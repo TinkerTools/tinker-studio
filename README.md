@@ -1,24 +1,26 @@
 # Tinker Studio: Modern Interactive GUI for Tinker
 
-Tinker Studio is a reimplementation of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
-intended as a molecular modeling GUI for [Tinker](https://github.com/TinkerTools/tinker).
-Written largely in TypeScript, Tinker Studio aims to provide all the functionality and
-more of the original FFE Java/Java3D application within a modern, customizable and easily 
-maintained package.
+Tinker Studio is a redesign of [Tinker-FFE](https://github.com/TinkerTools/tinker-ffe),
+for use as a graphical interface to [Tinker](https://github.com/TinkerTools/tinker).
+Written largely in TypeScript, Tinker Studio aims to provide all the functionality
+and more of the original FFE Java/Java3D application within a modern, customizable 
+and easily maintained package.
 
 ## Downloadable Executables
 
-Standalone executables for Linux, macOS and Windows are available on GitHub for the current
-release of Tinker Studio. Installation packages can be found under Releases on right side of
-the main GitHub site for Tinker Studio. Note the current macOS executables are not notarized
-by Apple, so the macOS Gatekeeper mechanism must be disabled to allow the executables to run.
+Standalone executables for Linux, macOS and Windows are available on GitHub for
+the current release of Tinker Studio. Installation packages can be found under
+Releases on right side of the main GitHub site for Tinker Studio.
 
-Linux is offered in three formats: a `.deb` for Debian and Ubuntu, an `.AppImage`, and a
-`.tar.gz` that runs on any distribution. The AppImage needs FUSE 2, which Ubuntu has not
-installed by default since 24.04; should it fail with `dlopen(): error loading libfuse.so.2`,
-either install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu), launch it once with
-`APPIMAGE_EXTRACT_AND_RUN=1`, or just use the `.tar.gz`, which has no dependencies and needs
-no root — unpack it and run `./tinker-studio`.
+Current macOS executables are not notarized by Apple, so the macOS Gatekeeper
+mechanism must be disabled to allow the executables to run.
+
+Linux executables are offered in three formats: a `.deb` for Debian and Ubuntu,
+an `.AppImage`, and a `.tar.gz` that runs on any distribution. The AppImage needs
+FUSE 2, which Ubuntu has not installed by default since 24.04. If it fails with
+`dlopen(): error loading libfuse.so.2`, either install FUSE 2 or launch it once
+with `APPIMAGE_EXTRACT_AND_RUN=1`. Alternatively use the `.tar.gz`, which has no
+dependencies and doesnt' need root; simply unpack it and run `./tinker-studio`.
 
 ## Software Stack
 
@@ -33,7 +35,7 @@ no root — unpack it and run `./tinker-studio`.
 
 ## Build Requirements
 
-- Node.js 18+ (developed on Node 23).
+- Node.js 18+ (developed on Node 22).
 
 ## Launch Commands
 
