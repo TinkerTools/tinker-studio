@@ -20,7 +20,7 @@ an `.AppImage`, and a `.tar.gz` that runs on any distribution. The AppImage need
 FUSE 2, which Ubuntu has not installed by default since 24.04. If it fails with
 `dlopen(): error loading libfuse.so.2`, either install FUSE 2 or launch it once
 with `APPIMAGE_EXTRACT_AND_RUN=1`. Alternatively use the `.tar.gz`, which has no
-dependencies and doesnt' need root; simply unpack it and run `./tinker-studio`.
+dependencies and doesn't need root; simply unpack it and run `./tinker-studio`.
 
 ## Software Stack
 
