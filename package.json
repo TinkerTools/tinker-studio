@@ -1,6 +1,6 @@
 {
   "name": "tinker-studio",
-  "version": "26.2.0",
+  "version": "26.2.1",
   "description": "Tinker Studio — a modern molecular modeling GUI for Tinker",
   "main": "./out/main/index.js",
   "author": "Jay Ponder Lab",
